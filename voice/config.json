@@ -76,13 +76,7 @@
     "voice": "es-CO-SalomeNeural",
     "voicePool": [
       "es-CO-SalomeNeural",
-      "es-MX-JorgeNeural",
-      "es-AR-ElenaNeural",
-      "es-CO-GonzaloNeural",
-      "es-MX-DaliaNeural",
-      "es-ES-AlvaroNeural",
-      "es-CL-CatalinaNeural",
-      "es-PE-AlexNeural"
+      "es-CO-GonzaloNeural"
     ],
     "voiceGenders": {
       "es-AR-ElenaNeural": "f", "es-AR-TomasNeural": "m",
