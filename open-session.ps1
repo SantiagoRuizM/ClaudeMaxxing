@@ -9,6 +9,11 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
 . (Join-Path $TrayRoot 'lib\winapi.ps1')
+# wt.exe hands its caller's environment to the new window. Started from a Claude Code shell (a test
+# run), that environment turns colors off and changes git prompts; the Explorer menu starts clean.
+if ($env:CLAUDECODE) {
+    foreach ($name in 'NO_COLOR', 'GIT_EDITOR', 'GIT_TERMINAL_PROMPT', 'GIT_ASKPASS') { Remove-Item "env:$name" -ErrorAction SilentlyContinue }
+}
 Clear-ClaudeSessionEnv
 if ($StatePath) { $SessionsFile = $StatePath }
 
@@ -59,7 +64,7 @@ try {
     $rect = $slots[$slot]
     $before = [long[]]@([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses))
     try {
-        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $Run $rect) -WorkingDirectory $Dir -ErrorAction Stop
+        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $Run $rect (Get-SlotTabColor $slot)) -WorkingDirectory $Dir -ErrorAction Stop
     } catch {
         Write-SessionLog "wt.exe failed ($($_.Exception.Message)); using cmd.exe"
         Start-Process -FilePath 'cmd.exe' -ArgumentList "/k $Run" -WorkingDirectory $Dir -ErrorAction Stop
