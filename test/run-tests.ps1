@@ -7,6 +7,7 @@ $TrayRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path $TrayRoot 'lib\schedule.ps1')
 . (Join-Path $TrayRoot 'lib\statusline.ps1')
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
+. (Join-Path $TrayRoot 'lib\sessions.ps1')
 
 $script:Failures = 0
 $script:Count = 0
@@ -182,6 +183,38 @@ Assert-Equal 'Limit reset available' $ev.LimitReset.Title 'limit reset title'
 $old = Get-ExtrasView ($both | ConvertTo-Json -Depth 5 | ConvertFrom-Json) $extrasNow.AddHours(13)
 Assert-Equal $null $old.ExtraUsage 'stale extras are hidden'
 Assert-Equal $null (Get-ExtrasView $null $now).LimitReset 'no extras file, nothing shown'
+
+# --- session slots
+function Area($Left, $Top, $Right, $Bottom) { [pscustomobject]@{ Left = $Left; Top = $Top; Right = $Right; Bottom = $Bottom } }
+function Format-Slot($Slot) { '{0},{1} {2}x{3}' -f $Slot.X, $Slot.Y, $Slot.Width, $Slot.Height }
+# Listed out of order: the 1920x1080 monitor right of the primary, then the primary.
+$slots = Get-HalfSlots @((Area 2560 0 4480 1020), (Area 0 0 2560 1392))
+Assert-Equal 4 $slots.Count 'two slots per monitor'
+Assert-Equal '0,0 1280x1392' (Format-Slot $slots[0]) 'slot 0 is left half of leftmost monitor'
+Assert-Equal '1280,0 1280x1392' (Format-Slot $slots[1]) 'slot 1 is its right half'
+Assert-Equal '2560,0 960x1020' (Format-Slot $slots[2]) 'slot 2 is left half of next monitor'
+Assert-Equal '3520,0 960x1020' (Format-Slot $slots[3]) 'slot 3 is its right half'
+$odd = Get-HalfSlots @((Area -1365 0 0 728))
+Assert-Equal 2 $odd.Count 'one monitor gives two slots'
+Assert-Equal '-1365,0 682x728' (Format-Slot $odd[0]) 'odd width: left half rounds down, negative x kept'
+Assert-Equal '-683,0 683x728' (Format-Slot $odd[1]) 'odd width: right half takes the extra pixel'
+
+function Session($Slot) { [pscustomobject]@{ slot = $Slot; hwnd = 1000 + $Slot } }
+Assert-Equal 0 (Get-FreeSlot 4 @()) 'no sessions: first slot'
+Assert-Equal 0 (Get-FreeSlot 4 $null) 'missing session list: first slot'
+Assert-Equal 2 (Get-FreeSlot 4 @((Session 0), (Session 1))) 'next slot after two'
+Assert-Equal 0 (Get-FreeSlot 4 @((Session 1), (Session 2))) 'closed slot 0 is reused first'
+Assert-Equal 1 (Get-FreeSlot 4 @((Session 0))) 'single session'
+Assert-Equal -1 (Get-FreeSlot 4 @((Session 0), (Session 1), (Session 2), (Session 3))) 'four sessions on two monitors: full'
+Assert-Equal -1 (Get-FreeSlot 2 @((Session 2), (Session 3))) 'sessions left on an unplugged monitor still count'
+Assert-Equal 0 (Get-FreeSlot 2 @((Session 3))) 'a slot beyond the monitors does not block a free one'
+
+Assert-Equal '"C:\\"' (Format-WtPath 'C:\') 'trailing backslash doubled'
+Assert-Equal '"C:\a\;b"' (Format-WtPath 'C:\a;b') 'semicolon escaped for wt'
+Assert-Equal '-w new --pos 2560,0 -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude' $slots[2]) 'wt arguments with position'
+Assert-Equal '-w new -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude' $odd[0]) 'no --pos for negative coordinates'
+Assert-Equal $true ((Format-SessionsFullMessage 4 2).Contains('(2 pantallas)')) 'full message names the monitors'
+Assert-Equal $true ((Format-SessionsFullMessage 2 1).Contains('(1 pantalla)')) 'full message, one monitor'
 
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {

@@ -2,7 +2,8 @@
 #   1. finds a working claude executable (for scheduled sessions),
 #   2. copies the Claude tray icons as a fallback,
 #   3. adds a snapshot block to the Claude Code statusline script (backup kept),
-#   4. adds a startup shortcut and starts the tray.
+#   4. points the "Abrir con Claude Code" Explorer menu at open-session.ps1 (half-screen slots),
+#   5. adds a startup shortcut and starts the tray.
 param([switch]$NoStart)
 
 $ErrorActionPreference = 'Stop'
@@ -53,7 +54,15 @@ if ($script) {
     Write-Warning 'No bash statusline script found in ~/.claude/settings.json; usage data will not be written.'
 }
 
-# 4. Startup shortcut. conhost --headless keeps the PowerShell console hidden.
+# 4. Explorer menu launcher. The menu DLL (%LOCALAPPDATA%\ClaudeCodeMenu) runs this command, with %1
+#    replaced by the quoted folder, and falls back to plain wt.exe when the value is missing.
+$powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$launcher = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -Dir %1' -f $powershell, (Join-Path $TrayRoot 'open-session.ps1')
+if (-not (Test-Path -LiteralPath $MenuKey)) { New-Item -Path $MenuKey -Force | Out-Null }
+Set-ItemProperty -LiteralPath $MenuKey -Name Launcher -Value $launcher
+Write-Host "menu launcher: $launcher"
+
+# 5. Startup shortcut. conhost --headless keeps the PowerShell console hidden.
 $trayScript = Join-Path $TrayRoot 'tray.ps1'
 $launchArgs = '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File "{0}"' -f $trayScript
 $startup = [Environment]::GetFolderPath('Startup')

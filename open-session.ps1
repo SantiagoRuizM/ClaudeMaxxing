@@ -1,0 +1,87 @@
+# Opens Claude Code in $Dir in a new Windows Terminal window placed on the next free half-screen slot.
+# With n monitors there are 2n slots (left and right half of each, monitors left to right); when all are
+# taken it says so and opens nothing. Launched by the "Abrir con Claude Code" Explorer menu entry, which
+# reads this command from HKCU\Software\ClaudeCodeMenu\Launcher (written by install.ps1).
+# -Run and -StatePath are for testing: run another command, keep a separate session list.
+param([string]$Dir, [string]$Run = 'claude', [string]$StatePath)
+
+$TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $TrayRoot 'lib\common.ps1')
+. (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\winapi.ps1')
+Clear-ClaudeSessionEnv
+if ($StatePath) { $SessionsFile = $StatePath }
+
+# Windows Terminal windows; a plain console if wt.exe is missing.
+$TerminalClasses = [string[]]@('CASCADIA_HOSTING_WINDOW_CLASS', 'ConsoleWindowClass')
+$Caption = 'Claude Code'
+
+function Write-SessionLog([string]$Message) {
+    if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
+    Add-Content -LiteralPath $SessionLogFile -Value ((Get-Date).ToString('s') + ' ' + $Message) -Encoding UTF8
+}
+
+function Show-Notice([string]$Text) {
+    if ('ClaudeTrayWin' -as [type]) { [ClaudeTrayWin]::Notify($Text, $Caption); return }
+    Add-Type -AssemblyName System.Windows.Forms
+    [void][System.Windows.Forms.MessageBox]::Show($Text, $Caption)
+}
+
+function Wait-NewWindow([long[]]$Before, [int]$TimeoutMs) {
+    $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+    while ((Get-Date) -lt $deadline) {
+        $new = @([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses) | Where-Object { $Before -notcontains $_ })
+        if ($new.Count -gt 0) { return $new[0] }
+        Start-Sleep -Milliseconds 100
+    }
+    return $null
+}
+
+# One launcher at a time, from reading the session list until the new window is recorded,
+# so two quick clicks never take the same slot.
+$mutex = New-Object System.Threading.Mutex($false, 'Local\ClaudeTraySessions')
+try { [void]$mutex.WaitOne(60000) } catch [System.Threading.AbandonedMutexException] { }
+try {
+    if (-not $Dir -or -not (Test-Path -LiteralPath $Dir -PathType Container)) { throw "folder not found: $Dir" }
+    Import-WinApi
+
+    $areas = @(Get-WorkAreas)
+    $slots = Get-HalfSlots $areas
+    $sessions = @(Read-JsonFile $SessionsFile | Where-Object { $_ -and [ClaudeTrayWin]::IsLiveWindow([long]$_.hwnd, $TerminalClasses) })
+    $slot = Get-FreeSlot $slots.Count $sessions
+    if ($slot -lt 0) {
+        Write-JsonFile $SessionsFile $sessions
+        Write-SessionLog "full: $($sessions.Count) sessions, $($areas.Count) monitors; not opening $Dir"
+        Show-Notice (Format-SessionsFullMessage $sessions.Count $areas.Count)
+        return
+    }
+
+    $rect = $slots[$slot]
+    $before = [long[]]@([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses))
+    try {
+        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $Run $rect) -WorkingDirectory $Dir -ErrorAction Stop
+    } catch {
+        Write-SessionLog "wt.exe failed ($($_.Exception.Message)); using cmd.exe"
+        Start-Process -FilePath 'cmd.exe' -ArgumentList "/k $Run" -WorkingDirectory $Dir -ErrorAction Stop
+    }
+
+    $hwnd = Wait-NewWindow $before 15000
+    if (-not $hwnd) {
+        Write-JsonFile $SessionsFile $sessions
+        Write-SessionLog "slot ${slot}: no new terminal window appeared for $Dir"
+        return
+    }
+    # Recorded before placing, so the slot is taken even if placing fails.
+    $sessions += [pscustomobject]@{ slot = $slot; hwnd = [long]$hwnd; dir = $Dir; at = (Get-Date).ToString('o') }
+    Write-JsonFile $SessionsFile $sessions
+
+    $frame = [ClaudeTrayWin]::Place($hwnd, $rect.X, $rect.Y, $rect.Width, $rect.Height, 12)
+    [ClaudeTrayWin]::Activate($hwnd)
+    Write-SessionLog ("slot {0} hwnd {1}: target {2},{3} {4}x{5}, frame {6},{7} {8}x{9}, {10}" -f $slot, $hwnd,
+        $rect.X, $rect.Y, $rect.Width, $rect.Height, $frame[0], $frame[1], ($frame[2] - $frame[0]), ($frame[3] - $frame[1]), $Dir)
+} catch {
+    Write-SessionLog "error: $($_.Exception.Message)"
+    Show-Notice "No se pudo abrir Claude Code: $($_.Exception.Message)"
+} finally {
+    $mutex.ReleaseMutex()
+}
