@@ -18,17 +18,29 @@ La ventana de 5 horas empieza con el primer mensaje. Agendar un mensaje mínimo 
 
 ## Abrir con Claude Code (mitades de pantalla)
 
-La entrada **Abrir con Claude Code** del menú contextual del Explorador (DLL propia en `%LOCALAPPDATA%\ClaudeCodeMenu`) ejecuta el comando guardado en `HKCU\Software\ClaudeCodeMenu\Launcher`, que `install.ps1` apunta a `open-session.ps1`. Si ese valor no existe, el menú abre Windows Terminal como antes.
+La entrada **Abrir con Claude Code** del menú contextual del Explorador (Windows 11) ejecuta el comando guardado en `HKCU\Software\ClaudeCodeMenu\Launcher`, que `install.ps1` apunta a `open-session.ps1`. Si ese valor no existe, el menú abre Windows Terminal como antes.
 
 - Con **n** pantallas hay **2n** huecos: mitad izquierda y derecha de cada pantalla, numerados de la pantalla más a la izquierda a la más a la derecha. Cada sesión nueva abre una ventana de Windows Terminal y la coloca en el primer hueco libre (área de trabajo, sin tapar la barra de tareas; respeta el escalado de cada pantalla).
+- Cada hueco tiene un color de pestaña (azul, naranja, verde, morado, cian, rojo, amarillo, rosa). Solo cambia la pestaña: el perfil, el esquema de colores y lo que dibuja Claude Code quedan como estén configurados. El modo oscuro/claro de la ventana lo decide Windows Terminal (por defecto sigue al tema de Windows).
 - Con los 2n huecos ocupados, avisa y no abre nada. Al cerrar una de esas ventanas su hueco queda libre.
 - Solo cuentan las sesiones abiertas desde el menú (`~/.claude/usage-tray/sessions.json`); un `claude` lanzado a mano en otra terminal no ocupa hueco. Lo que pasa en cada apertura queda en `sessions.log`.
+
+La entrada del menú está en `menu/`: una extensión `IExplorerCommand` en C++ (`menu/src`) registrada con un paquete MSIX *sparse* firmado (`menu/package`), cuyos archivos de ejecución viven en `%LOCALAPPDATA%\ClaudeCodeMenu`.
+
+| Archivo | Qué hace |
+|---|---|
+| `menu/build.cmd` | Compila la DLL y el ejecutable stub en `menu/bin` (requiere Visual Studio con C++). |
+| `menu/package.ps1` | Empaqueta y firma el MSIX en `menu/bin` con el certificado `CN=ClaudeCodeMenu` (lo crea si falta; requiere el Windows SDK). Solo hace falta si cambia el manifiesto. |
+| `menu/install.ps1` | Compila si falta (`-Build` fuerza), copia los archivos a `%LOCALAPPDATA%\ClaudeCodeMenu` y registra el paquete si no lo está (un aviso de UAC para confiar en el certificado). No reinicia el Explorador. `install.ps1` lo llama. |
+| `menu/uninstall.ps1` | Quita la entrada, el valor `Launcher`, los archivos desplegados y el certificado. |
+
+Tras cambiar la DLL: `menu\install.ps1 -Build`. Si el Explorador tenía la DLL cargada, la copia en uso se renombra y la nueva se usa en la próxima apertura del menú.
 
 ## Instalar / desinstalar
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1     # parchea statusline (con backup), lanzador del menú, acceso directo de inicio y arranca
-powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1   # quita todo salvo los datos en ~/.claude/usage-tray
+powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1   # quita todo salvo los datos en ~/.claude/usage-tray (el menú vuelve a abrir Windows Terminal sin huecos; `menu\uninstall.ps1` lo quita)
 ```
 
 ## Pruebas

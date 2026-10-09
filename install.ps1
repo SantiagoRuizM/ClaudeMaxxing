@@ -2,7 +2,8 @@
 #   1. finds a working claude executable (for scheduled sessions),
 #   2. copies the Claude tray icons as a fallback,
 #   3. adds a snapshot block to the Claude Code statusline script (backup kept),
-#   4. points the "Abrir con Claude Code" Explorer menu at open-session.ps1 (half-screen slots),
+#   4. installs or updates the "Abrir con Claude Code" Explorer menu (menu\install.ps1) and points it
+#      at open-session.ps1 (half-screen slots),
 #   5. adds a startup shortcut and starts the tray.
 param([switch]$NoStart)
 
@@ -54,8 +55,13 @@ if ($script) {
     Write-Warning 'No bash statusline script found in ~/.claude/settings.json; usage data will not be written.'
 }
 
-# 4. Explorer menu launcher. The menu DLL (%LOCALAPPDATA%\ClaudeCodeMenu) runs this command, with %1
-#    replaced by the quoted folder, and falls back to plain wt.exe when the value is missing.
+# 4. Explorer menu entry (menu\install.ps1) and its launcher. The menu DLL runs the launcher command, with
+#    %1 replaced by the quoted folder, and falls back to plain wt.exe when the value is missing.
+try {
+    & (Join-Path $TrayRoot 'menu\install.ps1')
+} catch {
+    Write-Warning "Explorer menu not installed or updated: $($_.Exception.Message)"
+}
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $launcher = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -Dir %1' -f $powershell, (Join-Path $TrayRoot 'open-session.ps1')
 if (-not (Test-Path -LiteralPath $MenuKey)) { New-Item -Path $MenuKey -Force | Out-Null }
