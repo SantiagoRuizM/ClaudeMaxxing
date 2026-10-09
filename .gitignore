@@ -1,0 +1,2 @@
+*.stackdump
+.claude/settings.local.json
