@@ -16,10 +16,18 @@ La ventana de 5 horas empieza con el primer mensaje. Agendar un mensaje mínimo 
 - **En este PC**: crea una tarea única en el Programador de tareas (`\ClaudeTray\`). Despierta el PC si está suspendido (requiere los temporizadores de reactivación activados en el plan de energía), pero no si está apagado ni si la sesión de Windows está cerrada (la tarea corre con tu usuario, con sesión iniciada). Cada ejecución queda en `~/.claude/usage-tray/history.json` (se ve en *Agendadas* como Hecha o Falló) y en `scheduled.log`.
 - **En la nube**: al pulsar *Agendar*, el diálogo muestra una tarjeta *Creando rutina en claude.ai…* con los detalles (hora, Haiku, mensaje «ok») mientras Claude Code, sin ventana y con solo la herramienta de rutinas permitida, ejecuta `/schedule` (unos 50 s). Al terminar muestra la rutina creada o el error; el registro queda en `~/.claude/usage-tray/runs/cloud-<id>.log`. Funciona con el PC apagado y consume del mismo plan. La API adjunta los conectores de la cuenta a la rutina y no deja quitarlos por API; se pueden quitar editándola en claude.ai.
 
+## Abrir con Claude Code (mitades de pantalla)
+
+La entrada **Abrir con Claude Code** del menú contextual del Explorador (DLL propia en `%LOCALAPPDATA%\ClaudeCodeMenu`) ejecuta el comando guardado en `HKCU\Software\ClaudeCodeMenu\Launcher`, que `install.ps1` apunta a `open-session.ps1`. Si ese valor no existe, el menú abre Windows Terminal como antes.
+
+- Con **n** pantallas hay **2n** huecos: mitad izquierda y derecha de cada pantalla, numerados de la pantalla más a la izquierda a la más a la derecha. Cada sesión nueva abre una ventana de Windows Terminal y la coloca en el primer hueco libre (área de trabajo, sin tapar la barra de tareas; respeta el escalado de cada pantalla).
+- Con los 2n huecos ocupados, avisa y no abre nada. Al cerrar una de esas ventanas su hueco queda libre.
+- Solo cuentan las sesiones abiertas desde el menú (`~/.claude/usage-tray/sessions.json`); un `claude` lanzado a mano en otra terminal no ocupa hueco. Lo que pasa en cada apertura queda en `sessions.log`.
+
 ## Instalar / desinstalar
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1     # parchea statusline (con backup), acceso directo de inicio y arranca
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1     # parchea statusline (con backup), lanzador del menú, acceso directo de inicio y arranca
 powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1   # quita todo salvo los datos en ~/.claude/usage-tray
 ```
 

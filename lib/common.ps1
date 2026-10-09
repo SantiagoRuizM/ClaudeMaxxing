@@ -9,7 +9,11 @@ $ExtrasFile    = Join-Path $TrayHome 'extras.json'
 $RunLogFile    = Join-Path $TrayHome 'scheduled.log'
 $TrayPidFile   = Join-Path $TrayHome 'tray.pid'
 $RunsDir       = Join-Path $TrayHome 'runs'
+$SessionsFile  = Join-Path $TrayHome 'sessions.json'
+$SessionLogFile = Join-Path $TrayHome 'sessions.log'
+$BinDir        = Join-Path $TrayHome 'bin'
 $CredsFile     = Join-Path $env:USERPROFILE '.claude\.credentials.json'
+$MenuKey       = 'HKCU:\Software\ClaudeCodeMenu'
 
 # Non-ASCII UI text is written as \uXXXX escapes and decoded here.
 function Tx([string]$Text) { [regex]::Unescape($Text) }

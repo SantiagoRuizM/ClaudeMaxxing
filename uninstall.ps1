@@ -1,4 +1,4 @@
-# Removes ClaudeTray: stops the tray, deletes the startup shortcut and scheduled sessions,
+# Removes ClaudeTray: stops the tray, deletes the startup shortcut, the menu launcher and scheduled sessions,
 # and removes the statusline block. Data in ~/.claude/usage-tray is kept.
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,6 +19,11 @@ if (Test-Path -LiteralPath $TrayPidFile) {
 
 $link = Join-Path ([Environment]::GetFolderPath('Startup')) 'ClaudeTray.lnk'
 if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link; Write-Host 'startup shortcut removed' }
+
+if (Test-Path -LiteralPath $MenuKey) {
+    Remove-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue
+    Write-Host 'menu launcher removed (the Explorer menu opens plain Windows Terminal again)'
+}
 
 Remove-AllSessionTasks
 Write-Host 'scheduled sessions removed'
