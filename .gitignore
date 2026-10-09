@@ -1,0 +1,3 @@
+# Claude app icons: copied from the installed app by install.ps1
+assets/
+*.stackdump
