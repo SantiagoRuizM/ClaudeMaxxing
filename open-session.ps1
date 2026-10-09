@@ -40,7 +40,7 @@ function Wait-NewWindow([long[]]$Before, [int]$TimeoutMs) {
 # One launcher at a time, from reading the session list until the new window is recorded,
 # so two quick clicks never take the same slot.
 $mutex = New-Object System.Threading.Mutex($false, 'Local\ClaudeTraySessions')
-try { [void]$mutex.WaitOne(60000) } catch [System.Threading.AbandonedMutexException] { }
+try { $owned = $mutex.WaitOne(60000) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 try {
     if (-not $Dir -or -not (Test-Path -LiteralPath $Dir -PathType Container)) { throw "folder not found: $Dir" }
     Import-WinApi
@@ -83,5 +83,5 @@ try {
     Write-SessionLog "error: $($_.Exception.Message)"
     Show-Notice "No se pudo abrir Claude Code: $($_.Exception.Message)"
 } finally {
-    $mutex.ReleaseMutex()
+    if ($owned) { $mutex.ReleaseMutex() }
 }
