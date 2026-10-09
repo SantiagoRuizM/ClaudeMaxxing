@@ -1,9 +1,9 @@
-# Installs ClaudeTray for the current user:
+# Installs VoiceTray for the current user:
 #   1. finds a working claude executable (for scheduled sessions),
 #   2. copies the Claude tray icons as a fallback,
 #   3. adds a snapshot block to the Claude Code statusline script (backup kept),
-#   4. installs or updates the "Abrir con Claude Code" Explorer menu (menu\install.ps1) and points it
-#      at open-session.ps1 (half-screen slots),
+#   4. installs or updates the "Abrir con Claude Code" Explorer menu (menu\install.ps1), writes the
+#      voice plugin's /voz and points the menu at open-session.ps1 (half-screen slots, name, voice),
 #   5. adds a startup shortcut and starts the tray.
 param([switch]$NoStart)
 
@@ -62,6 +62,14 @@ try {
 } catch {
     Write-Warning "Explorer menu not installed or updated: $($_.Exception.Message)"
 }
+# /voz for menu sessions: the voice plugin's skill, from the same template as the global one.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$ctl = (Join-Path $TrayRoot 'voice\ctl.ps1') -replace '\\', '/'
+$skill = [IO.File]::ReadAllText((Join-Path $TrayRoot 'voice\templates\skill-voz.md'), $utf8NoBom).Replace('{{CTL}}', $ctl)
+$skillDir = Join-Path $TrayRoot 'voice\plugin\skills\voz'
+if (-not (Test-Path -LiteralPath $skillDir)) { New-Item -ItemType Directory -Force -Path $skillDir | Out-Null }
+[IO.File]::WriteAllText((Join-Path $skillDir 'SKILL.md'), $skill, $utf8NoBom)
+Write-Host "voice plugin /voz: $skillDir"
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $launcher = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -Dir %1' -f $powershell, (Join-Path $TrayRoot 'open-session.ps1')
 if (-not (Test-Path -LiteralPath $MenuKey)) { New-Item -Path $MenuKey -Force | Out-Null }

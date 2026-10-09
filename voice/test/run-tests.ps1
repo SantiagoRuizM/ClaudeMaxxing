@@ -148,6 +148,31 @@ $raw = '{"session_id":"pppp-2","prompt":"hola","session_title":"Mio"}' | powersh
 $j = "$raw" | ConvertFrom-Json
 Check 'no pisa un titulo puesto por el usuario' (-not $j.hookSpecificOutput.sessionTitle -and $j.systemMessage) "$raw"
 
+'Sesiones abiertas desde el menu (reservadas)'
+$res = New-ReservedSession $cfgFile 'rrrr-1' 'orange'
+Check 'reserva nombre y voz antes de arrancar, rol pendiente' ($res.name -and $res.voice -and $res.pendingRole -and $res.title -eq $res.name -and $res.color -eq 'orange') ($res | ConvertTo-Json -Compress)
+$res2 = New-ReservedSession $cfgFile 'rrrr-2' 'blue'
+Check 'dos reservas no repiten nombre ni voz' ($res.name -ne $res2.name -and $res.voice -ne $res2.voice) "$($res.name)/$($res2.name)"
+$raw = '{"session_id":"rrrr-1","prompt":"/voz repetir"}' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hook
+Check 'un comando /... no decide el rol' ([string]::IsNullOrEmpty("$raw") -and (Get-SessionName 'rrrr-1').pendingRole) "$raw"
+$raw = '{"session_id":"rrrr-1","prompt":"arregla el bug del login","session_title":"x"}' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hook
+$j = "$raw" | ConvertFrom-Json
+$after = Get-SessionName 'rrrr-1'
+Check 'primer prompt: completa el titulo con el rol aunque ya tenga titulo' ($j.hookSpecificOutput.sessionTitle -eq ($res.name + ' ' + [char]0x00B7 + ' ' + $after.role) -and $after.roleKey -eq 'codigo') "$raw"
+Check 'conserva nombre, voz y color' ($after.name -eq $res.name -and $after.voice -eq $res.voice -and $after.color -eq 'orange' -and -not $after.pendingRole) ($after | ConvertTo-Json -Compress)
+$raw = '{"session_id":"rrrr-1","prompt":"otra cosa"}' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hook
+Check 'despues: sin salida' ([string]::IsNullOrEmpty("$raw")) $raw
+
+'Hook on-start.ps1'
+$startHook = "$PSScriptRoot\..\hooks\on-start.ps1"
+$raw = "$('{"session_id":"rrrr-2","source":"startup"}' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startHook)"
+Check 'salida solo ASCII' ($raw -notmatch '[^\x00-\x7F]' -and $raw.Length -gt 0) $raw
+$j = $raw | ConvertFrom-Json
+Check 'pone el nombre reservado como titulo' ($j.hookSpecificOutput.sessionTitle -eq $res2.name) $raw
+Check 'anade la regla del resumen hablado al contexto' ($j.hookSpecificOutput.additionalContext -like ("*$M*")) $raw
+$j = "$('{"session_id":"ssss-9","source":"startup"}' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startHook)" | ConvertFrom-Json
+Check 'sin nombre reservado: solo la regla' (-not $j.hookSpecificOutput.sessionTitle -and $j.hookSpecificOutput.additionalContext) ''
+
 'Historial'
 foreach ($i in 1..4) {
     $sess = if ($i -le 2) { 'hhhh-1' } else { 'hhhh-2' }

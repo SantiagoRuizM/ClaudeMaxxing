@@ -20,7 +20,10 @@ try {
     $format = Get-Opt $cfg 'announceFormat' '{text}'
     if ($info) {
         $project = if ($evt.cwd) { Split-Path -Leaf $evt.cwd } else { '' }
-        $text = $format.Replace('{name}', "$($info.name)").Replace('{role}', "$($info.role)").Replace('{project}', $project).Replace('{text}', $text)
+        # Sesion del menu que aun no tuvo un prompt normal (solo comandos /...): rol por defecto.
+        $role = "$($info.role)"
+        if (-not $role) { $role = "$((Get-Opt $cfg 'naming.defaultRole' ([pscustomobject]@{ f = 'asistente'; m = 'asistente' })).("$($info.gender)"))" }
+        $text = $format.Replace('{name}', "$($info.name)").Replace('{role}', $role).Replace('{project}', $project).Replace('{text}', $text)
     }
     Start-Utterance $text $evt.session_id
 } catch {

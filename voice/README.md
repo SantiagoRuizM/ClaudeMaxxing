@@ -30,14 +30,14 @@ Claude termina el turno
                                └─ sube la música, salvo que otra voz espere turno
 ```
 
-Cero llamadas extra al modelo: el resumen lo escribe Claude en la misma respuesta (regla en `CLAUDE.md`) y el rol se deduce por palabras clave.
+Cero llamadas extra al modelo: el resumen lo escribe Claude en la misma respuesta (regla que añade `hooks/on-start.ps1` al contexto, o en `CLAUDE.md` con la instalación global) y el rol se deduce por palabras clave.
 
 ## Probarlo
 
-**Opción A: solo en esta carpeta (no toca tu configuración global).**
-Abre Claude Code dentro de `ClaudeVoice/`. Ahí se cargan `.claude/settings.json` (hooks), `.claude/skills/voz` (comando `/voz`) y `CLAUDE.md` (regla del 🔊).
+**En las sesiones del menú del Explorador (lo que instala `..\install.ps1`).**
+*Abrir con Claude Code* arranca cada sesión con el plugin `plugin/` (`--plugin-dir`), solo para esa sesión: hooks `SessionStart` (`hooks/on-start.ps1`: título con el nombre reservado y la regla del 🔊 en el contexto), `UserPromptSubmit` y `Stop`, y el comando `/voz`. No toca tu `~/.claude`. El nombre y la voz se reservan antes de abrir (`New-ReservedSession`, con el `--session-id` de la sesión) y el primer prompt que no sea un comando completa el rol: "Martín" → "Martín · codificador".
 
-**Opción B: en todas las sesiones.**
+**En todas las sesiones (opcional).**
 
 ```powershell
 .\install.ps1              # hooks + regla + /voz en ~/.claude (con backup)
@@ -147,7 +147,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\duck-audio-test.ps1   #
 
 | Archivo | Para qué |
 |---|---|
-| `hooks/on-prompt.ps1` | Hook `UserPromptSubmit`: calla la sesión y le pone nombre en el primer prompt |
+| `hooks/on-start.ps1` | Hook `SessionStart` (solo sesiones del menú): título con el nombre reservado y regla del 🔊 |
+| `hooks/on-prompt.ps1` | Hook `UserPromptSubmit`: calla la sesión y le pone nombre en el primer prompt (o completa el rol de una sesión reservada) |
 | `hooks/speak.ps1` | Hook `Stop`: lee el evento y lanza la reproducción |
 | `hooks/play.ps1` | Reproductor: prepara audio, cola, baja/sube música, historial |
 | `hooks/common.ps1` | Texto, sesiones (voz, nombre, silencio), historial, música, PID y log |
@@ -158,7 +159,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\duck-audio-test.ps1   #
 | `install.ps1` | Instalación global idempotente con backup |
 | `config.json` | Configuración |
 | `templates/` | Regla del 🔊 y plantilla de `/voz` |
-| `.claude/settings.json`, `.claude/skills/voz/` | Hooks y `/voz` a nivel de proyecto |
+| `plugin/` | Plugin que el menú carga con `--plugin-dir` en cada sesión: hooks y `/voz` (`skills/voz` lo genera `..\install.ps1`) |
 | `test/` | Pruebas sin audio y evento `Stop` de ejemplo |
 | `docs/` | Investigación, `/btw`, arquitectura y siguientes pasos |
 
@@ -168,7 +169,7 @@ El estado de ejecución (nombres, voces, silencios, historial, log) vive en `%TE
 
 - **No suena nada:** `.\ctl.ps1 status`. Si `.\ctl.ps1 test` suena pero Claude no, los hooks no están cargados (sesión nueva, `/hooks`). Mira si la sesión o todo está silenciado (`/voz`).
 - **La música se quedó baja:** `.\ctl.ps1 stop` la restaura. No debería pasar (se restaura incluso si se mata el reproductor), pero si pasa, avísame con el log.
-- **Lee la primera frase en vez del resumen:** Claude no escribió la línea 🔊; revisa que la regla está en el `CLAUDE.md` de esa sesión.
+- **Lee la primera frase en vez del resumen:** Claude no escribió la línea 🔊; en las sesiones del menú la añade el hook `SessionStart` (mira `/hooks`); con la instalación global, revisa que la regla está en el `CLAUDE.md`.
 - **Tarda en hablar:** generación con edge-tts (red). `"engine": "sapi"` responde enseguida.
 - **Cada prompt tarda ~0,4 s más en enviarse:** es el hook síncrono que pone el nombre (arranque de PowerShell). Con `naming.enabled=false` sigue corriendo para callar el audio; ver siguientes pasos.
 - **Con `claude -p` no habla:** observado; la voz es para la sesión interactiva.

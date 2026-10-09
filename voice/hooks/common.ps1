@@ -190,10 +190,7 @@ function New-SessionName($Config, [string]$SessionId, [string]$Prompt) {
     $role     = $roleInfo.$gender
     $format   = Get-Opt $Config 'naming.titleFormat' '{name} - {role}'
     Use-StateLock {
-        $taken = Get-ActiveStateFiles $Config 'name' | ForEach-Object { (Read-JsonFile $_.FullName).name }
-        $names = @(Get-Opt $Config "naming.names.$gender" @('Claude'))
-        $free  = @($names | Where-Object { $taken -notcontains $_ })
-        $name  = if ($free.Count) { $free | Get-Random } else { $names | Get-Random }
+        $name = Get-FreeName $Config $gender
         $info = [pscustomobject]@{
             name    = $name
             role    = $role
@@ -205,6 +202,56 @@ function New-SessionName($Config, [string]$SessionId, [string]$Prompt) {
         Write-JsonFile (Get-SessionFile 'name' $SessionId) $info
         return $info
     }
+}
+
+# Nombre aleatorio del genero dado que no use otra sesion activa. Llamar dentro de Use-StateLock.
+function Get-FreeName($Config, [string]$Gender) {
+    $taken = Get-ActiveStateFiles $Config 'name' | ForEach-Object { (Read-JsonFile $_.FullName).name }
+    $names = @(Get-Opt $Config "naming.names.$Gender" @('Claude'))
+    $free  = @($names | Where-Object { $taken -notcontains $_ })
+    if ($free.Count) { $free | Get-Random } else { $names | Get-Random }
+}
+
+# Sesion abierta desde el menu del Explorador (open-session.ps1): la voz y el nombre se eligen antes
+# de arrancar Claude Code, con el session_id que luego recibe (--session-id). El titulo es solo el
+# nombre hasta el primer prompt, que decide el rol (Complete-SessionRole). $Color es el de /color.
+function New-ReservedSession($Config, [string]$SessionId, [string]$Color) {
+    $voice  = Get-SessionVoice $Config $SessionId
+    $gender = Get-VoiceGender $Config $voice
+    Use-StateLock {
+        $name = Get-FreeName $Config $gender
+        $info = [pscustomobject]@{
+            name        = $name
+            role        = ''
+            roleKey     = ''
+            gender      = $gender
+            voice       = $voice
+            title       = $name
+            color       = $Color
+            pendingRole = $true
+        }
+        Write-JsonFile (Get-SessionFile 'name' $SessionId) $info
+        return $info
+    }
+}
+
+# Primer prompt de una sesion reservada: rol segun el prompt y titulo "<nombre> . <rol>".
+function Complete-SessionRole($Config, [string]$SessionId, $Info, [string]$Prompt) {
+    $roleInfo = Find-SessionRole $Config $Prompt
+    $role     = $roleInfo.("$($Info.gender)")
+    $format   = Get-Opt $Config 'naming.titleFormat' '{name} - {role}'
+    $done = [pscustomobject]@{
+        name        = "$($Info.name)"
+        role        = $role
+        roleKey     = "$($roleInfo.key)"
+        gender      = "$($Info.gender)"
+        voice       = "$($Info.voice)"
+        title       = $format.Replace('{name}', "$($Info.name)").Replace('{role}', $role)
+        color       = "$($Info.color)"
+        pendingRole = $false
+    }
+    Write-JsonFile (Get-SessionFile 'name' $SessionId) $done
+    return $done
 }
 
 # Borra estado de sesiones viejas para que %TEMP% no crezca sin limite.

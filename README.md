@@ -1,8 +1,12 @@
-# ClaudeTray
+# VoiceTray
 
-Icono en la bandeja de Windows con el uso del plan de Claude: ventana de 5 horas (SESSION), límite semanal (WEEKLY), cuándo se reinicia cada uno y un botón **Agendar sesión**.
+Tres piezas para trabajar con varias sesiones de Claude Code en Windows:
 
-## Cómo funciona
+- **Bandeja** (`tray.ps1`, `lib/`): uso del plan de Claude (ventana de 5 horas y límite semanal), cuándo se reinicia y **Agendar sesión**.
+- **Abrir con Claude Code** (`menu/`, `open-session.ps1`): desde el menú del Explorador, cada sesión se abre en una mitad de pantalla (máximo 2 por pantalla), con su color y un nombre como "Martín · codificador".
+- **Voz** (`voice/`, antes ClaudeVoice): cada sesión del menú lee en voz alta un resumen de cada respuesta, con su propia voz y firma musical. Detalles en [`voice/README.md`](voice/README.md).
+
+## Bandeja: cómo funciona
 
 - La barra de estado (statusline) de Claude Code recibe `rate_limits` en cada respuesta. Un bloque añadido a `~/.claude/statusline-command.sh` guarda esos datos en `~/.claude/usage-tray/usage.json`, sin tocar lo que se muestra en la barra.
 - `tray.ps1` lee ese archivo cada 15 s y dibuja el popup. Clic izquierdo abre o cierra; clic derecho abre el menú.
@@ -21,7 +25,8 @@ La ventana de 5 horas empieza con el primer mensaje. Agendar un mensaje mínimo 
 La entrada **Abrir con Claude Code** del menú contextual del Explorador (Windows 11) ejecuta el comando guardado en `HKCU\Software\ClaudeCodeMenu\Launcher`, que `install.ps1` apunta a `open-session.ps1`. Si ese valor no existe, el menú abre Windows Terminal como antes.
 
 - Con **n** pantallas hay **2n** huecos: mitad izquierda y derecha de cada pantalla, numerados de la pantalla más a la izquierda a la más a la derecha. Cada sesión nueva abre una ventana de Windows Terminal y la coloca en el primer hueco libre (área de trabajo, sin tapar la barra de tareas; respeta el escalado de cada pantalla).
-- Cada hueco tiene un color de pestaña (azul, naranja, verde, morado, cian, rojo, amarillo, rosa). Solo cambia la pestaña: el perfil, el esquema de colores y lo que dibuja Claude Code quedan como estén configurados. El modo oscuro/claro de la ventana lo decide Windows Terminal (por defecto sigue al tema de Windows).
+- Cada hueco tiene un color (azul, naranja, verde, morado, cian, rojo, amarillo, rosa): la pestaña y la caja del prompt de Claude Code (`/color`, como primer prompt: es un comando local, sin llamada al modelo) salen del mismo tono. Ni el perfil del terminal ni su esquema de colores cambian. El modo oscuro/claro de la ventana lo decide Windows Terminal (por defecto sigue al tema de Windows).
+- **Nombre y rol:** antes de abrir, el lanzador reserva para la sesión un nombre y una voz (`voice/`, sin repetir los de otras sesiones activas) y arranca Claude Code con ese `--session-id` y el plugin de voz (`--plugin-dir voice\plugin`, solo para esa sesión). La sesión empieza llamándose "Martín" (caja del prompt, pestaña y `/resume`) y con el primer prompt que no sea un comando pasa a "Martín · codificador" según lo que pidas. Desde ahí habla como "Soy Martín, codificador. …". Nada de esto toca tu `~/.claude`.
 - Con los 2n huecos ocupados, avisa y no abre nada. Al cerrar una de esas ventanas su hueco queda libre.
 - Solo cuentan las sesiones abiertas desde el menú (`~/.claude/usage-tray/sessions.json`); un `claude` lanzado a mano en otra terminal no ocupa hueco. Lo que pasa en cada apertura queda en `sessions.log`.
 
@@ -39,14 +44,15 @@ Tras cambiar la DLL: `menu\install.ps1 -Build`. Si el Explorador tenía la DLL c
 ## Instalar / desinstalar
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1     # parchea statusline (con backup), lanzador del menú, acceso directo de inicio y arranca
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1     # parchea statusline (con backup), menú y su lanzador, /voz del plugin de voz, acceso directo de inicio y arranca
 powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1   # quita todo salvo los datos en ~/.claude/usage-tray (el menú vuelve a abrir Windows Terminal sin huecos; `menu\uninstall.ps1` lo quita)
 ```
 
 ## Pruebas
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1         # bandeja, huecos, menú; ASCII y sintaxis de todos los .ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1   # voz, sin audio
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # dibuja el popup a una imagen
 ```
 
