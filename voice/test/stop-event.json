@@ -1,0 +1,8 @@
+{
+  "session_id": "test",
+  "transcript_path": "",
+  "cwd": "C:/Users/user/Documents/CodeHubs/ClaudeVoice",
+  "hook_event_name": "Stop",
+  "stop_reason": "end_turn",
+  "last_assistant_message": "## Cambios\n\n- Arreglé `auth.ts`\n\n```ts\nconst x = 1;\n```\n\n🔊 Arreglé el login y las pruebas pasan; falta que revises el despliegue."
+}

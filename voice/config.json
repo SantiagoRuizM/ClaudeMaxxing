@@ -1,0 +1,106 @@
+{
+  "enabled": true,
+  "engine": "edge",
+  "marker": "🔊",
+  "fallback": "first-sentence",
+  "maxChars": 300,
+  "stopOnPrompt": true,
+  "perSessionVoice": true,
+  "sessionActiveHours": 12,
+  "announceFormat": "Soy {name}, {role}. {text}",
+  "queueTimeoutSeconds": 90,
+  "historySize": 30,
+  "hotkeys": { "repeat": "O", "stop": "P" },
+  "duck": {
+    "enabled": true,
+    "level": 0.2,
+    "fadeMs": 300,
+    "restoreMs": 800
+  },
+  "chime": {
+    "enabled": true,
+    "volume": 0.35,
+    "defaultTimbre": "campana",
+    "roleTimbres": {
+      "codigo": "marimba",
+      "investigacion": "cristal",
+      "edicion": "piano",
+      "revision": "pluck",
+      "diseno": "kalimba",
+      "datos": "pluck",
+      "arquitectura": "piano",
+      "asistente": "campana"
+    },
+    "motifs": [
+      { "root": "C4",  "chord": "mayor",     "pattern": "sube" },
+      { "root": "A3",  "chord": "menor",     "pattern": "baja" },
+      { "root": "F4",  "chord": "maj7",      "pattern": "salto" },
+      { "root": "D4",  "chord": "sus2",      "pattern": "eco" },
+      { "root": "G3",  "chord": "add9",      "pattern": "sube" },
+      { "root": "E4",  "chord": "m7",        "pattern": "bloque" },
+      { "root": "Bb3", "chord": "seisnueve", "pattern": "baja" },
+      { "root": "Eb4", "chord": "mayor",     "pattern": "salto" },
+      { "root": "F#3", "chord": "cuartas",   "pattern": "sube" },
+      { "root": "Ab3", "chord": "maj7",      "pattern": "eco" },
+      { "root": "B3",  "chord": "menor9",    "pattern": "baja" },
+      { "root": "D4",  "chord": "sus4",      "pattern": "bloque" }
+    ]
+  },
+  "naming": {
+    "enabled": true,
+    "setTitle": true,
+    "titleFormat": "{name} · {role}",
+    "names": {
+      "f": ["Valentina", "Camila", "Lucía", "Sofía", "Mariana", "Isabela", "Daniela", "Gabriela", "Paula", "Renata", "Juliana", "Antonia"],
+      "m": ["Mateo", "Gabriel", "Sebastián", "Nicolás", "Andrés", "Tomás", "Emilio", "Julián", "Martín", "Simón", "Felipe", "Diego"]
+    },
+    "defaultRole": { "key": "asistente", "f": "asistente", "m": "asistente" },
+    "roles": [
+      { "key": "codigo", "f": "codificadora", "m": "codificador",
+        "keywords": ["implementa", "código", "codigo", "programa", "bug", "arregla", "corrige el error", "fix", "error", "refactor", "función", "funcion", "endpoint", "api", "script", "test", "compila", "build", "commit", "feature", "componente", "typescript", "python", "javascript", "backend", "frontend", "hook"] },
+      { "key": "investigacion", "f": "investigadora", "m": "investigador",
+        "keywords": ["investiga", "investigación", "busca", "averigua", "research", "compara", "viable", "viabilidad", "fuentes", "documentación oficial", "cómo funciona", "explica", "explícame", "alternativas", "estado del arte"] },
+      { "key": "edicion", "f": "editora", "m": "editor",
+        "keywords": ["escribe", "redacta", "texto", "artículo", "correo", "email", "traduce", "resume", "resumen", "ortografía", "blog", "copy", "carta", "propuesta", "guion", "presentación"] },
+      { "key": "revision", "f": "revisora", "m": "revisor",
+        "keywords": ["revisa", "review", "audita", "auditoría", "pull request", "verifica", "valida", "seguridad", "vulnerabilidad", "calidad"] },
+      { "key": "diseno", "f": "diseñadora", "m": "diseñador",
+        "keywords": ["diseña", "diseño", "ui", "ux", "interfaz", "css", "estilo", "maqueta", "figma", "landing", "layout", "colores", "logo", "tipografía", "responsive"] },
+      { "key": "datos", "f": "analista", "m": "analista",
+        "keywords": ["datos", "data", "excel", "sql", "consulta", "gráfico", "grafica", "métricas", "metricas", "dashboard", "reporte", "csv", "estadística", "analiza", "kpi"] },
+      { "key": "arquitectura", "f": "arquitecta", "m": "arquitecto",
+        "keywords": ["arquitectura", "planifica", "plan", "estructura", "migra", "migración", "infraestructura", "aws", "docker", "kubernetes", "despliegue", "deploy", "escalar"] }
+    ]
+  },
+  "edge": {
+    "voice": "es-CO-SalomeNeural",
+    "voicePool": [
+      "es-CO-SalomeNeural",
+      "es-MX-JorgeNeural",
+      "es-AR-ElenaNeural",
+      "es-CO-GonzaloNeural",
+      "es-MX-DaliaNeural",
+      "es-ES-AlvaroNeural",
+      "es-CL-CatalinaNeural",
+      "es-PE-AlexNeural"
+    ],
+    "voiceGenders": {
+      "es-AR-ElenaNeural": "f", "es-AR-TomasNeural": "m",
+      "es-CL-CatalinaNeural": "f", "es-CL-LorenzoNeural": "m",
+      "es-CO-SalomeNeural": "f", "es-CO-GonzaloNeural": "m",
+      "es-ES-ElviraNeural": "f", "es-ES-XimenaNeural": "f", "es-ES-AlvaroNeural": "m",
+      "es-MX-DaliaNeural": "f", "es-MX-JorgeNeural": "m",
+      "es-PE-CamilaNeural": "f", "es-PE-AlexNeural": "m",
+      "es-US-PalomaNeural": "f", "es-US-AlonsoNeural": "m",
+      "es-UY-ValentinaNeural": "f", "es-UY-MateoNeural": "m",
+      "es-VE-PaolaNeural": "f", "es-VE-SebastianNeural": "m"
+    },
+    "rate": "+5%",
+    "exe": "C:/Users/user/AppData/Local/hermes/hermes-agent/venv/Scripts/edge-tts.exe"
+  },
+  "sapi": {
+    "voice": "Microsoft Helena Desktop",
+    "rate": 1
+  },
+  "ffplay": ""
+}
