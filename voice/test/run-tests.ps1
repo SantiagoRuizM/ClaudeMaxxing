@@ -68,10 +68,10 @@ $ctl = "$PSScriptRoot\..\ctl.ps1"
 Check '/voz off silencia solo esa sesion' ((Test-Muted 'aaaa-1111') -and -not (Test-Muted 'bbbb-2222')) ''
 & $ctl session aaaa-1111 on | Out-Null
 Check '/voz on la reactiva' (-not (Test-Muted 'aaaa-1111')) ''
-& $ctl session aaaa-1111 voz jorge | Out-Null
-Check '/voz voz jorge elige es-MX-JorgeNeural' ((Get-SessionVoice $cfgFile 'aaaa-1111') -eq 'es-MX-JorgeNeural') ''
+& $ctl session aaaa-1111 voz gonzalo | Out-Null
+Check '/voz voz gonzalo elige es-CO-GonzaloNeural' ((Get-SessionVoice $cfgFile 'aaaa-1111') -eq 'es-CO-GonzaloNeural') ''
 $r = (& $ctl session aaaa-1111 voz klingon) -join ' '
-Check '/voz con voz desconocida no cambia nada' ($r -match 'no reconozco' -and (Get-SessionVoice $cfgFile 'aaaa-1111') -eq 'es-MX-JorgeNeural') $r
+Check '/voz con voz desconocida no cambia nada' ($r -match 'no reconozco' -and (Get-SessionVoice $cfgFile 'aaaa-1111') -eq 'es-CO-GonzaloNeural') $r
 & $ctl session aaaa-1111 todo-off | Out-Null
 Check '/voz todo-off silencia todas' ((Test-Muted 'bbbb-2222') -and (Test-Muted 'cccc')) ''
 & $ctl session aaaa-1111 todo-on | Out-Null
@@ -105,7 +105,7 @@ Check 'sin pistas: asistente' ($r -eq 'asistente') $r
 $r = Get-SessionRole $cfgFile "resume esto`n<pasted_content id=`"x`">implementa codigo bug fix api test</pasted_content id=`"x`">" 'f'
 Check 'ignora el contenido pegado' ($r -eq 'editora') $r
 
-Set-Content -Path (Get-SessionFile 'voice' 'mmmm-1') -Value 'es-MX-JorgeNeural' -NoNewline
+Set-Content -Path (Get-SessionFile 'voice' 'mmmm-1') -Value 'es-CO-GonzaloNeural' -NoNewline
 $a = New-SessionName $cfgFile 'mmmm-1' 'revisa el pull request'
 Check 'nombre masculino para voz masculina' (@($cfgFile.naming.names.m) -contains $a.name -and $a.gender -eq 'm') $a.name
 Check 'titulo con nombre y rol' ($a.title -eq ($a.name + ' ' + [char]0x00B7 + ' revisor')) $a.title
@@ -115,7 +115,7 @@ $names = @(1..6 | ForEach-Object {
 Check 'sesiones activas no repiten nombre' (@($names | Select-Object -Unique).Count -eq 6) ($names -join ',')
 
 'Firma musical por sesion'
-Set-Content -Path (Get-SessionFile 'voice' 'cccc-1') -Value 'es-MX-JorgeNeural' -NoNewline
+Set-Content -Path (Get-SessionFile 'voice' 'cccc-1') -Value 'es-CO-GonzaloNeural' -NoNewline
 $null = New-SessionName $cfgFile 'cccc-1' 'implementa el endpoint y arregla el bug'
 $null = New-SessionName $cfgFile 'cccc-2' 'investiga y compara alternativas'
 $c1 = Get-SessionChime $cfgFile 'cccc-1'
