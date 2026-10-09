@@ -46,7 +46,7 @@ function New-HookEntry([string]$Script) {
 
 function Test-OurEntry($Entry) {
     foreach ($h in @($Entry.hooks)) {
-        if ((("$($h.command) " + (@($h.args) -join ' ')) -match 'ClaudeVoice')) { return $true }
+        if ((("$($h.command) " + (@($h.args) -join ' ')) -match 'ClaudeVoice|VoiceTray')) { return $true }
     }
     return $false
 }
@@ -97,7 +97,7 @@ Write-Skill (Join-Path $PSScriptRoot '.claude\skills\voz')
 $globalSkill = Join-Path $SkillsDir 'voz'
 if ($Uninstall) {
     if (Test-Path (Join-Path $globalSkill 'SKILL.md')) {
-        if ((Get-Content (Join-Path $globalSkill 'SKILL.md') -Raw) -match 'ClaudeVoice') { Remove-Item $globalSkill -Recurse -Force; "Comando /voz eliminado de $SkillsDir" }
+        if ((Get-Content (Join-Path $globalSkill 'SKILL.md') -Raw) -match 'ClaudeVoice|VoiceTray') { Remove-Item $globalSkill -Recurse -Force; "Comando /voz eliminado de $SkillsDir" }
     }
 } else {
     Write-Skill $globalSkill

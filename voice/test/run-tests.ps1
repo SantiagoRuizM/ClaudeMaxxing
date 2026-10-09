@@ -181,7 +181,7 @@ $install = "$PSScriptRoot\..\install.ps1"
 $k = Join-Path $tmp 'skills'
 & $install -SettingsPath $s -ClaudeMdPath $c -SkillsDir $k | Out-Null
 & $install -SettingsPath $s -ClaudeMdPath $c -SkillsDir $k | Out-Null
-Check '/voz instalado con la ruta real de ctl.ps1' ((Get-Content "$k\voz\SKILL.md" -Raw) -match 'ClaudeVoice/ctl\.ps1 session \$\{CLAUDE_SESSION_ID\}') ''
+Check '/voz instalado con la ruta real de ctl.ps1' ((Get-Content "$k\voz\SKILL.md" -Raw) -match '(ClaudeVoice|voice)/ctl\.ps1 session \$\{CLAUDE_SESSION_ID\}') ''
 $j = [IO.File]::ReadAllText($s, $Utf8) | ConvertFrom-Json
 Check 'conserva otras opciones' ($j.model -eq 'opus') $j.model
 Check 'conserva hooks ajenos y no duplica' (@($j.hooks.Stop).Count -eq 2) @($j.hooks.Stop).Count
