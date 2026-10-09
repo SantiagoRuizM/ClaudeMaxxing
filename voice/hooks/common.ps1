@@ -11,7 +11,8 @@ $LogFile       = Join-Path $StateDir 'claude-voice.log'
 $DuckFile      = Join-Path $StateDir 'duck.json'
 $Utf8          = New-Object System.Text.UTF8Encoding($false)
 $DefaultMarker = [char]::ConvertFromUtf32(0x1F50A)  # altavoz
-$DefaultPool   = @('es-CO-SalomeNeural', 'es-CO-GonzaloNeural')
+$DefaultPool   = @('es-CO-SalomeNeural', 'es-CO-GonzaloNeural', 'es-US-PalomaNeural', 'es-US-AlonsoNeural',
+                   'es-MX-DaliaNeural', 'es-MX-JorgeNeural', 'es-PE-CamilaNeural', 'es-PE-AlexNeural')
 
 New-Item -ItemType Directory -Force -Path $StateDir, $HistoryDir | Out-Null
 

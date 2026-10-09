@@ -97,7 +97,7 @@ Antes de cada mensaje suena un acorde corto (≈1 s) que identifica la sesión; 
 
 Cada sesión nueva recibe la primera voz del pool (`edge.voicePool`) que no use otra sesión activa en las últimas `sessionActiveHours` horas.
 
-El pool tiene solo voces colombianas: edge-tts ofrece dos, Salomé (`es-CO-SalomeNeural`) y Gonzalo (`es-CO-GonzaloNeural`), ambas de acento colombiano general; no hay ninguna antioqueña. A partir de la tercera sesión activa las voces se repiten (se alternan); el nombre, el color y la firma musical siguen siendo distintos.
+El pool tiene 8 voces, una por hueco con hasta 4 pantallas, alternando mujer y hombre: primero las dos colombianas de edge-tts, Salomé y Gonzalo (acento colombiano general; no hay ninguna antioqueña), y luego seis de acento latino neutro: Paloma y Alonso (`es-US`), Dalia y Jorge (`es-MX`), Camila y Alex (`es-PE`). Con más de 8 sesiones activas las voces se repiten; el nombre, el color y la firma musical siguen siendo distintos.
 
 - Cambiarla: `/voz voz gonzalo` (nombre completo o un trozo que identifique una sola voz del pool).
 - Fijarla al abrir: `$env:CLAUDEVOICE_VOICE='es-CO-GonzaloNeural'; claude`.
