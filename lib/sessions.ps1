@@ -36,12 +36,20 @@ function Format-WtPath([string]$Path) {
     '"' + $escaped + '"'
 }
 
+# Tab color per slot, so each session window is easy to tell apart. Only the tab is colored: the
+# terminal profile, color scheme and everything Claude Code draws stay as configured.
+$SlotTabColors = @('#3B82F6', '#F97316', '#22C55E', '#A855F7', '#06B6D4', '#EF4444', '#EAB308', '#EC4899')
+
+function Get-SlotTabColor([int]$Index) { $SlotTabColors[$Index % $SlotTabColors.Count] }
+
 # wt.exe arguments for a new window in $Dir running $Run. --pos only takes non-negative values
 # (a leading '-' reads as an option); the window is moved to its exact slot afterwards anyway.
-function Format-WtArguments([string]$Dir, [string]$Run, $Slot) {
+function Format-WtArguments([string]$Dir, [string]$Run, $Slot, [string]$TabColor) {
     $pos = ''
     if ($Slot -and $Slot.X -ge 0 -and $Slot.Y -ge 0) { $pos = '--pos {0},{1} ' -f $Slot.X, $Slot.Y }
-    '-w new {0}-d {1} cmd /k {2}' -f $pos, (Format-WtPath $Dir), $Run
+    $color = ''
+    if ($TabColor) { $color = '--tabColor {0} ' -f $TabColor }
+    '-w new {0}{1}-d {2} cmd /k {3}' -f $pos, $color, (Format-WtPath $Dir), $Run
 }
 
 function Format-SessionsFullMessage([int]$Open, [int]$Monitors) {
