@@ -1,3 +1,5 @@
 # Claude app icons: copied from the installed app by install.ps1
-assets/
+/assets/
 *.stackdump
+# Explorer menu build output (build.cmd, package.ps1)
+/menu/bin/
