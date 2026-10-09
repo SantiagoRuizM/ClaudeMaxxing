@@ -12,6 +12,8 @@
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "user32.lib")
 #pragma comment(lib, "runtimeobject.lib")
 
 using namespace Microsoft::WRL;
@@ -67,6 +69,39 @@ static std::wstring QuoteForWt(const std::wstring& path)
     return L"\"" + s + L"\"";
 }
 
+// Quote an argument for CommandLineToArgvW (no wt.exe escaping).
+static std::wstring QuoteArg(const std::wstring& path)
+{
+    std::wstring s = path;
+    if (!s.empty() && s.back() == L'\\') s += L'\\';
+    return L"\"" + s + L"\"";
+}
+
+// Optional launcher command (HKCU\Software\ClaudeCodeMenu, value "Launcher"); "%1" becomes the quoted folder.
+// ClaudeTray sets it to a script that places each session on a half of a screen.
+static std::wstring LauncherCommand(const std::wstring& dir)
+{
+    wchar_t buf[2048];
+    DWORD size = sizeof(buf);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\ClaudeCodeMenu", L"Launcher", RRF_RT_REG_SZ, nullptr, buf, &size) != ERROR_SUCCESS)
+        return {};
+    std::wstring cmd = buf;
+    size_t at = cmd.find(L"%1");
+    if (at == std::wstring::npos) return {};
+    return cmd.replace(at, 2, QuoteArg(dir));
+}
+
+static bool RunHidden(std::wstring cmd, const std::wstring& dir)
+{
+    STARTUPINFOW si{ sizeof(si) };
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, dir.c_str(), &si, &pi))
+        return false;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
 class __declspec(uuid("7DFFC792-7471-4449-8FD1-BF6278E7106A")) ClaudeCodeCommand final
     : public RuntimeClass<RuntimeClassFlags<ClassicCom>, IExplorerCommand, IObjectWithSite>
 {
@@ -111,6 +146,11 @@ public:
         }
         if (dir.empty()) dir = PathFromSite(m_site.Get());
         if (dir.empty()) return E_FAIL;
+
+        // Let the launcher (and the terminal it opens) take the foreground from Explorer.
+        AllowSetForegroundWindow(ASFW_ANY);
+        std::wstring launcher = LauncherCommand(dir);
+        if (!launcher.empty() && RunHidden(launcher, dir)) return S_OK;
 
         std::wstring args = L"-d " + QuoteForWt(dir) + L" cmd /k claude";
         HINSTANCE r = ShellExecuteW(nullptr, L"open", L"wt.exe", args.c_str(), dir.c_str(), SW_SHOWNORMAL);
