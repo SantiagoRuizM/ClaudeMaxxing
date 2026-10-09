@@ -1,0 +1,5 @@
+{
+  "name": "voicetray",
+  "description": "VoiceTray: name, role, voice and spoken summaries for Claude Code sessions opened from the Explorer menu",
+  "version": "1.0.0"
+}

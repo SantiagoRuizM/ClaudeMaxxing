@@ -36,11 +36,33 @@ function Format-WtPath([string]$Path) {
     '"' + $escaped + '"'
 }
 
-# Tab color per slot, so each session window is easy to tell apart. Only the tab is colored: the
-# terminal profile, color scheme and everything Claude Code draws stay as configured.
-$SlotTabColors = @('#3B82F6', '#F97316', '#22C55E', '#A855F7', '#06B6D4', '#EF4444', '#EAB308', '#EC4899')
+# Color per slot, so each session window is easy to tell apart: the tab gets the hex, and Claude Code's
+# prompt box gets the same color by name (/color). The hex values are Claude Code's own for those names
+# in its dark theme. The terminal profile and color scheme stay as configured.
+$SlotColors = @(
+    [pscustomobject]@{ Name = 'blue';   Hex = '#6A9BCC' }
+    [pscustomobject]@{ Name = 'orange'; Hex = '#D97757' }
+    [pscustomobject]@{ Name = 'green';  Hex = '#16A34A' }
+    [pscustomobject]@{ Name = 'purple'; Hex = '#827DBD' }
+    [pscustomobject]@{ Name = 'cyan';   Hex = '#0891B2' }
+    [pscustomobject]@{ Name = 'red';    Hex = '#DC2626' }
+    [pscustomobject]@{ Name = 'yellow'; Hex = '#CA8A04' }
+    [pscustomobject]@{ Name = 'pink';   Hex = '#C46686' }
+)
 
-function Get-SlotTabColor([int]$Index) { $SlotTabColors[$Index % $SlotTabColors.Count] }
+function Get-SlotColor([int]$Index) { $SlotColors[$Index % $SlotColors.Count] }
+
+function Get-SlotTabColor([int]$Index) { (Get-SlotColor $Index).Hex }
+
+# Claude Code command line: a fixed session id (so the voice state can be prepared before it starts),
+# the voice plugin for this session only, and /color as the first prompt (a local command: no model call).
+function Format-ClaudeCommand([string]$Run, [string]$SessionId, [string]$PluginDir, [string]$ColorName) {
+    $command = $Run
+    if ($SessionId) { $command += ' --session-id ' + $SessionId }
+    if ($PluginDir) { $command += ' --plugin-dir ' + (Format-WtPath $PluginDir) }
+    if ($ColorName) { $command += ' "/color ' + $ColorName + '"' }
+    $command
+}
 
 # wt.exe arguments for a new window in $Dir running $Run. --pos only takes non-negative values
 # (a leading '-' reads as an option); the window is moved to its exact slot afterwards anyway.

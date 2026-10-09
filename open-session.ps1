@@ -2,6 +2,9 @@
 # With n monitors there are 2n slots (left and right half of each, monitors left to right); when all are
 # taken it says so and opens nothing. Launched by the "Abrir con Claude Code" Explorer menu entry, which
 # reads this command from HKCU\Software\ClaudeCodeMenu\Launcher (written by install.ps1).
+# Each session gets its slot's color (tab and Claude Code prompt box) and, from the voice part, a name
+# and a voice picked before Claude Code starts; the voice plugin (voice\plugin) loads for that session
+# only and completes the title with the role on the first prompt.
 # -Run and -StatePath are for testing: run another command, keep a separate session list.
 param([string]$Dir, [string]$Run = 'claude', [string]$StatePath)
 
@@ -30,6 +33,19 @@ function Show-Notice([string]$Text) {
     if ('ClaudeTrayWin' -as [type]) { [ClaudeTrayWin]::Notify($Text, $Caption); return }
     Add-Type -AssemblyName System.Windows.Forms
     [void][System.Windows.Forms.MessageBox]::Show($Text, $Caption)
+}
+
+# Name and voice for the session, from voice\hooks\common.ps1. It is loaded in a child scope because it
+# defines functions and variables with the same names as lib\common.ps1.
+function Register-VoiceSession([string]$SessionId, [string]$ColorName) {
+    $voiceLib = Join-Path $TrayRoot 'voice\hooks\common.ps1'
+    if (-not (Test-Path -LiteralPath $voiceLib)) { return $null }
+    & {
+        . $voiceLib
+        $cfg = Get-VoiceConfig
+        if (-not (Get-Opt $cfg 'naming.enabled' $true)) { return $null }
+        New-ReservedSession $cfg $SessionId $ColorName
+    }
 }
 
 function Wait-NewWindow([long[]]$Before, [int]$TimeoutMs) {
@@ -62,12 +78,24 @@ try {
     }
 
     $rect = $slots[$slot]
+    $color = Get-SlotColor $slot
+    $sessionId = [guid]::NewGuid().ToString()
+    $identity = $null
+    try {
+        $identity = Register-VoiceSession $sessionId $color.Name
+    } catch {
+        Write-SessionLog "voice name not reserved: $($_.Exception.Message)"
+    }
+    $pluginDir = Join-Path $TrayRoot 'voice\plugin'
+    if (-not (Test-Path -LiteralPath (Join-Path $pluginDir '.claude-plugin\plugin.json'))) { $pluginDir = '' }
+    $command = Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name
+
     $before = [long[]]@([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses))
     try {
-        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $Run $rect (Get-SlotTabColor $slot)) -WorkingDirectory $Dir -ErrorAction Stop
+        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $command $rect $color.Hex) -WorkingDirectory $Dir -ErrorAction Stop
     } catch {
         Write-SessionLog "wt.exe failed ($($_.Exception.Message)); using cmd.exe"
-        Start-Process -FilePath 'cmd.exe' -ArgumentList "/k $Run" -WorkingDirectory $Dir -ErrorAction Stop
+        Start-Process -FilePath 'cmd.exe' -ArgumentList "/k $command" -WorkingDirectory $Dir -ErrorAction Stop
     }
 
     $hwnd = Wait-NewWindow $before 15000
@@ -77,13 +105,17 @@ try {
         return
     }
     # Recorded before placing, so the slot is taken even if placing fails.
-    $sessions += [pscustomobject]@{ slot = $slot; hwnd = [long]$hwnd; dir = $Dir; at = (Get-Date).ToString('o') }
+    $sessions += [pscustomobject]@{
+        slot = $slot; hwnd = [long]$hwnd; dir = $Dir; at = (Get-Date).ToString('o')
+        sessionId = $sessionId; color = $color.Name; name = "$($identity.name)"
+    }
     Write-JsonFile $SessionsFile $sessions
 
     $frame = [ClaudeTrayWin]::Place($hwnd, $rect.X, $rect.Y, $rect.Width, $rect.Height, 12)
     [ClaudeTrayWin]::Activate($hwnd)
-    Write-SessionLog ("slot {0} hwnd {1}: target {2},{3} {4}x{5}, frame {6},{7} {8}x{9}, {10}" -f $slot, $hwnd,
-        $rect.X, $rect.Y, $rect.Width, $rect.Height, $frame[0], $frame[1], ($frame[2] - $frame[0]), ($frame[3] - $frame[1]), $Dir)
+    Write-SessionLog ("slot {0} hwnd {1}: target {2},{3} {4}x{5}, frame {6},{7} {8}x{9}, {10} {11} {12}, {13}" -f $slot, $hwnd,
+        $rect.X, $rect.Y, $rect.Width, $rect.Height, $frame[0], $frame[1], ($frame[2] - $frame[0]), ($frame[3] - $frame[1]),
+        $color.Name, $sessionId, $identity.name, $Dir)
 } catch {
     Write-SessionLog "error: $($_.Exception.Message)"
     Show-Notice "No se pudo abrir Claude Code: $($_.Exception.Message)"
