@@ -63,7 +63,7 @@ if (-not (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
     Add-Warning 'Windows Terminal (wt.exe) not found: menu sessions open in a plain console, without half-screen placement or tab colors.'
 }
 if ([Environment]::OSVersion.Version.Build -lt 22000) {
-    Add-Warning 'This is not Windows 11: the "Abrir con Claude Code" entry may only show under "Show more options".'
+    Add-Warning 'This is not Windows 11 (untested): the "Abrir con Claude Code" entry may not show, or only under "Show more options".'
 }
 
 # ---------------------------------------------------------------- 2. previous install
