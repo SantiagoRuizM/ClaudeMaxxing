@@ -89,6 +89,7 @@ $cert = Get-SigningCertificate
 if (-not ('MsixSigner' -as [type])) { Add-Type -Path (Join-Path $MenuRoot 'src\MsixSigner.cs') }
 $signed = Join-Path $env:TEMP ('ClaudeCodeMenu-{0}.msix' -f [guid]::NewGuid().ToString('N'))
 Copy-Item -LiteralPath (Join-Path $bin 'ClaudeCodeMenu.msix') -Destination $signed
+Unblock-File -LiteralPath $signed  # a downloaded ZIP's mark of the web follows the copy
 try {
     [MsixSigner]::Sign($signed, $cert.Handle)
     Add-AppxPackage -Path $signed -ExternalLocation $deploy

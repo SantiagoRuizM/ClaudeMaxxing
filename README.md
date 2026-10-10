@@ -12,7 +12,8 @@ The user interface is in Spanish, and so are the voices (Latin American neural v
 
 ## Requirements
 
-- Windows 11, x64. On Windows 10 the menu entry only shows under "Show more options". On ARM64 the menu is skipped, because its DLL is x64 only.
+- Windows 11, x64. Windows 10 is untested. On ARM64 the menu is skipped, because its DLL is x64 only.
+- An account that can approve a UAC prompt (once, for the menu entry). Without it, everything except the menu entry still installs.
 - Claude Code installed, with `claude` on PATH.
 - Windows Terminal (included with Windows 11).
 - Optional: `winget`, so the installer can add what the voice needs (Python for edge-tts, and FFmpeg for ffplay). Without them, the voice uses the built-in Windows voice.
@@ -122,7 +123,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 - Si tienes `winget`, el instalador añade lo que necesita la voz: Python con edge-tts en un entorno propio, y FFmpeg para ffplay. Si no, la voz usa la de Windows.
 - Lo propio de tu PC (rutas, cambios a la configuración de voz) va en `voice\config.local.json` y se conserva al actualizar.
 
-**Requisitos:** Windows 11 x64, Claude Code (`claude` en el PATH) y Windows Terminal. Para que la bandeja se actualice con cada respuesta, además, una barra de estado (statusline) en bash y `jq`.
+**Requisitos:** Windows 11 x64 (Windows 10 sin probar), Claude Code (`claude` en el PATH), Windows Terminal y poder aprobar un aviso de UAC (solo para el menú). Para que la bandeja se actualice con cada respuesta, además, una barra de estado (statusline) en bash y `jq`.
 
 **Desinstalar:** desde Configuración > Aplicaciones > ClaudeMaxxing, o con `uninstall.ps1` en la carpeta de instalación. Tus datos (`~/.claude/usage-tray`, `%TEMP%\claude-voice`) se conservan, salvo que uses `-RemoveData`.
 
