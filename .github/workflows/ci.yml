@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tray, slots, installer and menu package tests
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1
+
+      - name: Voice tests (no audio)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1
+
+      - name: Menu DLL and stub build from source
+        shell: cmd
+        run: menu\build.cmd
