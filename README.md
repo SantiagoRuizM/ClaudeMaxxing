@@ -1,61 +1,129 @@
-# VoiceTray
+# ClaudeMaxxing
 
-Tres piezas para trabajar con varias sesiones de Claude Code en Windows:
+Tools for working with several Claude Code sessions at once on Windows 11:
 
-- **Bandeja** (`tray.ps1`, `lib/`): uso del plan de Claude (ventana de 5 horas y límite semanal), cuándo se reinicia y **Agendar sesión**.
-- **Abrir con Claude Code** (`menu/`, `open-session.ps1`): desde el menú del Explorador, cada sesión se abre en una mitad de pantalla (máximo 2 por pantalla), con su color y un nombre como "Martín · codificador".
-- **Voz** (`voice/`, antes ClaudeVoice): cada sesión del menú lee en voz alta un resumen de cada respuesta, con su propia voz y firma musical. Detalles en [`voice/README.md`](voice/README.md).
+- **Usage tray**: your Claude plan usage (5-hour window and weekly limit) in the notification area, when each one resets, and **Agendar sesión** to start the 5-hour window ahead of time.
+- **"Abrir con Claude Code"** in the Explorer right-click menu: every session opens in its own half of a screen (two per monitor), with its own color and a name such as "Martín · codificador".
+- **Voice**: each session opened from the menu reads a one-line summary of every answer aloud, with its own voice and a short musical signature. Details in [`voice/README.md`](voice/README.md) (Spanish).
 
-## Bandeja: cómo funciona
+The user interface is in Spanish, and so are the voices (Latin American neural voices).
 
-- La barra de estado (statusline) de Claude Code recibe `rate_limits` en cada respuesta. Un bloque añadido a `~/.claude/statusline-command.sh` guarda esos datos en `~/.claude/usage-tray/usage.json`, sin tocar lo que se muestra en la barra.
-- `tray.ps1` lee ese archivo cada 15 s y dibuja el popup. Clic izquierdo abre o cierra; clic derecho abre el menú.
-- Botón **↻** (y menú *Actualizar datos*): pide el uso en vivo al mismo endpoint que usa `/usage` (`api.anthropic.com/api/oauth/usage`, con el token local de Claude Code). También se pide al arrancar y al abrir el popup si los datos tienen más de 10 minutos. Si la cuenta tiene **uso extra** activado o un **limit reset** disponible (Configuración → Uso → Resets), aparecen como secciones extra; si no, no se muestran. El reinicio se reclama en claude.ai (botón *Use*), no desde aquí. Ese endpoint **no está documentado**: si cambia o falla, el popup muestra el error y sigue usando lo que escribe la barra de estado.
-- El punto verde indica que algún Claude Code respondió en los últimos 10 minutos. Si está gris, los números son los últimos conocidos (el uso desde claude.ai o la app de escritorio no se refleja hasta la próxima respuesta en Claude Code). Cuando pasa la hora de reinicio, esa ventana se muestra en 0 %.
+*Versión en español más abajo: [Español](#español).*
 
-## Agendar sesión
+## Requirements
 
-La ventana de 5 horas empieza con el primer mensaje. Agendar un mensaje mínimo (Haiku, "ok") hace que empiece y se reinicie antes.
+- Windows 11, x64. On Windows 10 the menu entry only shows under "Show more options". On ARM64 the menu is skipped, because its DLL is x64 only.
+- Claude Code installed, with `claude` on PATH.
+- Windows Terminal (included with Windows 11).
+- Optional: `winget`, so the installer can add what the voice needs (Python for edge-tts, and FFmpeg for ffplay). Without them, the voice uses the built-in Windows voice.
+- Optional: a bash statusline script plus `jq`, so the tray updates on every Claude Code response. Without them, the tray refreshes from the usage endpoint instead (see [How the tray gets its data](#how-the-tray-gets-its-data)).
 
-- **En este PC**: crea una tarea única en el Programador de tareas (`\ClaudeTray\`). Despierta el PC si está suspendido (requiere los temporizadores de reactivación activados en el plan de energía), pero no si está apagado ni si la sesión de Windows está cerrada (la tarea corre con tu usuario, con sesión iniciada). Cada ejecución queda en `~/.claude/usage-tray/history.json` (se ve en *Agendadas* como Hecha o Falló) y en `scheduled.log`.
-- **En la nube**: al pulsar *Agendar*, el diálogo muestra una tarjeta *Creando rutina en claude.ai…* con los detalles (hora, Haiku, mensaje «ok») mientras Claude Code, sin ventana y con solo la herramienta de rutinas permitida, ejecuta `/schedule` (unos 50 s). Al terminar muestra la rutina creada o el error; el registro queda en `~/.claude/usage-tray/runs/cloud-<id>.log`. Funciona con el PC apagado y consume del mismo plan. La API adjunta los conectores de la cuenta a la rutina y no deja quitarlos por API; se pueden quitar editándola en claude.ai.
+## Install
 
-## Abrir con Claude Code (mitades de pantalla)
+Clone the repo or download it as a ZIP, then run:
 
-La entrada **Abrir con Claude Code** del menú contextual del Explorador (Windows 11) ejecuta el comando guardado en `HKCU\Software\ClaudeCodeMenu\Launcher`, que `install.ps1` apunta a `open-session.ps1`. Si ese valor no existe, el menú abre Windows Terminal como antes.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+```
 
-- Con **n** pantallas hay **2n** huecos: mitad izquierda y derecha de cada pantalla, numerados de la pantalla más a la izquierda a la más a la derecha. Cada sesión nueva abre una ventana de Windows Terminal y la coloca en el primer hueco libre (área de trabajo, sin tapar la barra de tareas; respeta el escalado de cada pantalla).
-- Cada hueco tiene un color (azul, naranja, verde, morado, cian, rojo, amarillo, rosa): la pestaña y la caja del prompt de Claude Code (`/color`, como primer prompt: es un comando local, sin llamada al modelo) salen del mismo tono. Ni el perfil del terminal ni su esquema de colores cambian. El modo oscuro/claro de la ventana lo decide Windows Terminal (por defecto sigue al tema de Windows).
-- **Nombre y rol:** antes de abrir, el lanzador reserva para la sesión un nombre y una voz (`voice/`, sin repetir los de otras sesiones activas) y arranca Claude Code con ese `--session-id` y el plugin de voz (`--plugin-dir voice\plugin`, solo para esa sesión). La sesión empieza llamándose "Martín" (caja del prompt, pestaña y `/resume`) y con el primer prompt que no sea un comando pasa a "Martín · codificador" según lo que pidas. Desde ahí habla como "Soy Martín, codificador. …". Nada de esto toca tu `~/.claude`.
-- Con los 2n huecos ocupados, avisa y no abre nada. Al cerrar una de esas ventanas su hueco queda libre.
-- Solo cuentan las sesiones abiertas desde el menú (`~/.claude/usage-tray/sessions.json`); un `claude` lanzado a mano en otra terminal no ocupa hueco. Lo que pasa en cada apertura queda en `sessions.log`.
+- Everything is copied to `%LOCALAPPDATA%\ClaudeMaxxing`, and everything runs from there. After installing you can move or delete the repo.
+- The first time, Windows shows **one UAC prompt**. It trusts a code-signing certificate that the installer creates on your PC, which signs the package for the Explorer menu entry. The certificate's private key never leaves your PC. You don't need Visual Studio or the Windows SDK: the menu DLL and its package come prebuilt in `menu/bin`.
+- The menu entry appears after you restart Explorer or sign out and back in.
+- To update, run `install.ps1` again from a newer copy of the repo. It is idempotent, and it keeps your per-PC settings (`voice\config.local.json`).
 
-La entrada del menú está en `menu/`: una extensión `IExplorerCommand` en C++ (`menu/src`) registrada con un paquete MSIX *sparse* firmado (`menu/package`), cuyos archivos de ejecución viven en `%LOCALAPPDATA%\ClaudeCodeMenu`.
-
-| Archivo | Qué hace |
+| Option | Effect |
 |---|---|
-| `menu/build.cmd` | Compila la DLL y el ejecutable stub en `menu/bin` (requiere Visual Studio con C++). |
-| `menu/package.ps1` | Empaqueta y firma el MSIX en `menu/bin` con el certificado `CN=ClaudeCodeMenu` (lo crea si falta; requiere el Windows SDK). Solo hace falta si cambia el manifiesto. |
-| `menu/install.ps1` | Compila si falta (`-Build` fuerza), copia los archivos a `%LOCALAPPDATA%\ClaudeCodeMenu` y registra el paquete si no lo está (un aviso de UAC para confiar en el certificado). No reinicia el Explorador. `install.ps1` lo llama. |
-| `menu/uninstall.ps1` | Quita la entrada, el valor `Launcher`, los archivos desplegados y el certificado. |
+| `-InstallDir <path>` | Install somewhere other than `%LOCALAPPDATA%\ClaudeMaxxing` |
+| `-SkipMenu` | Don't install or update the Explorer menu entry |
+| `-SkipVoiceDeps` | Don't install edge-tts or FFmpeg (the voice uses the Windows voice) |
+| `-NoHotkeys` | Don't enable the global voice hotkeys (Ctrl+Alt+Shift+O repeats, Ctrl+Alt+Shift+P stops) |
+| `-NoStart` | Don't start the tray now (it still starts when you sign in) |
+| `-BuildMenu` | Rebuild the menu DLL from source first (needs Visual Studio with C++) |
 
-Tras cambiar la DLL: `menu\install.ps1 -Build`. Si el Explorador tenía la DLL cargada, la copia en uso se renombra y la nueva se usa en la próxima apertura del menú.
+### What it changes on your PC
 
-## Instalar / desinstalar
+| Where | What |
+|---|---|
+| `%LOCALAPPDATA%\ClaudeMaxxing` | The runtime: tray, menu launcher, voice. Voice settings for this PC go in `voice\config.local.json`, and edge-tts in `voice\venv` when it has to be installed |
+| `%LOCALAPPDATA%\ClaudeCodeMenu` | The Explorer extension (DLL, stub, icons) |
+| Packages | `ClaudeCode.ContextMenu`, a sparse package signed with this PC's `CN=ClaudeCodeMenu` certificate (CurrentUser\My, trusted in LocalMachine\TrustedPeople) |
+| `HKCU\Software\ClaudeCodeMenu\Launcher` | The command the menu entry runs |
+| Startup folder | `ClaudeMaxxing.lnk` (tray) and `ClaudeMaxxing atajos.lnk` (voice hotkeys) |
+| Settings > Apps | A "ClaudeMaxxing" entry; uninstalling it there runs `uninstall.ps1` |
+| `~/.claude/statusline-command.sh` | A block that saves `rate_limits` to `~/.claude/usage-tray/usage.json` (a backup is kept). Nothing else in `~/.claude` changes |
+| `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, and voice history |
+
+## Uninstall
+
+Use Settings > Apps > ClaudeMaxxing, or run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1     # parchea statusline (con backup), menú y su lanzador, /voz del plugin de voz, acceso directo de inicio y arranca
-powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1   # quita todo salvo los datos en ~/.claude/usage-tray (el menú vuelve a abrir Windows Terminal sin huecos; `menu\uninstall.ps1` lo quita)
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\ClaudeMaxxing\uninstall.ps1"
 ```
 
-El lanzador del menú, el acceso directo de inicio y el `/voz` del plugin guardan la ruta absoluta de esta carpeta. **Si la mueves o le cambias el nombre, vuelve a ejecutar `install.ps1`** (y cierra y reabre las sesiones del menú que estuvieran abiertas: arrancaron con `--plugin-dir` en la ruta vieja).
+This removes everything listed above, including the menu entry and its certificate (one UAC prompt). Data in `~/.claude/usage-tray` and `%TEMP%\claude-voice` is kept unless you pass `-RemoveData`. `-KeepMenu` keeps the menu entry, which then opens a plain Windows Terminal.
 
-## Pruebas
+## How it works
+
+### How the tray gets its data
+
+- Claude Code's statusline receives `rate_limits` on every response. The block added to your statusline script saves them to `~/.claude/usage-tray/usage.json`; what the statusline shows doesn't change. The tray reads that file every 15 s. Left-click opens or closes the popup; right-click opens the menu.
+- The **↻** button asks for live usage from the endpoint that `/usage` uses (`api.anthropic.com/api/oauth/usage`, with Claude Code's local token). The tray also asks it on start, and when you open the popup if the data is more than 10 minutes old. That endpoint is **undocumented**: if it changes, the popup shows the error and keeps the statusline data. Extra usage and an available limit reset show up as extra sections when the account has them.
+- The green dot means some Claude Code session answered in the last 10 minutes.
+
+### Scheduling a session
+
+The 5-hour window starts with your first message, so scheduling a tiny prompt (Haiku, "ok") starts it, and resets it, earlier.
+
+- **On this PC**: a one-off task in Task Scheduler (`\ClaudeMaxxing\`). It wakes the PC from sleep if wake timers are enabled. It doesn't run if the PC is off or you are signed out.
+- **In the cloud**: Claude Code creates a claude.ai routine with `/schedule`, without a window. This works with the PC off.
+
+### Half-screen sessions
+
+- With **n** monitors there are **2n** slots, the left and right half of each monitor. Each new session takes the first free one. When they are all taken, the tray says so and opens nothing.
+- Each slot has a color. The tab and Claude Code's prompt box get it (`/color`, sent as a local command, so no model call).
+- Before Claude Code starts, the launcher reserves a name and a voice for the session. It then starts Claude Code with that `--session-id` and the voice plugin (`--plugin-dir`, for that session only). On the first real prompt the name gets a role: "Martín" becomes "Martín · codificador".
+- Only sessions opened from the menu take a slot.
+
+## Development
+
+The repo is only the installer. After editing anything, run `install.ps1` again to deploy it.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1         # bandeja, huecos, menú; ASCII y sintaxis de todos los .ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1   # voz, sin audio
-powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # dibuja el popup a una imagen
+powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1         # tray, slots, installer, menu package; every .ps1 is ASCII and parses
+powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1   # voice, no audio
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draws the popup to an image
 ```
 
-Los `.ps1` deben quedar en ASCII (PowerShell 5.1 los lee como ANSI); los textos con tildes van como `\uXXXX` y se decodifican con `Tx`.
+- `.ps1` files must stay ASCII: Windows PowerShell 5.1 reads BOM-less scripts as ANSI. Accented UI text goes in as `\uXXXX` and is decoded with `Tx`, or comes from UTF-8 JSON.
+- `lib/installer.ps1` lists exactly which files make up the installed runtime.
+- **Menu** (`menu/`): an `IExplorerCommand` in C++ (`menu/src`), registered through a sparse MSIX (`menu/package`).
+  - `menu\build.cmd` rebuilds `menu\bin\*.dll|exe`. It needs Visual Studio with C++.
+  - `menu\package.ps1` rebuilds the unsigned `menu\bin\ClaudeCodeMenu.msix` after the manifest or the logos change. It needs the Windows SDK. Raise `Version` in `AppxManifest.xml` too, so existing installs re-register.
+  - `menu\install.ps1` signs a copy with `menu\src\MsixSigner.cs` (it calls `SignerSignEx2` in `mssign32.dll`, the same API signtool uses) and registers it.
+
+## Español
+
+ClaudeMaxxing reúne tres herramientas para trabajar con varias sesiones de Claude Code en Windows 11:
+
+- una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal) y la opción de **agendar sesión**;
+- la entrada **Abrir con Claude Code** en el menú del Explorador, que abre cada sesión en una mitad de pantalla, con su color y su nombre;
+- la **voz**: cada sesión lee en voz alta un resumen de cada respuesta ([`voice/README.md`](voice/README.md)).
+
+**Instalar:** clona el repo o descárgalo en ZIP, y ejecuta:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+```
+
+- Todo se copia a `%LOCALAPPDATA%\ClaudeMaxxing` y se ejecuta desde ahí, así que después puedes mover o borrar el repo. Para actualizar, vuelve a ejecutar `install.ps1` desde una copia nueva.
+- La primera vez Windows pide **un permiso de administrador (UAC)**. Sirve para confiar en un certificado que se crea en tu PC y firma la entrada del menú. No necesitas Visual Studio ni el Windows SDK.
+- La entrada del menú aparece después de reiniciar el Explorador o de cerrar sesión.
+- Si tienes `winget`, el instalador añade lo que necesita la voz: Python con edge-tts en un entorno propio, y FFmpeg para ffplay. Si no, la voz usa la de Windows.
+- Lo propio de tu PC (rutas, cambios a la configuración de voz) va en `voice\config.local.json` y se conserva al actualizar.
+
+**Requisitos:** Windows 11 x64, Claude Code (`claude` en el PATH) y Windows Terminal. Para que la bandeja se actualice con cada respuesta, además, una barra de estado (statusline) en bash y `jq`.
+
+**Desinstalar:** desde Configuración > Aplicaciones > ClaudeMaxxing, o con `uninstall.ps1` en la carpeta de instalación. Tus datos (`~/.claude/usage-tray`, `%TEMP%\claude-voice`) se conservan, salvo que uses `-RemoveData`.
+
+**Desarrollo:** el repo es solo el instalador. Después de cambiar algo, vuelve a ejecutar `install.ps1`. Las pruebas están en `test\run-tests.ps1` y `voice\test\run-tests.ps1`.
