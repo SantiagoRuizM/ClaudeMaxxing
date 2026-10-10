@@ -96,7 +96,7 @@
       "es-VE-PaolaNeural": "f", "es-VE-SebastianNeural": "m"
     },
     "rate": "+5%",
-    "exe": "C:/Users/user/AppData/Local/hermes/hermes-agent/venv/Scripts/edge-tts.exe"
+    "exe": ""
   },
   "sapi": {
     "voice": "Microsoft Helena Desktop",

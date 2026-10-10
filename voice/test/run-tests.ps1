@@ -193,6 +193,16 @@ try { Import-Native; $null = [ClaudeVoice.Mixer]::Snapshot([int[]]@($PID)) } cat
 Check 'compila y lee las sesiones de audio' $ok $err
 Check 'restaurar sin estado no falla' ((Restore-Duck $cfgFile 0) -eq $null) ''
 
+'config.local.json sobre config.json'
+$base = '{ "engine": "edge", "edge": { "voice": "a", "rate": "+5%", "voicePool": ["a", "b"] }, "ffplay": "" }' | ConvertFrom-Json
+Merge-VoiceConfig $base ('{ "edge": { "exe": "C:/x/edge-tts.exe", "voicePool": ["z"] }, "ffplay": "C:/y/ffplay.exe" }' | ConvertFrom-Json)
+Check 'agrega claves anidadas' ($base.edge.exe -eq 'C:/x/edge-tts.exe') $base.edge.exe
+Check 'conserva las hermanas' ($base.edge.voice -eq 'a' -and $base.edge.rate -eq '+5%' -and $base.engine -eq 'edge') ($base | ConvertTo-Json -Compress)
+Check 'reemplaza listas enteras' ((@($base.edge.voicePool) -join ',') -eq 'z') (@($base.edge.voicePool) -join ',')
+Check 'reemplaza valores de primer nivel' ($base.ffplay -eq 'C:/y/ffplay.exe') $base.ffplay
+$shipped = [IO.File]::ReadAllText("$PSScriptRoot\..\config.json", $Utf8) | ConvertFrom-Json
+Check 'config.json no trae rutas de este PC' (-not $shipped.edge.exe -and -not $shipped.ffplay) "$($shipped.edge.exe) $($shipped.ffplay)"
+
 'install.ps1 sobre copias temporales'
 $tmp = Join-Path $StateDir 'install-test'
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null

@@ -28,7 +28,13 @@ function Invoke-Sapi($Cfg, [string]$Text) {
     try {
         $sapiVoice = Get-Opt $Cfg 'sapi.voice' ''
         if ($sapiVoice) {
-            try { $synth.SelectVoice($sapiVoice) } catch { Write-Log "sapi: la voz '$sapiVoice' no existe" }
+            try { $synth.SelectVoice($sapiVoice) } catch {
+                # En otro PC puede no estar esa voz: cualquier voz en espanol antes que la de por defecto.
+                $spanish = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.TwoLetterISOLanguageName -eq 'es' }) |
+                    Select-Object -First 1
+                if ($spanish) { $synth.SelectVoice($spanish.VoiceInfo.Name) }
+                Write-Log "sapi: la voz '$sapiVoice' no existe; uso '$($synth.Voice.Name)'"
+            }
         }
         $synth.Rate = [int](Get-Opt $Cfg 'sapi.rate' 0)
         $synth.SetOutputToDefaultAudioDevice()

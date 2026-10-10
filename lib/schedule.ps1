@@ -1,7 +1,9 @@
 # Scheduling helpers: one-shot Task Scheduler tasks that start a Claude session at a given time,
 # plus the prompt used to create a cloud routine through /schedule.
 
-$script:SessionTaskPath = '\ClaudeTray\'
+$script:SessionTaskPath = '\ClaudeMaxxing\'
+# Folder used before the rename; only cleaned up.
+$script:LegacySessionTaskPath = '\ClaudeTray\'
 
 function Get-SessionTaskName([datetime]$At) {
     'Session-' + $At.ToString('yyyyMMdd-HHmm')
@@ -19,7 +21,7 @@ function New-SessionTask([datetime]$At, [string]$ScriptPath) {
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName (Get-SessionTaskName $At) -TaskPath $script:SessionTaskPath `
         -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
-        -Description 'ClaudeTray: start a Claude usage session' -Force | Out-Null
+        -Description 'ClaudeMaxxing: start a Claude usage session' -Force | Out-Null
 }
 
 function Get-SessionTasks {
@@ -38,10 +40,18 @@ function Remove-SessionTask([string]$Name) {
     Unregister-ScheduledTask -TaskName $Name -TaskPath $script:SessionTaskPath -Confirm:$false -ErrorAction SilentlyContinue
 }
 
-function Remove-AllSessionTasks {
-    foreach ($task in @(Get-ScheduledTask -TaskPath $script:SessionTaskPath -ErrorAction SilentlyContinue)) {
-        Unregister-ScheduledTask -TaskName $task.TaskName -TaskPath $script:SessionTaskPath -Confirm:$false -ErrorAction SilentlyContinue
+# Returns how many tasks were removed. -LegacyOnly: only the ones in the old folder, whose action points
+# at a start-session.ps1 that may no longer exist.
+function Remove-AllSessionTasks([switch]$LegacyOnly) {
+    $paths = if ($LegacyOnly) { @($script:LegacySessionTaskPath) } else { @($script:SessionTaskPath, $script:LegacySessionTaskPath) }
+    $removed = 0
+    foreach ($path in $paths) {
+        foreach ($task in @(Get-ScheduledTask -TaskPath $path -ErrorAction SilentlyContinue)) {
+            Unregister-ScheduledTask -TaskName $task.TaskName -TaskPath $path -Confirm:$false -ErrorAction SilentlyContinue
+            $removed++
+        }
     }
+    $removed
 }
 
 function Format-UtcOffset([datetime]$At) {
@@ -61,7 +71,7 @@ function Format-CloudSchedulePrompt([datetime]$At) {
     "Routine prompt: $($script:CloudRoutine.Prompt) Purpose: start my 5-hour usage window early. " +
     "Model: $($script:CloudRoutine.Model). No repositories. Remove all connectors: create it with an " +
     "explicitly empty connector list (mcp_connections: []). I clicked Agendar in the " +
-    "ClaudeTray dialog after reviewing exactly these details, and that dialog is showing the progress " +
+    "ClaudeMaxxing dialog after reviewing exactly these details, and that dialog is showing the progress " +
     "of this request, so please create it without follow-up questions. End your reply with one line: " +
     "ROUTINE_ID=trig_... with the new routine id, or FAILED=short reason."
 }

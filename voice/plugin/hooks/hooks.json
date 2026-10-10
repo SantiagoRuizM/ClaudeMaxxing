@@ -1,5 +1,5 @@
 {
-  "description": "VoiceTray voice hooks (loaded only with --plugin-dir by open-session.ps1)",
+  "description": "ClaudeMaxxing voice hooks (loaded only with --plugin-dir by open-session.ps1)",
   "hooks": {
     "SessionStart": [
       {

@@ -225,6 +225,39 @@ Assert-Equal '-w new -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude
 Assert-Equal $true ((Format-SessionsFullMessage 4 2).Contains('(2 pantallas)')) 'full message names the monitors'
 Assert-Equal $true ((Format-SessionsFullMessage 2 1).Contains('(1 pantalla)')) 'full message, one monitor'
 
+# --- installer: what gets copied to the install folder
+. (Join-Path $TrayRoot 'lib\installer.ps1')
+$manifest = Get-RuntimeManifest $TrayRoot
+Assert-Equal 0 @($manifest | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot $_)) }).Count 'every runtime file exists in the repo'
+foreach ($needed in 'tray.ps1', 'open-session.ps1', 'uninstall.ps1', 'lib\installer.ps1', 'voice\hooks\speak.ps1', 'voice\plugin\hooks\hooks.json', 'voice\templates\skill-voz.md') {
+    Assert-Equal $true ($manifest -contains $needed) "runtime includes $needed"
+}
+Assert-Equal 0 @($manifest | Where-Object { $_ -like 'voice\plugin\skills\*' -or $_ -like 'test\*' -or $_ -like 'menu\src\*' }).Count 'runtime skips generated, test and source files'
+$stale = Get-StaleFiles @('lib\old.ps1', 'lib\common.ps1', 'voice\config.local.json', 'voice\venv\Scripts\edge-tts.exe', 'voice\plugin\skills\voz\SKILL.md', 'assets\Tray-Win32.ico') @('lib\common.ps1')
+Assert-Equal 'lib\old.ps1' ($stale -join ',') 'update deletes only files dropped from the repo, never user or generated ones'
+Assert-Equal 0 @(Get-StaleFiles @('LIB\Common.ps1') @('lib\common.ps1')).Count 'stale check ignores case'
+# The repo may be renamed or deleted after installing: no runtime file may point back into it.
+$repoRefs = @($manifest | Where-Object {
+    $text = [IO.File]::ReadAllText((Join-Path $TrayRoot $_))
+    $text -match [regex]::Escape($TrayRoot) -or $text -match 'C:[\\/]+Users[\\/]+'
+})
+Assert-Equal '' ($repoRefs -join ', ') 'no runtime file has an absolute path to this PC'
+
+# --- Explorer menu: prebuilt files committed, and the MSIX built from the current manifest
+foreach ($file in 'ClaudeCodeMenu.dll', 'ClaudeCodeMenuStub.exe', 'ClaudeCodeMenu.msix') {
+    Assert-Equal $true (Test-Path -LiteralPath (Join-Path $TrayRoot "menu\bin\$file")) "menu\bin\$file is in the repo"
+}
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead((Join-Path $TrayRoot 'menu\bin\ClaudeCodeMenu.msix'))
+try {
+    $entry = $zip.GetEntry('AppxManifest.xml')
+    $reader = New-Object System.IO.StreamReader($entry.Open())
+    $packed = $reader.ReadToEnd(); $reader.Dispose()
+    Assert-Equal $null $zip.GetEntry('AppxSignature.p7x') 'committed MSIX is unsigned (each PC signs its own copy)'
+} finally { $zip.Dispose() }
+$source = [IO.File]::ReadAllText((Join-Path $TrayRoot 'menu\package\AppxManifest.xml'))
+Assert-Equal ($source.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") ($packed.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") 'MSIX manifest matches menu\package\AppxManifest.xml (run menu\package.ps1 after editing it)'
+
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {
     $tokens = $null; $errors = $null
