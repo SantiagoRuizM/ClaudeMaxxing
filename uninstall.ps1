@@ -1,34 +1,73 @@
-# Removes ClaudeTray: stops the tray, deletes the startup shortcut, the menu launcher and scheduled sessions,
-# and removes the statusline block. Data in ~/.claude/usage-tray is kept.
+# Removes ClaudeMaxxing for the current user: the tray and its startup shortcut, the voice hotkeys, the
+# "Abrir con Claude Code" Explorer entry (package, certificate and launcher; one UAC prompt), scheduled sessions,
+# the statusline block, the voice hooks if they were installed for every session, the Settings > Apps entry and
+# the install folder. Usage data (~/.claude/usage-tray) and voice state (%TEMP%\claude-voice) are kept unless
+# -RemoveData. -KeepMenu leaves the Explorer entry, which then opens plain Windows Terminal.
+# Runs from the repo or from the install folder (Settings > Apps uses the installed copy).
+param([string]$InstallDir, [switch]$KeepMenu, [switch]$RemoveData)
 
-$TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-. (Join-Path $TrayRoot 'lib\common.ps1')
-. (Join-Path $TrayRoot 'lib\schedule.ps1')
-. (Join-Path $TrayRoot 'lib\statusline.ps1')
+$Here = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $Here 'lib\common.ps1')
+. (Join-Path $Here 'lib\schedule.ps1')
+. (Join-Path $Here 'lib\statusline.ps1')
+. (Join-Path $Here 'lib\installer.ps1')
+if (-not $InstallDir) { $InstallDir = $DefaultInstallDir }
+$InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+$powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 
-# Stop only the tray process recorded in tray.pid, after checking it really is tray.ps1.
-if (Test-Path -LiteralPath $TrayPidFile) {
-    $trayPid = [int](Get-Content -LiteralPath $TrayPidFile -Raw)
-    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $trayPid" -ErrorAction SilentlyContinue
-    if ($proc -and $proc.CommandLine -like '*tray.ps1*') {
-        Stop-Process -Id $trayPid -Force
-        Write-Host "tray stopped (PID $trayPid)"
+$stopped = Stop-RecordedTray
+if ($stopped) { Write-Host "tray stopped (PID $stopped)" }
+foreach ($link in $TrayLink, $LegacyTrayLink) {
+    if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link; Write-Host "removed $link" }
+}
+
+# Voice: hotkeys (listener and startup shortcut), and the hooks/rule/(voz) if voice\install.ps1 put them in ~/.claude.
+$voiceDir = Join-Path $InstallDir 'voice'
+if (-not (Test-Path -LiteralPath (Join-Path $voiceDir 'ctl.ps1'))) { $voiceDir = Join-Path $Here 'voice' }
+& $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $voiceDir 'ctl.ps1') hotkeys off | ForEach-Object { Write-Host $_ }
+$settingsPath = Join-Path $env:USERPROFILE '.claude\settings.json'
+$claudeMd = Join-Path $env:USERPROFILE '.claude\CLAUDE.md'
+$globalVoice = ((Test-Path -LiteralPath $settingsPath) -and ((Get-Content -LiteralPath $settingsPath -Raw) -match 'hooks[\\/]+(speak|on-prompt)\.ps1')) -or
+    ((Test-Path -LiteralPath $claudeMd) -and ((Get-Content -LiteralPath $claudeMd -Raw) -match 'claudevoice:start'))
+if ($globalVoice) {
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $voiceDir 'install.ps1') -Uninstall | ForEach-Object { Write-Host $_ }
+}
+
+if ($KeepMenu) {
+    if (Test-Path -LiteralPath $MenuKey) { Remove-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue }
+    Write-Host 'menu launcher removed (the Explorer entry opens plain Windows Terminal)'
+} else {
+    & (Join-Path $Here 'menu\uninstall.ps1')
+}
+
+$removed = Remove-AllSessionTasks
+Write-Host "scheduled sessions removed: $removed"
+
+$statusline = Get-StatuslineScriptPath
+if ($statusline) { Write-Host "statusline: $(Uninstall-StatuslineBlock $statusline)" }
+
+if (Test-Path -LiteralPath $UninstallKey) { Remove-Item -LiteralPath $UninstallKey -Recurse; Write-Host 'Settings > Apps entry removed' }
+
+if ($RemoveData) {
+    foreach ($dir in $TrayHome, (Join-Path $env:TEMP 'claude-voice')) {
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "removed $dir"
     }
-    Remove-Item -LiteralPath $TrayPidFile -ErrorAction SilentlyContinue
+} else {
+    Write-Host "data kept in $TrayHome and $(Join-Path $env:TEMP 'claude-voice') (-RemoveData deletes them)"
 }
 
-$link = Join-Path ([Environment]::GetFolderPath('Startup')) 'ClaudeTray.lnk'
-if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link; Write-Host 'startup shortcut removed' }
-
-if (Test-Path -LiteralPath $MenuKey) {
-    Remove-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue
-    Write-Host 'menu launcher removed (the Explorer menu opens plain Windows Terminal again)'
+# The install folder last. When this script runs from inside it, a detached cmd deletes it once we exit.
+if (Test-Path -LiteralPath $InstallDir) {
+    if ($Here.TrimEnd('\') -like "$InstallDir*") {
+        Set-Location -LiteralPath $env:TEMP
+        Start-Process -FilePath cmd.exe -WindowStyle Hidden -WorkingDirectory $env:TEMP `
+            -ArgumentList ('/c ping -n 3 127.0.0.1 >nul & rmdir /s /q "{0}"' -f $InstallDir)
+        Write-Host "$InstallDir will be deleted in a few seconds"
+    } else {
+        Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $InstallDir) { Write-Host "some files in $InstallDir are in use; delete it after closing the open menu sessions" }
+        else { Write-Host "removed $InstallDir" }
+    }
 }
-
-Remove-AllSessionTasks
-Write-Host 'scheduled sessions removed'
-
-$script = Get-StatuslineScriptPath
-if ($script) { Write-Host "statusline: $(Uninstall-StatuslineBlock $script)" }
-
-Write-Host "data kept in $TrayHome"
+Write-Host "$AppName uninstalled."

@@ -96,7 +96,8 @@ function Show-Chimes([string]$Timbre) {
 # Atajos globales: un proceso oculto (hooks/hotkeys.ps1) los registra con RegisterHotKey.
 # Arranca ahora y en cada inicio de sesion (acceso directo en la carpeta Inicio).
 $OldHotkeyDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'ClaudeVoice'  # version anterior (.lnk con tecla rapida)
-$StartupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'ClaudeVoice atajos.lnk'
+$StartupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'ClaudeMaxxing atajos.lnk'
+$LegacyStartupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'ClaudeVoice atajos.lnk'  # nombre anterior
 $HotkeyPidFile = Join-Path $StateDir 'hotkeys.pid'
 
 function Stop-HotkeyListener {
@@ -111,7 +112,7 @@ function Set-Hotkeys([bool]$On) {
     # Los .lnk con tecla rapida de la version anterior pueden quedarse con la combinacion.
     if (Test-Path $OldHotkeyDir) { Remove-Item $OldHotkeyDir -Recurse -Force }
     Stop-HotkeyListener
-    Remove-Item $StartupLink -Force -ErrorAction SilentlyContinue
+    Remove-Item $StartupLink, $LegacyStartupLink -Force -ErrorAction SilentlyContinue
     if (-not $On) { return 'Atajos desactivados.' }
 
     $listenerArgs = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f (Join-Path $PSScriptRoot 'hooks\hotkeys.ps1')

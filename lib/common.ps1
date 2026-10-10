@@ -1,5 +1,9 @@
 # Shared paths and small helpers. Keep this file ASCII: PowerShell 5.1 reads BOM-less scripts as ANSI.
 
+$AppName       = 'ClaudeMaxxing'
+$AppVersion    = '1.0.0'
+# install.ps1 copies the runtime here; nothing runs from the repo.
+$DefaultInstallDir = Join-Path $env:LOCALAPPDATA $AppName
 $TrayHome      = Join-Path $env:USERPROFILE '.claude\usage-tray'
 $UsageFile     = Join-Path $TrayHome 'usage.json'
 $ConfigFile    = Join-Path $TrayHome 'config.json'
@@ -14,6 +18,11 @@ $SessionLogFile = Join-Path $TrayHome 'sessions.log'
 $BinDir        = Join-Path $TrayHome 'bin'
 $CredsFile     = Join-Path $env:USERPROFILE '.claude\.credentials.json'
 $MenuKey       = 'HKCU:\Software\ClaudeCodeMenu'
+$UninstallKey  = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"
+$StartupDir    = [Environment]::GetFolderPath('Startup')
+$TrayLink      = Join-Path $StartupDir "$AppName.lnk"
+# Names used before the rename to ClaudeMaxxing; install and uninstall clean them up.
+$LegacyTrayLink = Join-Path $StartupDir 'ClaudeTray.lnk'
 
 # Non-ASCII UI text is written as \uXXXX escapes and decoded here.
 function Tx([string]$Text) { [regex]::Unescape($Text) }

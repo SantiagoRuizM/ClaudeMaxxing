@@ -24,10 +24,32 @@ function Write-Log([string]$Message) {
     } catch {}
 }
 
+# config.json trae los valores por defecto (se reemplaza al reinstalar); config.local.json, si existe,
+# tiene lo propio de este PC (rutas de edge-tts y ffplay, cambios del usuario) y se aplica encima.
 function Get-VoiceConfig {
     $path = Join-Path $Root 'config.json'
-    if (Test-Path $path) { return [IO.File]::ReadAllText($path, $Utf8) | ConvertFrom-Json }
-    return New-Object PSObject
+    $config = if (Test-Path $path) { [IO.File]::ReadAllText($path, $Utf8) | ConvertFrom-Json } else { New-Object PSObject }
+    $localPath = Join-Path $Root 'config.local.json'
+    if (Test-Path $localPath) {
+        try { Merge-VoiceConfig $config ([IO.File]::ReadAllText($localPath, $Utf8) | ConvertFrom-Json) }
+        catch { Write-Log "config.local.json ignorado: $($_.Exception.Message)" }
+    }
+    return $config
+}
+
+# Copia las claves de $Override sobre $Base; los objetos se mezclan clave a clave, lo demas (listas
+# incluidas) se reemplaza.
+function Merge-VoiceConfig($Base, $Override) {
+    if ($null -eq $Override) { return }
+    foreach ($prop in $Override.PSObject.Properties) {
+        $current = $Base.PSObject.Properties[$prop.Name]
+        if ($current -and $current.Value -is [System.Management.Automation.PSCustomObject] -and
+            $prop.Value -is [System.Management.Automation.PSCustomObject]) {
+            Merge-VoiceConfig $current.Value $prop.Value
+        } else {
+            $Base | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value -Force
+        }
+    }
 }
 
 # Lee una opcion anidada ('edge.voice') con valor por defecto si falta o esta vacia.
