@@ -129,6 +129,113 @@ function Get-SessionElapsedFraction($View, [datetime]$Now) {
     [Math]::Max([double]0, [Math]::Min([double]1, (5 - $remaining) / 5))
 }
 
+# ---------------------------------------------------------------- week plan
+
+# Back-to-back 5-hour windows get the most out of the weekly limit. The plan places SessionsPerDay
+# windows a day, 5 hours apart from FirstHour:05, up to the weekly cutoff, and spreads what is left of
+# the weekly limit over them. The share per session is a target: nothing reports how much of the weekly
+# limit one window uses. CutoffWeekday / CutoffHour only matter when there is no weekly data at all.
+$script:WeekPlanDefaults = [ordered]@{ SessionsPerDay = 3; FirstHour = 7; CutoffWeekday = 4; CutoffHour = 14 }
+
+# Windows that start before midnight when the first one starts at FirstHour:05.
+function Get-MaxSessionsPerDay([int]$FirstHour) {
+    [int][Math]::Floor((1440 - ($FirstHour * 60 + 5) - 1) / 300) + 1
+}
+
+function Get-PlanSettings($Saved) {
+    $settings = [ordered]@{}
+    foreach ($key in $script:WeekPlanDefaults.Keys) {
+        $value = $script:WeekPlanDefaults[$key]
+        if ($Saved -and $null -ne $Saved.$key) { try { $value = [int]$Saved.$key } catch { } }
+        $settings[$key] = $value
+    }
+    $settings.FirstHour = [Math]::Max(0, [Math]::Min(23, $settings.FirstHour))
+    $settings.SessionsPerDay = [Math]::Max(1, [Math]::Min((Get-MaxSessionsPerDay $settings.FirstHour), $settings.SessionsPerDay))
+    $settings.CutoffWeekday = [Math]::Max(0, [Math]::Min(6, $settings.CutoffWeekday))
+    $settings.CutoffHour = [Math]::Max(0, [Math]::Min(23, $settings.CutoffHour))
+    $settings
+}
+
+# When the weekly limit resets. From the snapshot while its window is active; an expired window is
+# rolled forward in 7-day steps (usage starts again from 0); with no weekly data, the saved weekday/hour.
+function Get-WeekCutoff($Snapshot, $Settings, [datetime]$Now) {
+    $weekly = $null
+    if ($Snapshot -and $Snapshot.rate_limits) { $weekly = $Snapshot.rate_limits.seven_day }
+    if ($weekly -and $null -ne $weekly.resets_at) {
+        $resetsAt = ConvertFrom-UnixTime ([double]$weekly.resets_at)
+        if ($resetsAt -gt $Now) {
+            $used = [Math]::Max([double]0, [Math]::Min([double]100, [double]$weekly.used_percentage))
+            return [pscustomobject]@{ At = $resetsAt; Source = 'data'; Used = $used }
+        }
+        $weeks = [Math]::Floor(($Now - $resetsAt).TotalDays / 7) + 1
+        return [pscustomobject]@{ At = $resetsAt.AddDays(7 * $weeks); Source = 'rolled'; Used = [double]0 }
+    }
+    $at = $Now.Date.AddHours($Settings.CutoffHour)
+    while ([int]$at.DayOfWeek -ne $Settings.CutoffWeekday -or $at -le $Now) { $at = $at.AddDays(1) }
+    [pscustomobject]@{ At = $at; Source = 'manual'; Used = [double]0 }
+}
+
+# Slots: the current window (if any) and the planned ones before the cutoff. Weight is the part of a
+# window that falls before the cutoff (1 = full 5 hours); Target is its share of the weekly limit and
+# EndPercent the weekly usage the plan expects once it is over. Days groups the slots by start date
+# (the current window counts for today).
+function Get-WeekPlan($Snapshot, $Settings, [datetime]$Now) {
+    $view = Get-UsageView $Snapshot $Now
+    $cutoff = Get-WeekCutoff $Snapshot $Settings $Now
+    $slots = New-Object System.Collections.ArrayList
+    if ($view.Session.Active) {
+        $end = if ($view.Session.ResetsAt -lt $cutoff.At) { $view.Session.ResetsAt } else { $cutoff.At }
+        [void]$slots.Add([pscustomobject]@{ Start = $view.Session.ResetsAt.AddHours(-5); End = $view.Session.ResetsAt; Day = $Now.Date
+            Weight = [Math]::Max([double]0, ($end - $Now).TotalHours / 5); Current = $true; Target = [double]0; EndPercent = [double]0 })
+    }
+    $free = Get-DefaultScheduleTime $view $Now
+    for ($day = $Now.Date; $day -lt $cutoff.At; $day = $day.AddDays(1)) {
+        $at = $day.AddHours($Settings.FirstHour).AddMinutes(5)
+        if ($at -lt $free) { $at = $free }
+        $taken = if ($day -eq $Now.Date -and $view.Session.Active) { 1 } else { 0 }
+        while ($taken -lt $Settings.SessionsPerDay -and $at -lt $day.AddDays(1)) {
+            # A window starting in the last half hour before the cutoff is not worth a session.
+            $useful = [Math]::Min([double]5, ($cutoff.At - $at).TotalHours)
+            if ($useful -lt 0.5) { break }
+            [void]$slots.Add([pscustomobject]@{ Start = $at; End = $at.AddHours(5); Day = $day
+                Weight = $useful / 5; Current = $false; Target = [double]0; EndPercent = [double]0 })
+            $taken++
+            $at = $at.AddHours(5)
+            $free = $at
+        }
+    }
+
+    $remaining = [Math]::Max([double]0, 100 - $cutoff.Used)
+    $totalWeight = [double]0
+    foreach ($slot in $slots) { $totalWeight += $slot.Weight }
+    $perSession = if ($totalWeight -gt 0) { $remaining / $totalWeight } else { [double]0 }
+    $running = $cutoff.Used
+    foreach ($slot in $slots) {
+        $slot.Target = $perSession * $slot.Weight
+        $running += $slot.Target
+        $slot.EndPercent = [Math]::Min([double]100, $running)
+    }
+    $days = foreach ($group in @($slots | Group-Object { $_.Day.ToString('yyyy-MM-dd') })) {
+        $daySlots = @($group.Group)
+        [pscustomobject]@{ Date = $daySlots[0].Day; Slots = $daySlots; EndPercent = $daySlots[-1].EndPercent }
+    }
+    $elapsed = 1 - ($cutoff.At - $Now).TotalDays / 7
+    [pscustomobject]@{
+        Cutoff = $cutoff.At; CutoffSource = $cutoff.Source; UsedPercent = $cutoff.Used; RemainingPercent = $remaining
+        PerSession = $perSession; SessionCount = $slots.Count; WeekElapsed = [Math]::Max([double]0, [Math]::Min([double]1, $elapsed))
+        Slots = @($slots); Days = @($days)
+    }
+}
+
+# Planned windows still to start that have nothing scheduled within 30 minutes of them.
+function Get-UnbookedSlots($Slots, $Booked, [datetime]$Now) {
+    @($Slots | Where-Object {
+        $slot = $_
+        -not $slot.Current -and $slot.Start -gt $Now.AddMinutes(1) -and
+            -not @($Booked | Where-Object { $_ -and [Math]::Abs(($_ - $slot.Start).TotalMinutes) -lt 30 }).Count
+    })
+}
+
 # ---------------------------------------------------------------- extras (extra usage, limit reset)
 
 # Extras only come from the live refresh; after this long without one they are hidden.

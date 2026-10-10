@@ -117,6 +117,45 @@ Assert-Equal $false (Test-InsideCurrentSession $idle $now.AddHours(1)) 'idle ses
 $fraction = Get-SessionElapsedFraction $busy $now
 Assert-Equal '0.56' $fraction.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture) 'elapsed fraction'
 
+# --- week plan (now: Fri 11:48, session resets 13:59, weekly 86 % resets Sun 07:48)
+$inv = [Globalization.CultureInfo]::InvariantCulture
+$defaults = Get-PlanSettings $null
+Assert-Equal 3 $defaults.SessionsPerDay 'plan defaults: 3 sessions a day'
+Assert-Equal 4 (Get-MaxSessionsPerDay 7) 'from 7:05 four windows start before midnight'
+Assert-Equal 5 (Get-MaxSessionsPerDay 0) 'from 0:05 five windows start before midnight'
+$clamped = Get-PlanSettings ('{"sessionsPerDay": 4, "firstHour": 10}' | ConvertFrom-Json)
+Assert-Equal 3 $clamped.SessionsPerDay 'saved sessions clamp to what fits after the first hour'
+Assert-Equal 10 $clamped.FirstHour 'saved first hour is read (camelCase json)'
+
+$weekPlan = Get-WeekPlan $snapshot $defaults $now
+Assert-Equal 'data' $weekPlan.CutoffSource 'cutoff comes from the weekly window'
+Assert-Equal 7 $weekPlan.SessionCount 'current window + 2 today + 3 Saturday + 1 Sunday'
+Assert-Equal 3 $weekPlan.Days.Count 'plan spans today to the cutoff day'
+Assert-Equal 'now,14:05,19:05' (($weekPlan.Days[0].Slots | ForEach-Object { if ($_.Current) { 'now' } else { $_.Start.ToString('HH:mm') } }) -join ',') 'today: current window, then back-to-back after its reset'
+Assert-Equal '07:05,12:05,17:05' (($weekPlan.Days[1].Slots | ForEach-Object { $_.Start.ToString('HH:mm') }) -join ',') 'next day follows the first hour'
+Assert-Equal '0.14' $weekPlan.Slots[-1].Weight.ToString('0.00', $inv) 'last window only counts the part before the cutoff'
+Assert-Equal '0.44' $weekPlan.Slots[0].Weight.ToString('0.00', $inv) 'current window only counts what is left of it'
+Assert-Equal '100' $weekPlan.Days[-1].EndPercent.ToString('0', $inv) 'plan ends at 100 % on the cutoff day'
+Assert-Equal '2.51' $weekPlan.PerSession.ToString('0.00', $inv) 'remaining 14 % spread over 5.58 windows'
+
+$full = [pscustomobject]@{ rate_limits = [pscustomobject]@{ seven_day = [pscustomobject]@{ used_percentage = 100; resets_at = (To-Unix $now.AddDays(2)) } } }
+Assert-Equal 0 (Get-WeekPlan $full $defaults $now).PerSession 'weekly limit used up: nothing left per session'
+
+$old = [pscustomobject]@{ rate_limits = [pscustomobject]@{ seven_day = [pscustomobject]@{ used_percentage = 70; resets_at = (To-Unix $now.AddDays(-1)) } } }
+$rolled = Get-WeekPlan $old $defaults $now
+Assert-Equal 'rolled' $rolled.CutoffSource 'expired weekly window rolls forward'
+Assert-Equal $now.AddDays(6).ToString('s') $rolled.Cutoff.ToString('s') 'rolled cutoff is 7 days after the old one'
+Assert-Equal 0 $rolled.UsedPercent 'rolled week starts from 0 %'
+Assert-Equal '12:05' $rolled.Slots[0].Start.ToString('HH:mm') 'idle today: first window at the next hour + 5'
+
+$manual = Get-WeekPlan $null $defaults $now
+Assert-Equal 'manual' $manual.CutoffSource 'no weekly data: saved cutoff'
+Assert-Equal '2026-10-15 14:00' $manual.Cutoff.ToString('yyyy-MM-dd HH:mm') 'manual cutoff: next Thursday 2 p.m.'
+
+$booked = @($weekPlan.Days[1].Slots[0].Start.AddMinutes(15))
+Assert-Equal 5 (Get-UnbookedSlots $weekPlan.Slots $booked $now).Count 'unbooked: skips the current window and booked slots'
+Assert-Equal 6 (Get-UnbookedSlots $weekPlan.Slots $null $now).Count 'unbooked with nothing scheduled'
+
 # --- schedule rows
 $pc = @([pscustomobject]@{ Name = 'Session-A'; At = $now.AddHours(5) }, [pscustomobject]@{ Name = 'Session-B'; At = $now.AddHours(2) })
 $cloud = @([pscustomobject]@{ at = $now.AddHours(3).ToString('o') }, [pscustomobject]@{ at = $now.AddDays(-5).ToString('o') })

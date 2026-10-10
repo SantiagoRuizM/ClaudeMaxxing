@@ -79,6 +79,14 @@ The 5-hour window starts with your first message, so scheduling a tiny prompt (H
 - **On this PC**: a one-off task in Task Scheduler (`\ClaudeMaxxing\`). It wakes the PC from sleep if wake timers are enabled. It doesn't run if the PC is off or you are signed out.
 - **In the cloud**: Claude Code creates a claude.ai routine with `/schedule`, without a window. This works with the PC off.
 
+### Planning the week
+
+The **Semana** tab of the same dialog (also **Plan semanal...** in the tray menu) plans back-to-back 5-hour windows up to the weekly cutoff, so the weekly limit gets used before it resets.
+
+- Choose how many sessions a day and when the first one starts; the windows follow 5 hours apart. The cutoff comes from the weekly usage data (without data, you pick the weekday and hour).
+- Each day shows its window start times and the weekly usage to reach by the end of the day; the summary gives the share of the weekly limit to spend per session. It is a target: nothing reports how much of the weekly limit one window uses.
+- **Agendar plan** creates a Task Scheduler task for every planned window that has nothing scheduled near it (those show a ✓). Settings are saved in `~/.claude/usage-tray/plan.json`.
+
 ### Half-screen sessions
 
 - With **n** monitors there are **2n** slots, the left and right half of each monitor. Each new session takes the first free one. When they are all taken, the tray says so and opens nothing.
@@ -107,7 +115,7 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popu
 
 ClaudeMaxxing reúne tres herramientas para trabajar con varias sesiones de Claude Code en Windows 11:
 
-- una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal) y la opción de **agendar sesión**;
+- una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal), la opción de **agendar sesión** y un **plan semanal** que reparte el límite semanal en sesiones hasta el corte;
 - la entrada **Abrir con Claude Code** en el menú del Explorador, que abre cada sesión en una mitad de pantalla, con su color y su nombre;
 - la **voz**: cada sesión lee en voz alta un resumen de cada respuesta ([`voice/README.md`](voice/README.md)).
 

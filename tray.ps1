@@ -2,8 +2,8 @@
 # Data comes from usage.json, which the Claude Code statusline writes on every response.
 # Launch: powershell -NoProfile -ExecutionPolicy Bypass -STA -File tray.ps1
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
-# -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
-param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud)
+# -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
+param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab)
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
@@ -313,6 +313,7 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
 [void]$menu.Items.Add('Actualizar datos', $null, { Start-UsageRefresh })
 [void]$menu.Items.Add((Tx 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
+[void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
 [void]$menu.Items.Add('Abrir uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
 [void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Salir', $null, { [System.Windows.Forms.Application]::Exit() })
@@ -337,7 +338,7 @@ Update-ScheduleState
 Update-UsageState
 
 if ($RenderDialogTo) {
-    Show-ScheduleDialog $RenderDialogTo $PreviewCloud
+    Show-ScheduleDialog $RenderDialogTo $PreviewCloud $DialogTab
     $Notify.Dispose()
     exit 0
 }
