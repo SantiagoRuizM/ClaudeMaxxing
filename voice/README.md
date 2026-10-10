@@ -1,4 +1,6 @@
-# ClaudeVoice
+# Voz (ClaudeMaxxing)
+
+> **Dónde se ejecuta:** el `install.ps1` de la raíz del repo copia esta carpeta a `%LOCALAPPDATA%\ClaudeMaxxing\voice`, y todo corre desde ahí. Los comandos `.\ctl.ps1` y `.\install.ps1` de esta página se lanzan en esa carpeta (`cd "$env:LOCALAPPDATA\ClaudeMaxxing\voice"`). Tus cambios de configuración van en `config.local.json`, que se aplica encima de `config.json` y se conserva al actualizar; `config.json` se reemplaza en cada instalación.
 
 Claude Code te responde en voz alta. Cuando Claude termina un turno, un hook `Stop` toma la respuesta, extrae una línea de resumen marcada con 🔊 y la lee con una voz neuronal en español (edge-tts) o, sin internet, con la voz local de Windows (SAPI).
 
@@ -34,7 +36,7 @@ Cero llamadas extra al modelo: el resumen lo escribe Claude en la misma respuest
 
 ## Probarlo
 
-**En las sesiones del menú del Explorador (lo que instala `..\install.ps1`).**
+**En las sesiones del menú del Explorador (lo que instala el `install.ps1` de la raíz).**
 *Abrir con Claude Code* arranca cada sesión con el plugin `plugin/` (`--plugin-dir`), solo para esa sesión: hooks `SessionStart` (`hooks/on-start.ps1`: título con el nombre reservado y la regla del 🔊 en el contexto), `UserPromptSubmit` y `Stop`, y el comando `/voz`. No toca tu `~/.claude`. El nombre y la voz se reservan antes de abrir (`New-ReservedSession`, con el `--session-id` de la sesión) y el primer prompt que no sea un comando completa el rol: "Martín" → "Martín · codificador".
 
 **En todas las sesiones (opcional).**
@@ -42,7 +44,7 @@ Cero llamadas extra al modelo: el resumen lo escribe Claude en la misma respuest
 ```powershell
 .\install.ps1              # hooks + regla + /voz en ~/.claude (con backup)
 .\install.ps1 -Uninstall   # lo quita todo
-.\ctl.ps1 hotkeys on       # atajos globales (ya creados en esta máquina)
+.\ctl.ps1 hotkeys on       # atajos globales (el instalador ya los activa, salvo con -NoHotkeys)
 ```
 
 Los hooks se leen al iniciar la sesión: abre una sesión nueva después de instalar.
@@ -58,7 +60,7 @@ Los hooks se leen al iniciar la sesión: abre una sesión nueva después de inst
 
 Se guardan los últimos `historySize` audios (30) con su mp3, así que repetir es instantáneo y suena con la misma voz. Lo que cortaste escribiendo un prompt también queda en el historial. Las repeticiones también bajan la música y hacen cola.
 
-Los atajos los escucha un proceso oculto (`hooks/hotkeys.ps1`) que se inicia con Windows (acceso directo en la carpeta Inicio). Las teclas se cambian en `config.json` → `hotkeys` (una letra o F1–F12, siempre con Ctrl+Alt+Shift); después ejecuta `.\ctl.ps1 hotkeys on`. Repetir no usa la R porque en este equipo algo intercepta Ctrl+Alt+R antes de que llegue a cualquier programa. Si una combinación está ocupada, el log lo dice y se reintenta cada 15 s.
+Los atajos los escucha un proceso oculto (`hooks/hotkeys.ps1`) que se inicia con Windows (acceso directo en la carpeta Inicio). Las teclas se cambian en `config.local.json` → `hotkeys` (una letra o F1–F12, siempre con Ctrl+Alt+Shift); después ejecuta `.\ctl.ps1 hotkeys on`. Repetir no usa la R porque en este equipo algo intercepta Ctrl+Alt+R antes de que llegue a cualquier programa. Si una combinación está ocupada, el log lo dice y se reintenta cada 15 s.
 
 ## Nombre y rol por sesión
 
@@ -87,7 +89,7 @@ Antes de cada mensaje suena un acorde corto (≈1 s) que identifica la sesión; 
 | Todas las sesiones, desde Claude Code | `/voz todo-off` · `/voz todo-on` |
 | Todas las sesiones, desde la terminal | `.\ctl.ps1 mute` · `.\ctl.ps1 unmute` · `.\ctl.ps1 stop` |
 | Una sesión desde que la abres | `$env:CLAUDEVOICE='off'; claude` |
-| Todo, sin desinstalar | `"enabled": false` en `config.json` |
+| Todo, sin desinstalar | `"enabled": false` en `config.local.json` |
 | Solo bajar la música / solo los nombres | `"duck": {"enabled": false}` · `"naming": {"enabled": false}` |
 | Todo, permanente | `.\install.ps1 -Uninstall` · `.\ctl.ps1 hotkeys off` (quita el proceso de atajos y su inicio automático) |
 
@@ -124,7 +126,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1        # 
 powershell -NoProfile -ExecutionPolicy Bypass -File test\duck-audio-test.ps1   # prueba con audio de la bajada de música
 ```
 
-## Configuración (`config.json`)
+## Configuración (`config.json` + `config.local.json`)
+
+Para cambiar algo, escríbelo en `config.local.json` con la misma estructura, solo con las claves que cambian, por ejemplo `{ "engine": "sapi", "edge": { "rate": "+15%" } }`. Los objetos se combinan clave a clave y las listas se reemplazan enteras. El instalador también guarda ahí las rutas de `edge.exe` y `ffplay` que encuentra o instala.
 
 | Clave | Qué hace |
 |---|---|
@@ -159,9 +163,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\duck-audio-test.ps1   #
 | `hooks/probe.ps1` | Sonda temporal de eventos (`ctl.ps1 probe`) |
 | `ctl.ps1` | Control manual, atajos y backend de `/voz` |
 | `install.ps1` | Instalación global idempotente con backup |
-| `config.json` | Configuración |
+| `config.json` | Configuración por defecto (se reemplaza al actualizar) |
+| `config.local.json` | Lo propio de este PC, encima de `config.json` (no está en el repo) |
 | `templates/` | Regla del 🔊 y plantilla de `/voz` |
-| `plugin/` | Plugin que el menú carga con `--plugin-dir` en cada sesión: hooks y `/voz` (`skills/voz` lo genera `..\install.ps1`) |
+| `plugin/` | Plugin que el menú carga con `--plugin-dir` en cada sesión: hooks y `/voz` (`skills/voz` lo genera el `install.ps1` de la raíz) |
 | `test/` | Pruebas sin audio y evento `Stop` de ejemplo |
 | `docs/` | Investigación, `/btw`, arquitectura y siguientes pasos |
 
