@@ -236,7 +236,7 @@ function Install-VoiceDependencies([string]$VoiceDir) {
             $notes.Add((New-Note -Warn 'No Spanish Windows voice: the offline fallback (SAPI) will sound English. Add one in Settings > Time & language > Speech.'))
         }
     } catch { }
-    , $notes.ToArray()
+    $notes.ToArray()
 }
 
 # Entry in Settings > Apps > Installed apps, for the current user.
