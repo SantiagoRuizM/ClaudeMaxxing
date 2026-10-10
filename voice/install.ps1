@@ -46,7 +46,8 @@ function New-HookEntry([string]$Script) {
 
 function Test-OurEntry($Entry) {
     foreach ($h in @($Entry.hooks)) {
-        if ((("$($h.command) " + (@($h.args) -join ' ')) -match 'ClaudeVoice|VoiceTray')) { return $true }
+        # By script name, not folder name: the repo folder may be renamed or moved.
+        if ((("$($h.command) " + (@($h.args) -join ' ')) -match 'ClaudeVoice|VoiceTray|hooks[\\/]+(speak|on-prompt)\.ps1')) { return $true }
     }
     return $false
 }

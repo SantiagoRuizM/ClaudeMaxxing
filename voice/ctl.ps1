@@ -223,7 +223,7 @@ switch ($Command) {
 
     'status' {
         $settings = Join-Path $env:USERPROFILE '.claude\settings.json'
-        $installed = (Test-Path $settings) -and ((Get-Content $settings -Raw) -match 'ClaudeVoice')
+        $installed = (Test-Path $settings) -and ((Get-Content $settings -Raw) -match 'ClaudeVoice|hooks[\\/]+(speak|on-prompt)\.ps1')
         [pscustomobject]@{
             Habilitado      = [bool](Get-Opt $cfg 'enabled' $true)
             SilencioGlobal  = Test-Path $MuteFile

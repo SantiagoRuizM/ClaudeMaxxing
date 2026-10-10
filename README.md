@@ -48,6 +48,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1     # parchea st
 powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1   # quita todo salvo los datos en ~/.claude/usage-tray (el menú vuelve a abrir Windows Terminal sin huecos; `menu\uninstall.ps1` lo quita)
 ```
 
+El lanzador del menú, el acceso directo de inicio y el `/voz` del plugin guardan la ruta absoluta de esta carpeta. **Si la mueves o le cambias el nombre, vuelve a ejecutar `install.ps1`** (y cierra y reabre las sesiones del menú que estuvieran abiertas: arrancaron con `--plugin-dir` en la ruta vieja).
+
 ## Pruebas
 
 ```powershell
