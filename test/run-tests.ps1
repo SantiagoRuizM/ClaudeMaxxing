@@ -375,14 +375,45 @@ Stop-Pairing $d
 Step-Pairing $c (Pass $d.Out)
 Assert-Equal 'cancelled' $c.Stage 'cancel on one PC cancels the other'
 
+# Security checks (see the audit in README, Otros PCs > How it is kept safe).
+Assert-Equal $false (Test-BridgeName ('PC' + [char]0x202E + 'cod.exe') 40) 'name with a right-to-left override is rejected'
+Assert-Equal $false (Test-BridgeName ('PC' + [char]0x200B + 'B') 40) 'name with a zero-width space is rejected'
+Assert-Equal $true (Test-BridgeName ('Jos' + [char]0xE9 + " O'Neil") 64) 'accented and apostrophe user names are fine'
+Assert-Equal $false (Test-BridgeName 'a;b' 40) 'separator in a name is rejected'
+$padded = Format-CommandPreview ('git status' + (' ' * 80) + '& rd /s /q C:/x')
+Assert-Equal 'git status & rd /s /q C:/x' $padded 'command preview collapses padding that would hide the tail'
+Assert-Equal $true ((Format-CommandPreview "echo a`r`nformat c:") -match 'salto de l.nea\] format c:') 'command preview shows line breaks'
+Assert-Equal $true ((Format-CommandPreview ('a' * 200)) -match '\(\+50 caracteres\)$') 'command preview says how much is cut'
+Assert-Equal '[?]x' (Format-CommandPreview ([string][char]0x202E + 'x')) 'command preview shows invisible characters'
+Assert-Equal 0 (ConvertFrom-GrantsText "aaaaaaaaaaaa 99999`n" 1000).Count 'a grant longer than an hour is not honored'
+Assert-Equal $true ($sshd -split "`n" -contains 'AuthenticationMethods publickey') 'sshd_config: keys only'
+foreach ($expected in 'ForwardAgent no', 'ForwardX11 no', 'ClearAllForwardings yes', 'ProxyCommand none', 'PermitLocalCommand no', 'UpdateHostKeys no') {
+    Assert-Equal $true ($client -match [regex]::Escape("    $expected")) "ssh_config pins $expected over the user's Host *"
+}
+
+# UDP: a flood is read a slice at a time.
+$udpPort = Get-Random -Minimum 45000 -Maximum 46000
+$udp = Open-BridgeSocket $udpPort '127.0.0.1'
+try {
+    $hello = @{ t = 'hello'; id = 'aaaaaaaaaaaa'; name = 'PC-A'; user = 'santi'; port = 41022; pairing = $false }
+    1..100 | ForEach-Object { Send-BridgeDatagram $udp $hello '127.0.0.1' $udpPort }
+    Start-Sleep -Milliseconds 300
+    Assert-Equal 64 @(Receive-BridgeDatagrams $udp).Count 'at most 64 datagrams per read'
+    Assert-Equal $true (@(Receive-BridgeDatagrams $udp).Count -gt 0) 'the rest is read on the next one'
+} finally { $udp.Close() }
+
 # The gate, compiled and run for real (no sshd): command passthrough, grants, approval and denial.
-$gateHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-gate-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+# It also wants the tray alive: tray.pid next to the bridge folder must name a running powershell.exe.
+$gateRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-gate-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$gateHome = Join-Path $gateRoot 'bridge'
 $savedCommand = $env:SSH_ORIGINAL_COMMAND
 try {
     $gctx = New-BridgeContext -DataDir $gateHome -SshDir 'C:\none'
     $gate = Import-BridgeGate $gctx
     Write-BridgeText $gctx.GateConf (Format-GateConf 'C:\none\sftp-server.exe' 'PC-TEST' 3)
-    function Invoke-Gate([string]$Command, [string]$Answer) {
+    $trayPidPath = Join-Path $gateRoot 'tray.pid'
+    Write-BridgeText $trayPidPath ([string]$PID)
+    function Invoke-Gate([string]$Command, [string]$Answer, [switch]$EmptyFirst) {
         $env:SSH_ORIGINAL_COMMAND = $Command
         $psi = New-Object System.Diagnostics.ProcessStartInfo($gate, 'aaaaaaaaaaaa')
         $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
@@ -393,7 +424,13 @@ try {
             while ((Get-Date) -lt $deadline -and -not @(Get-ChildItem -LiteralPath $gctx.RequestsDir -Filter '*.json' -ErrorAction SilentlyContinue).Count) { Start-Sleep -Milliseconds 50 }
             $request = Get-ChildItem -LiteralPath $gctx.RequestsDir -Filter '*.json' | Select-Object -First 1
             $script:LastRequest = Get-Content -LiteralPath $request.FullName -Raw | ConvertFrom-Json
-            [IO.File]::WriteAllText(($request.FullName -replace '\.json$', '.answer'), $Answer)
+            $answerPath = $request.FullName -replace '\.json$', '.answer'
+            if ($EmptyFirst) {
+                # A write still in progress: the gate must keep waiting, not take it as a "no".
+                [IO.File]::WriteAllText($answerPath, '')
+                Start-Sleep -Milliseconds 600
+            }
+            [IO.File]::WriteAllText($answerPath, $Answer)
         }
         $out = $proc.StandardOutput.ReadToEnd()
         $proc.WaitForExit()
@@ -409,13 +446,33 @@ try {
     Assert-Equal $true ($r.Err -match 'no permitio') 'denied: the client is told'
     $r = Invoke-Gate 'echo late' ''
     Assert-Equal $true ($r.Code -eq 1 -and $r.Err -match 'nadie respondio') 'no answer in time: closed'
+    $r = Invoke-Gate 'echo after-empty' 'allow' -EmptyFirst
+    Assert-Equal 'after-empty' $r.Out 'an empty answer file is a write in progress, not a denial'
+    Write-BridgeText $gctx.GrantsFile "aaaaaaaaaaaa $((Get-UnixNow) + 86400)`n"
+    $r = Invoke-Gate 'echo forged-grant' ''
+    Assert-Equal $true ($r.Code -eq 1 -and $r.Out -notmatch 'forged') 'a grant longer than an hour does not let the PC in'
     Set-BridgeGrant $gctx 'aaaaaaaaaaaa' ((Get-UnixNow) + 60)
     $r = Invoke-Gate 'echo granted' ''
     Assert-Equal 'granted' $r.Out 'a grant lets the PC in without asking'
+    Write-BridgeText $trayPidPath '4'
+    $r = Invoke-Gate 'echo no-tray' ''
+    Assert-Equal $true ($r.Code -eq 1 -and $r.Err -match 'no esta abierta') 'tray.pid naming another process: nobody gets in, grant or not'
+    Remove-Item -LiteralPath $trayPidPath
+    $r = Invoke-Gate 'echo no-tray' ''
+    Assert-Equal $true ($r.Code -eq 1 -and $r.Out -notmatch 'no-tray') 'no tray: nobody gets in, grant or not'
     Assert-Equal 0 @(Get-ChildItem -LiteralPath $gctx.RequestsDir, $gctx.SessionsDir -File).Count 'gate leaves no request or session files behind'
+
+    # What sshd and the gate read on every connection is checked against what the tray writes.
+    Write-BridgePeers $gctx @($peerA)
+    Update-BridgeFiles $gctx $gate
+    Assert-Equal 0 @(Get-BridgeTampered $gctx $gate).Count 'freshly written files are intact'
+    Add-Content -LiteralPath $gctx.AuthorizedKeys -Value "$keyB extra"
+    Assert-Equal 'authorized_keys' ((Get-BridgeTampered $gctx $gate) -join ',') 'a key added outside the tray is noticed'
+    Update-BridgeFiles $gctx $gate
+    Assert-Equal 0 @(Get-BridgeTampered $gctx $gate).Count 'rewriting restores it'
 } finally {
     $env:SSH_ORIGINAL_COMMAND = $savedCommand
-    Remove-Item -LiteralPath $gateHome -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $gateRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # --- installer: what gets copied to the install folder

@@ -188,9 +188,11 @@ function New-PeerRecord($State) {
 
 # ---------------------------------------------------------------- socket
 
-function Open-BridgeSocket([int]$Port) {
+# Bound to this PC's address in the Private network (it still gets that subnet's broadcasts), not to every
+# interface, so nothing listens on a Public one.
+function Open-BridgeSocket([int]$Port, [string]$Address = '0.0.0.0') {
     $udp = New-Object System.Net.Sockets.UdpClient
-    $udp.Client.Bind((New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, $Port)))
+    $udp.Client.Bind((New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Parse($Address), $Port)))
     $udp.EnableBroadcast = $true
     # SIO_UDP_CONNRESET off: an ICMP "port unreachable" from a PC without the tray would otherwise make the
     # next Receive throw.
@@ -198,10 +200,13 @@ function Open-BridgeSocket([int]$Port) {
     $udp
 }
 
-# Every datagram waiting on the socket, without blocking.
-function Receive-BridgeDatagrams($Udp) {
+# The datagrams waiting on the socket, without blocking, at most $Max per call: a flood from the network then
+# costs a few milliseconds per tick instead of freezing the tray (the rest waits, or the OS drops it).
+function Receive-BridgeDatagrams($Udp, [int]$Max = 64) {
     $received = @()
-    while ($Udp -and $Udp.Available -gt 0) {
+    $count = 0
+    while ($Udp -and $Udp.Available -gt 0 -and $count -lt $Max) {
+        $count++
         $endpoint = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
         try { $bytes = $Udp.Receive([ref]$endpoint) } catch { break }
         $msg = ConvertFrom-BridgeDatagram $bytes

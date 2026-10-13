@@ -89,9 +89,11 @@ function Get-BridgeKeyText([string]$Line) {
     "$($parts[0]) $($parts[1])"
 }
 
-# A computer or user name as another PC sent it: no control characters, quotes or separators ssh would read.
+# A computer or user name as another PC sent it: letters, digits, space, dot, dash, underscore and apostrophe only.
+# That keeps out anything ssh_config or a command line would read, and invisible or direction-changing Unicode
+# characters that could make a name look like another one in the dialogs.
 function Test-BridgeName([string]$Name, [int]$Max = 64) {
-    $Name -and $Name.Length -le $Max -and $Name -notmatch '[\x00-\x1f\x7f"\\/\[\]:;|=,+*?<>`%]' -and $Name.Trim() -eq $Name
+    $Name -and $Name.Length -le $Max -and $Name -cmatch "^[\p{L}\p{N}][\p{L}\p{N} ._'-]*$" -and $Name.Trim() -eq $Name
 }
 
 # Paths in sshd_config and ssh_config: forward slashes, % doubled (both expand %-tokens), quoted when needed.
@@ -169,9 +171,13 @@ function Format-SshdConfig($Ctx, [string]$SftpServer, [string[]]$Listen) {
         "HostKey $(Format-SshPath $Ctx.HostKey)"
         "AuthorizedKeysFile $(Format-SshPath $Ctx.AuthorizedKeys)"
         'PidFile none'
+        'StrictModes yes'
+        'AuthenticationMethods publickey'
         'PubkeyAuthentication yes'
         'PasswordAuthentication no'
         'KbdInteractiveAuthentication no'
+        'HostbasedAuthentication no'
+        'MaxSessions 4'
         'DisableForwarding yes'
         'PermitTunnel no'
         'PermitUserEnvironment no'
@@ -206,6 +212,15 @@ function Format-SshClientConfig($Ctx, $Peers) {
         $lines += '    IdentitiesOnly yes'
         $lines += '    PasswordAuthentication no'
         $lines += '    KbdInteractiveAuthentication no'
+        # The user's own "Host *" settings come later and only fill what is not set here: nothing of this PC
+        # (agent, X display, local ports) is handed to the other PC, and it cannot rewrite the pinned key.
+        $lines += '    ForwardAgent no'
+        $lines += '    ForwardX11 no'
+        $lines += '    ClearAllForwardings yes'
+        $lines += '    ProxyCommand none'
+        $lines += '    ProxyJump none'
+        $lines += '    PermitLocalCommand no'
+        $lines += '    UpdateHostKeys no'
         $lines += '    ServerAliveInterval 30'
     }
     ($lines -join "`n") + "`n"
@@ -222,19 +237,32 @@ function Format-GateConf([string]$SftpServer, [string]$Name, [int]$TimeoutSecond
 }
 
 # grants.txt: "<peer id> <unix seconds>" per line; the gate lets that PC in without asking until then.
+# A grant never lasts more than an hour; a longer one was not written by the tray and is dropped.
+$BridgeGrantSeconds = 3600
 function ConvertFrom-GrantsText([string]$Text, [long]$NowUnix) {
     $grants = @{}
     foreach ($line in ($Text -split "`r?`n")) {
         $parts = $line.Trim() -split '\s+'
         if ($parts.Count -ne 2 -or -not (Test-BridgeId $parts[0])) { continue }
         $until = 0L
-        if ([long]::TryParse($parts[1], [ref]$until) -and $until -gt $NowUnix) { $grants[$parts[0]] = $until }
+        if ([long]::TryParse($parts[1], [ref]$until) -and $until -gt $NowUnix -and $until -le $NowUnix + $BridgeGrantSeconds + 60) { $grants[$parts[0]] = $until }
     }
     $grants
 }
 
 function Format-GrantsText($Grants) {
     (($Grants.Keys | Sort-Object | ForEach-Object { "$_ $($Grants[$_])" }) -join "`n") + "`n"
+}
+
+# A command as the dialog shows it: line breaks and control or invisible characters made visible, runs of spaces
+# collapsed (they could push the dangerous part out of view), and the length when it does not fit. The remote
+# text never goes through Tx.
+function Format-CommandPreview([string]$Command, [int]$Max = 150) {
+    $text = $Command -replace "`r?`n", (' [salto de l' + (Tx '\u00ed') + 'nea] ')
+    $text = [regex]::Replace($text, '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]', '[?]')
+    $text = ($text -replace '\s{2,}', ' ').Trim()
+    if ($text.Length -gt $Max) { $text = $text.Substring(0, $Max) + " ... (+$($text.Length - $Max) caracteres)" }
+    $text
 }
 
 function Get-UnixNow { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
@@ -371,6 +399,25 @@ function Update-BridgeFiles($Ctx, [string]$GateExe) {
     }
     Write-BridgeText $Ctx.SshConfig (Format-SshClientConfig $Ctx $peers)
     Write-BridgeText $Ctx.KnownHosts (Format-KnownHosts $peers)
+}
+
+# The files sshd and the gate trust, compared with what the tray would write now. A connection that was allowed
+# runs with this user's rights and could add a key without the gate to authorized_keys, or point the gate at
+# another shell; the tray checks every few seconds and puts them back. Returns the names that differ.
+function Get-BridgeTampered($Ctx, [string]$GateExe, [string]$SshdText) {
+    $peers = Read-BridgePeers $Ctx
+    $expected = [ordered]@{
+        authorized_keys = Format-AuthorizedKeys $Ctx $peers $GateExe
+        'gate.conf'     = Format-GateConf (Join-Path $Ctx.SshDir 'sftp-server.exe') $env:COMPUTERNAME
+    }
+    if ($SshdText) { $expected['sshd_config'] = $SshdText }
+    $paths = @{ authorized_keys = $Ctx.AuthorizedKeys; 'gate.conf' = $Ctx.GateConf; sshd_config = $Ctx.SshdConfig }
+    $changed = @()
+    foreach ($name in $expected.Keys) {
+        $actual = if (Test-Path -LiteralPath $paths[$name]) { [IO.File]::ReadAllText($paths[$name]) } else { $null }
+        if ($actual -ne $expected[$name]) { $changed += $name }
+    }
+    $changed
 }
 
 # ---------------------------------------------------------------- server process

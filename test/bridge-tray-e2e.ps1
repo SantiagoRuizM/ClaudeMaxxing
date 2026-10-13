@@ -20,6 +20,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $SshDir 'sshd.exe'))) { throw "no ss
 function Check([bool]$Ok, [string]$Name, [string]$Detail = '') { if ($Ok) { "ok   $Name" } else { $script:fail++; "FAIL $Name $Detail" } }
 
 $work = Join-Path $env:TEMP ('cmx-smoke-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+# The gates refuse everyone unless the tray of their PC runs: this script plays that tray (tray.pid next to the
+# fake PCs' folders names this PowerShell).
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+[IO.File]::WriteAllText((Join-Path $work 'tray.pid'), [string]$PID)
 function New-Pc([string]$Name, [int]$Ssh, [int]$Udp) {
     $b = New-BridgeState $SshDir
     $b.Ctx = New-BridgeContext -DataDir (Join-Path $work $Name) -SshDir $SshDir -SshPort $Ssh -UdpPort $Udp -ListenAddress 127.0.0.1 -AllowLoopback
@@ -44,11 +48,18 @@ function Tick-Both { foreach ($pc in $A, $B) { $script:Bridge = $pc; Receive-Bri
 try {
     # discovery: both windows open; A probes B's port
     $A.PairingMode = $true; $B.PairingMode = $true
+    $A.PairingModeAt = Get-Date; $B.PairingModeAt = (Get-Date).AddMinutes(-11)
     As $A { Send-BridgeHello -Probe -To '127.0.0.1' -Port 41231 }
     for ($i = 0; $i -lt 20; $i++) { Tick-Both; Start-Sleep -Milliseconds 50 }
     Check ($A.Discovered.ContainsKey($B.Identity.id)) 'A discovered B through a probe'
     Check ($B.Discovered.ContainsKey($A.Identity.id)) 'B learned about A from its hello'
 
+    # B's window has been open for 11 minutes: it no longer answers pairing requests.
+    As $A { Start-BridgePairing $B.Identity.id }
+    for ($i = 0; $i -lt 20; $i++) { Tick-Both; Start-Sleep -Milliseconds 50 }
+    Check (-not $B.Pairing) 'a window open for too long ignores pairing requests'
+    As $A { Stop-BridgePairing }
+    $B.PairingModeAt = Get-Date
     As $A { Start-BridgePairing $B.Identity.id }
     $deadline = (Get-Date).AddSeconds(10)
     while ((Get-Date) -lt $deadline) {
@@ -69,6 +80,26 @@ try {
     Check ($B.Server -and -not $B.Server.HasExited) 'B server started by the tray logic' (Get-BridgeServerError $B.Ctx)
 
     $alias = Get-PeerAlias $A.Peers[0] $A.Peers
+    # Two requests at once (one harmless, one not): Permitir lets in only the one on screen.
+    $sshExe = Join-Path $SshDir 'ssh.exe'
+    $twoOut = Join-Path $work 'two'
+    $p1 = Start-Process -FilePath $sshExe -ArgumentList @('-F', "`"$($A.Ctx.SshConfig)`"", '-o', 'BatchMode=yes', $alias, 'echo first') -NoNewWindow -PassThru -RedirectStandardOutput "$twoOut.1" -RedirectStandardError "$twoOut.1e"
+    $p2 = Start-Process -FilePath $sshExe -ArgumentList @('-F', "`"$($A.Ctx.SshConfig)`"", '-o', 'BatchMode=yes', $alias, 'echo second') -NoNewWindow -PassThru -RedirectStandardOutput "$twoOut.2" -RedirectStandardError "$twoOut.2e"
+    $null = $p1.Handle; $null = $p2.Handle
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline -and $B.Requests.Count -lt 2) { As $B { Update-BridgeRequests }; Start-Sleep -Milliseconds 100 }
+    Check ($B.Requests.Count -eq 2) 'both requests wait'
+    $shown = As $B { Get-ApprovalRequest }
+    As $B { Send-BridgeAnswer $shown.Id 'allow'; Update-BridgeRequests }
+    Check ($B.Requests.Count -eq 1) 'Permitir answers only the request on screen'
+    Check ([bool]$script:ApprovalForm) 'the other request keeps the dialog open'
+    $other = As $B { Get-ApprovalRequest }
+    As $B { Send-BridgeAnswer $other.Id 'deny'; Update-BridgeRequests }
+    $p1.WaitForExit(15000) | Out-Null; $p2.WaitForExit(15000) | Out-Null
+    $ran = @("$twoOut.1", "$twoOut.2" | ForEach-Object { (Get-Content $_ -Raw) } | Where-Object { $_ -and $_.Trim() })
+    Check ($ran.Count -eq 1 -and $ran[0].Trim() -eq $shown.Command.Replace('echo ', '')) "only the allowed command ran ($($ran -join '|'))"
+    Check (-not $script:ApprovalForm) 'dialog closes when nothing is left'
+
     $ssh = Join-Path $SshDir 'ssh.exe'
     $out = Join-Path $work 'out.txt'
     $p = Start-Process -FilePath $ssh -ArgumentList @('-F', "`"$($A.Ctx.SshConfig)`"", '-o', 'BatchMode=yes', $alias, 'echo smoke-ok') -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError "$out.err"
@@ -79,7 +110,7 @@ try {
     Check ([bool]$script:ApprovalForm) 'B shows the approval dialog'
     $req = @($B.Requests.Values)[0]
     Check ($req.Peer.name -eq 'PC-A' -and $req.Command -eq 'echo smoke-ok') "request names PC-A and the command ($($req.Peer.name): $($req.Command))"
-    As $B { Send-BridgeAnswer $A.Identity.id 'allow' -ForAnHour; Update-BridgeRequests }
+    As $B { Send-BridgeAnswer $req.Id 'allow' -ForAnHour; Update-BridgeRequests }
     Check (-not $script:ApprovalForm) 'dialog closes once answered'
     $p.WaitForExit(15000) | Out-Null
     Check ($p.ExitCode -eq 0 -and (Get-Content $out -Raw).Trim() -eq 'smoke-ok') 'command ran on B' ("code $($p.ExitCode) " + (Get-Content "$out.err" -Raw))
@@ -95,6 +126,12 @@ try {
     Start-Sleep -Milliseconds 300
     As $B { Update-BridgeSessions }
     Check ($B.Sessions.Count -eq 0) 'session gone after it ends'
+
+    # A key added to authorized_keys outside the tray (as an allowed session could do) is gone at the next check.
+    Add-Content -LiteralPath $B.Ctx.AuthorizedKeys -Value "$($A.Keys.hostKey) rogue"
+    As $B { Repair-BridgeTampering }
+    Check (-not (Get-Content -LiteralPath $B.Ctx.AuthorizedKeys -Raw).Contains('rogue')) 'a key added outside the tray is removed'
+    Check ((Get-Content -LiteralPath $B.Ctx.Log -Raw) -match 'restored after an outside change: authorized_keys') 'and the change is logged'
 
     # forgetting A on B removes its key: A can no longer log in
     As $B { Remove-BridgePeer $A.Identity.id }

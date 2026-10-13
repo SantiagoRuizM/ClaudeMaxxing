@@ -19,6 +19,10 @@ function Check([bool]$Ok, [string]$Name, [string]$Detail = '') {
 }
 
 $work = Join-Path ([IO.Path]::GetTempPath()) ('cmx-e2e-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+# The gates refuse everyone unless the tray of their PC runs: this script plays that tray (tray.pid next to the
+# fake PCs' folders names this PowerShell).
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+[IO.File]::WriteAllText((Join-Path $work 'tray.pid'), [string]$PID)
 $A = New-BridgeContext -DataDir (Join-Path $work 'A') -SshDir $SshDir -SshPort 41122 -UdpPort 41121 -ListenAddress 127.0.0.1 -AllowLoopback
 $B = New-BridgeContext -DataDir (Join-Path $work 'B') -SshDir $SshDir -SshPort 41132 -UdpPort 41131 -ListenAddress 127.0.0.1 -AllowLoopback
 $udpA = $null; $udpB = $null
