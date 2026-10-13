@@ -70,6 +70,10 @@ public static class ClaudeMaxxingGate
             ",\"pid\":" + System.Diagnostics.Process.GetCurrentProcess().Id +
             ",\"at\":" + Json(DateTime.Now.ToString("o")) + "}";
 
+        // Without the tray (it crashed and left sshd behind, or it is being closed) nobody here would see a
+        // dialog or a notice: nobody gets in, not even with a grant.
+        if (!TrayRunning(home)) { Say("ClaudeMaxxing: la bandeja de ClaudeMaxxing no esta abierta en " + name + "; conexion cerrada."); return 1; }
+
         if (!HasGrant(Path.Combine(home, "grants.txt"), peer))
         {
             int timeout;
@@ -152,6 +156,20 @@ public static class ClaudeMaxxingGate
         return command.Trim().Trim('"').EndsWith("sftp-server.exe", StringComparison.OrdinalIgnoreCase);
     }
 
+    // tray.pid sits next to the bridge folder (~/.claude/usage-tray); the tray is a powershell.exe.
+    static bool TrayRunning(string home)
+    {
+        try
+        {
+            int pid;
+            string text = File.ReadAllText(Path.Combine(Path.GetDirectoryName(home), "tray.pid")).Trim();
+            if (!int.TryParse(text, out pid)) return false;
+            var process = System.Diagnostics.Process.GetProcessById(pid);
+            return process.ProcessName.StartsWith("powershell", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception) { return false; }
+    }
+
     static bool HasGrant(string path, string peer)
     {
         try
@@ -162,7 +180,8 @@ public static class ClaudeMaxxingGate
             {
                 string[] parts = line.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                 long until;
-                if (parts.Length == 2 && parts[0] == peer && long.TryParse(parts[1], out until) && until > now) return true;
+                // The tray never grants more than an hour: a longer line was written by someone else.
+                if (parts.Length == 2 && parts[0] == peer && long.TryParse(parts[1], out until) && until > now && until <= now + 3660) return true;
             }
         }
         catch (IOException) { }

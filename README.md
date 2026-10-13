@@ -113,13 +113,30 @@ For two (or more) PCs on the same network that both run ClaudeMaxxing. Typical u
 - The other PC shows **Conexión entrante** with the PC, the user and what it wants to do: open a terminal, run a command, open Claude Code, or copy files. Its options are **Permitir**, **Permitir 1 hora** (no more questions from that PC for an hour; Claude Code runs one connection per command) or **Rechazar**. With no answer within 60 seconds, the connection is refused.
 - That PC also gets a notification when a terminal opens and closes there, and **Otros PCs > Desconectar** ends a session. **Acepta conexiones** in the window turns incoming connections off.
 
-**How it is kept safe.**
-- Each PC runs its own `sshd` as the signed-in user, started by the tray, with no Windows service and no admin rights. It runs only while the tray is running and at least one PC is paired. Only that same user can log in, so a connection gets that user's rights, never more. That is why the approval dialog says so.
-- No passwords: pairing swaps SSH keys (ed25519), and the code shown on both screens proves no one swapped them in between. The code covers both PCs' keys and two random values, and one PC commits to its value before seeing the other's, so a machine in the middle can't make both screens show the same code. Host keys are pinned, so a PC that changes address is still recognised, and an impostor is refused.
-- Every paired key is forced through a gate program (`restrict`, `command=`, no port or agent forwarding, LAN source addresses only). The gate asks the tray before running anything.
-- The firewall rules only open the two ports on networks Windows marks **Private**, and only to the local subnet. On public Wi-Fi nothing listens, and nothing is announced.
-- Pairing requests are only accepted while the Otros PCs window is open on that PC.
-- Discovery messages (UDP 41021) are unauthenticated and only carry the PC name, user name and port, never keys. A forged one can at most make a connection fail.
+**How it is kept safe.** What a connection gets, once allowed, is a shell as that PC's Windows user. So the design is about who can ask, what the person at the other PC sees before saying yes, and what keeps working when something fails.
+
+- **Who can log in.** Each PC runs its own `sshd` as the signed-in user, started by the tray, with no Windows service and no admin rights. Only that same user can log in: a paired key asking for Administrator, SYSTEM or any other account is refused (checked in testing). There are no passwords (`AuthenticationMethods publickey`), and only keys exchanged by pairing are accepted.
+- **Pairing.** It swaps ed25519 keys, and both screens show a 6-digit code computed from both PCs' keys and two random values. One PC commits to its value before it sees the other's, so a machine in the middle can't make both screens show the same code. The window says to confirm only when the other PC shows exactly that code, and it shows the IP the request comes from. A PC only answers pairing requests while its Otros PCs window is open, and only during the first 10 minutes. Host keys are pinned, so a PC that changes address is still recognised and an impostor is refused.
+- **Every connection is approved.**
+  - Every paired key is forced through a gate program (`restrict`, `command=`, no port, agent or X11 forwarding, LAN source addresses only).
+  - The gate asks the tray before running anything, and lets nobody in when the tray is not running, not even a PC allowed for an hour.
+  - The dialog shows one request at a time; **Permitir** and **Rechazar** apply only to that request.
+  - Commands are shown in full: line breaks and invisible characters are made visible, and space padding that could push the dangerous part out of view is collapsed. Only the exact command `claude` is labelled "Claude Code".
+  - The buttons stay off for 1.5 seconds after a request appears, so a click meant for another window can't allow it. With no answer, the connection is refused after 60 seconds.
+  - **Permitir 1 hora** is capped at an hour, and the gate refuses longer grants.
+- **Tampering.** `authorized_keys` and the gate's settings are compared every 5 seconds with what the tray writes. A key or setting added from outside (for example by a session that was allowed) is put back and reported.
+- **Network.**
+  - The firewall rules open the two ports only on networks Windows marks **Private**, and only to the local subnet.
+  - The server and the discovery socket listen only on this PC's address in a Private network. On public Wi-Fi nothing listens and nothing is announced.
+  - Discovery messages (UDP 41021) are unauthenticated and carry only the PC name, user name and port. They are size-limited and rate-limited, so a flood or a forged message can't freeze the tray, fill it with fake PCs, or do more than make a connection fail.
+- **Your own `~/.ssh/config`.** The `cmx-*` hosts turn off agent and X11 forwarding, proxies, local commands and host-key updates, so a `Host *` entry of yours can't hand anything of this PC to the other one.
+- **OpenSSH.** It is the official Win32-OpenSSH release, pinned by SHA-256, with every program checked for Microsoft's signature.
+
+**What it can't protect against.**
+- **An allowed connection has your rights.** It can read your files, including Claude Code's login in `~/.claude`, install programs, or change ClaudeMaxxing itself. Allow only your own PCs, and only connections you expect. Use **Permitir 1 hora** only while you are working with that PC.
+- **The other PC.** If a paired PC is compromised, whoever controls it can ask for connections. Each request still needs your approval, unless an hour grant is active. **Olvidar** removes that PC's key at once.
+- **Programs already running as you.** Anything running as your user on this PC can change the files in `%LOCALAPPDATA%\ClaudeMaxxing` and `~/.claude/usage-tray`. That includes `sshd.exe`, which the firewall rule trusts. That is true of every program you run.
+- **Who is on your network.** Your PC name and user name are announced to the local network every 30 seconds, on Private networks only. Mark a network Private only if you trust who is on it.
 
 **Limits.** Both PCs need ClaudeMaxxing, with the tray running and the user signed in. Logins are only as that PC's own Windows user. **Olvidar** removes the PC only on the PC where you click it. Each PC uses its own Claude plan.
 

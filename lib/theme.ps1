@@ -139,7 +139,9 @@ function Stroke-Round($G, [System.Drawing.Rectangle]$Rect, [int]$Radius, [System
 }
 
 function Draw-Text($G, [string]$Text, $Font, $Color, [int]$X, [int]$Y, [int]$W, [int]$H, [string]$Align = 'Left') {
-    $flags = [System.Windows.Forms.TextFormatFlags]'VerticalCenter, NoPadding, EndEllipsis, SingleLine'
+    # NoPrefix: an "&" is drawn as itself, not taken as a keyboard-shortcut marker (which would hide it and
+    # underline the next letter, as in "a & b" shown as "a _b").
+    $flags = [System.Windows.Forms.TextFormatFlags]'VerticalCenter, NoPadding, EndEllipsis, SingleLine, NoPrefix'
     if ($Align -eq 'Right') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::Right }
     if ($Align -eq 'Center') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::HorizontalCenter }
     [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $Font, (New-Rect $X $Y $W $H), $Color, $flags)

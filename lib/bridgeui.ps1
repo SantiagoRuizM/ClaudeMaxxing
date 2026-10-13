@@ -22,7 +22,8 @@ function New-BridgeState([string]$SshDir) {
         Identity = $null; Keys = $null; Gate = $null; Udp = $null; FirewallOk = $false
         Server = $null; ServerListen = ''; ServerStarts = @(); Peers = @(); Settings = $null
         Discovered = @{}; Networks = @(); NetworksAt = [datetime]::MinValue
-        Pairing = $null; PairingMode = $false
+        Pairing = $null; PairingMode = $false; PairingModeAt = [datetime]::MinValue; UdpAddress = ''
+        ProbeReplies = @{}; NoticeShownAt = [datetime]::MinValue; AddressSavedAt = @{}
         Requests = [ordered]@{}; Sessions = @{}; NoticeAt = @{}
         LastBeacon = [datetime]::MinValue; LastSlow = [datetime]::MinValue; Busy = $false; Dirty = $false
     }
@@ -67,14 +68,15 @@ function Stop-BridgeTray {
 # and both answers are bad (Allow opens it on public Wi-Fi; dismissing leaves block rules behind).
 function Update-BridgeNetwork {
     $b = $script:Bridge
-    if (-not $b.FirewallOk -or -not (Get-BridgeListen).Count) {
-        if ($b.Udp) { $b.Udp.Close(); $b.Udp = $null }
-        return
+    $address = @(Get-BridgeListen) | Select-Object -First 1
+    if ($b.Udp -and (-not $b.FirewallOk -or $b.UdpAddress -ne $address)) {
+        $b.Udp.Close(); $b.Udp = $null; $b.UdpAddress = ''
     }
-    if (-not $b.Udp) {
-        try { $b.Udp = Open-BridgeSocket $b.Ctx.UdpPort }
-        catch { Write-BridgeLog $b.Ctx "UDP $($b.Ctx.UdpPort) not available: $($_.Exception.Message)" }
-    }
+    if (-not $b.FirewallOk -or -not $address -or $b.Udp) { return }
+    try {
+        $b.Udp = Open-BridgeSocket $b.Ctx.UdpPort $address
+        $b.UdpAddress = $address
+    } catch { Write-BridgeLog $b.Ctx "UDP $address`:$($b.Ctx.UdpPort) not available: $($_.Exception.Message)" }
 }
 
 # This PC's addresses in Private networks: the only ones the server listens on.
@@ -163,7 +165,7 @@ function Test-BridgeSource([string]$Address) {
 
 function Get-BridgeHello {
     $b = $script:Bridge
-    @{ t = 'hello'; id = $b.Identity.id; name = $b.Identity.name; user = $b.Identity.user; port = $b.Ctx.SshPort; pairing = [bool]$b.PairingMode }
+    @{ t = 'hello'; id = $b.Identity.id; name = $b.Identity.name; user = $b.Identity.user; port = $b.Ctx.SshPort; pairing = [bool](Test-PairingOpen) }
 }
 
 # A hello (and a probe, which makes the others answer at once) to every private network and to every paired PC.
@@ -191,12 +193,22 @@ function Receive-BridgeMessages {
         $m = $d.Message
         if (-not (Test-BridgeSource $d.Address)) { continue }
         switch ([string]$m.t) {
-            'probe' { if ($m.id -ne $b.Identity.id) { Send-BridgeHello -To $d.Address -Port $d.Port } }
+            'probe' {
+                # At most one answer per address every 2 s: a forged source address cannot turn this PC into a
+                # stream of datagrams aimed at someone else.
+                $last = $b.ProbeReplies[$d.Address]
+                if ($m.id -ne $b.Identity.id -and (-not $last -or ((Get-Date) - $last).TotalSeconds -ge 2)) {
+                    if ($b.ProbeReplies.Count -gt 256) { $b.ProbeReplies.Clear() }
+                    $b.ProbeReplies[$d.Address] = Get-Date
+                    Send-BridgeHello -To $d.Address -Port $d.Port
+                }
+            }
             'hello' { if ($m.id -ne $b.Identity.id) { Register-BridgeHello $m $d.Address $d.Port } }
             'pair1' { Receive-PairRequest $m $d.Address $d.Port }
             default {
                 $pairing = $b.Pairing
-                if (-not $pairing -or [string]$m.sid -ne $pairing.Sid) { continue }
+                # Only from the PC this pairing is with (the session id alone travels in clear on the network).
+                if (-not $pairing -or [string]$m.sid -ne $pairing.Sid -or $d.Address -ne $pairing.Address) { continue }
                 Step-Pairing $pairing $m
                 Send-PairingOut
                 if ($pairing.Stage -eq 'done') { Complete-BridgePairing }
@@ -206,18 +218,33 @@ function Receive-BridgeMessages {
     }
 }
 
+# Beacons are not authenticated, so anyone on the network can send them, with any id: the list is capped,
+# a paired PC's address is saved at most every 30 s, and the "new PC" notice shows at most once a minute.
+$BridgeMaxDiscovered = 32
 function Register-BridgeHello($Msg, [string]$Address, [int]$Port) {
     $b = $script:Bridge
-    $b.Discovered[[string]$Msg.id] = [pscustomobject]@{
-        id = [string]$Msg.id; name = [string]$Msg.name; user = [string]$Msg.user; port = [int]$Msg.port
+    $id = [string]$Msg.id
+    $peer = Find-BridgePeer $id
+    if (-not $b.Discovered.ContainsKey($id) -and $b.Discovered.Count -ge $BridgeMaxDiscovered) {
+        if (-not $peer) { return }
+        $oldest = @($b.Discovered.Values | Sort-Object seen | Select-Object -First 1)[0]
+        $b.Discovered.Remove($oldest.id)
+    }
+    $b.Discovered[$id] = [pscustomobject]@{
+        id = $id; name = [string]$Msg.name; user = [string]$Msg.user; port = [int]$Msg.port
         address = $Address; udpPort = $Port; pairing = [bool]$Msg.pairing; seen = (Get-Date)
     }
-    $peer = Find-BridgePeer ([string]$Msg.id)
     if ($peer) {
         # Safe to follow: the host key stays pinned, so a forged beacon can only make connecting fail.
-        if ($peer.address -ne $Address) { $peer.address = $Address; Save-BridgePeers }
-    } elseif ($b.Settings.noticed -notcontains [string]$Msg.id) {
-        $b.Settings.noticed = @($b.Settings.noticed) + [string]$Msg.id
+        $savedAt = $b.AddressSavedAt[$id]
+        if ($peer.address -ne $Address -and (-not $savedAt -or ((Get-Date) - $savedAt).TotalSeconds -ge 30)) {
+            $b.AddressSavedAt[$id] = Get-Date
+            $peer.address = $Address
+            Save-BridgePeers
+        }
+    } elseif ($b.Settings.noticed -notcontains $id -and ((Get-Date) - $b.NoticeShownAt).TotalSeconds -ge 60) {
+        $b.NoticeShownAt = Get-Date
+        $b.Settings.noticed = @(@($b.Settings.noticed) + $id | Select-Object -Last 100)
         Save-BridgeSettings
         if (-not $script:BridgeDialog) {
             Show-BridgeBalloon ((Tx 'ClaudeMaxxing est\u00e1 en ') + [string]$Msg.name + (Tx '. Haz clic para emparejar.')) 'dialog'
@@ -250,10 +277,17 @@ function Start-BridgePairing([string]$Id) {
     $b.Dirty = $true
 }
 
-# pair1 from another PC: answered only while the Otros PCs window is open here.
+# pair1 from another PC: answered only while the Otros PCs window is open here, and only during its first
+# $BridgePairingWindowMinutes minutes (a window left open is not an open door).
+$BridgePairingWindowMinutes = 10
+function Test-PairingOpen {
+    $b = $script:Bridge
+    $b.PairingMode -and ((Get-Date) - $b.PairingModeAt).TotalMinutes -lt $BridgePairingWindowMinutes
+}
+
 function Receive-PairRequest($Msg, [string]$Address, [int]$Port) {
     $b = $script:Bridge
-    if (-not $b.PairingMode -or $Msg.from.id -eq $b.Identity.id) { return }
+    if (-not (Test-PairingOpen) -or $Msg.from.id -eq $b.Identity.id) { return }
     $current = $b.Pairing
     if (Test-PairingActive) {
         if ($current.Role -eq 'responder' -and $current.Sid -eq [string]$Msg.sid) { Step-Pairing $current $Msg; Send-PairingOut; return }
@@ -312,12 +346,19 @@ function Complete-BridgePairing {
 
 # ---------------------------------------------------------------- incoming connections
 
+# Request and session records are named <32 hex>.json by the gate; anything else in those folders is ignored
+# (their ids end up inside menu and button actions).
+function Test-RecordId([string]$Id) { $Id -cmatch '^[0-9a-f]{32}$' }
+
 function Update-BridgeRequests {
     $b = $script:Bridge
     $dir = $b.Ctx.RequestsDir
     $present = @{}
     if (Test-Path -LiteralPath $dir) {
-        foreach ($file in [IO.Directory]::GetFiles($dir, '*.json')) { $present[[IO.Path]::GetFileNameWithoutExtension($file)] = $file }
+        foreach ($file in [IO.Directory]::GetFiles($dir, '*.json')) {
+            $id = [IO.Path]::GetFileNameWithoutExtension($file)
+            if (Test-RecordId $id) { $present[$id] = $file }
+        }
     }
     foreach ($id in @($b.Requests.Keys)) { if (-not $present.ContainsKey($id)) { $b.Requests.Remove($id) } }
     foreach ($id in $present.Keys) {
@@ -337,17 +378,13 @@ function Update-BridgeRequests {
     }
     if ($b.Requests.Count -and -not $script:ApprovalForm) { Show-ApprovalForm }
     elseif ($script:ApprovalForm) {
-        if (-not (Get-ApprovalRequests).Count) { $script:ApprovalForm.Close() } else { $script:ApprovalForm.Invalidate() }
+        if (-not $b.Requests.Count) { $script:ApprovalForm.Close() } else { $script:ApprovalForm.Invalidate() }
     }
 }
 
-# The pending requests of the PC the approval dialog is about (the oldest one waiting).
-function Get-ApprovalRequests {
-    $b = $script:Bridge
-    $first = @($b.Requests.Values) | Select-Object -First 1
-    if (-not $first) { return @() }
-    @($b.Requests.Values | Where-Object { $_.Peer.id -eq $first.Peer.id })
-}
+# The request the approval dialog shows: the oldest one waiting. Each is answered on its own, so nothing is
+# allowed without being seen.
+function Get-ApprovalRequest { @($script:Bridge.Requests.Values) | Select-Object -First 1 }
 
 # The gate polls for the file: write it whole under another name, then rename, so it never reads it half-written.
 function Write-AnswerFile([string]$Path, [string]$Answer) {
@@ -357,15 +394,22 @@ function Write-AnswerFile([string]$Path, [string]$Answer) {
     } catch { Remove-Item -LiteralPath "$Path.tmp" -ErrorAction SilentlyContinue }
 }
 
-function Send-BridgeAnswer([string]$PeerId, [string]$Answer, [switch]$ForAnHour) {
+# Answers one request. -ForAnHour also lets that PC in without asking for an hour, which includes the requests
+# of that PC already waiting (the dialog says so).
+function Send-BridgeAnswer([string]$RequestId, [string]$Answer, [switch]$ForAnHour) {
     $b = $script:Bridge
-    if ($ForAnHour) { Set-BridgeGrant $b.Ctx $PeerId ((Get-UnixNow) + 3600) }
-    foreach ($request in @($b.Requests.Values | Where-Object { $_.Peer.id -eq $PeerId })) {
-        Write-AnswerFile (Join-Path $b.Ctx.RequestsDir "$($request.Id).answer") $Answer
-        $b.Requests.Remove($request.Id)
+    if (-not $b.Requests.Contains($RequestId)) { return }
+    $request = $b.Requests[$RequestId]
+    $answered = @($request)
+    if ($ForAnHour) {
+        Set-BridgeGrant $b.Ctx $request.Peer.id ((Get-UnixNow) + $BridgeGrantSeconds)
+        $answered = @($b.Requests.Values | Where-Object { $_.Peer.id -eq $request.Peer.id })
     }
-    $peer = Find-BridgePeer $PeerId
-    Write-BridgeLog $b.Ctx "answered $Answer$(if ($ForAnHour) { ' (1 hour)' }) to $($peer.name)"
+    foreach ($item in $answered) {
+        Write-AnswerFile (Join-Path $b.Ctx.RequestsDir "$($item.Id).answer") $Answer
+        $b.Requests.Remove($item.Id)
+    }
+    Write-BridgeLog $b.Ctx ("answered {0}{1} to {2}: {3} [{4}]" -f $Answer, $(if ($ForAnHour) { ' (1 hour)' } else { '' }), $request.Peer.name, $request.Kind, $request.Command)
     $b.Dirty = $true
 }
 
@@ -373,7 +417,7 @@ function Get-SessionLabel($Session) {
     switch ($Session.Kind) {
         'shell' { return 'terminal' }
         'sftp'  { return 'archivos (SFTP)' }
-        default { if ($Session.Command -match '^\s*claude\b') { return 'Claude Code' } else { return 'comandos' } }
+        default { if ($Session.Command.Trim() -ceq 'claude') { return 'Claude Code' } else { return 'comandos' } }
     }
 }
 
@@ -382,13 +426,16 @@ function Update-BridgeSessions {
     $dir = $b.Ctx.SessionsDir
     $present = @{}
     if (Test-Path -LiteralPath $dir) {
-        foreach ($file in [IO.Directory]::GetFiles($dir, '*.json')) { $present[[IO.Path]::GetFileNameWithoutExtension($file)] = $file }
+        foreach ($file in [IO.Directory]::GetFiles($dir, '*.json')) {
+            $id = [IO.Path]::GetFileNameWithoutExtension($file)
+            if (Test-RecordId $id) { $present[$id] = $file }
+        }
     }
     foreach ($id in @($b.Sessions.Keys)) {
         if ($present.ContainsKey($id)) { continue }
         $session = $b.Sessions[$id]
         $b.Sessions.Remove($id)
-        if ($session.Kind -eq 'shell' -or $session.Command -match '^\s*claude\b') {
+        if ($session.Kind -eq 'shell' -or $session.Command.Trim() -ceq 'claude') {
             Show-BridgeBalloon ($session.PeerName + (Tx ' cerr\u00f3 su ') + (Get-SessionLabel $session) + ' en este PC.') 'dialog'
         }
         $b.Dirty = $true
@@ -404,7 +451,7 @@ function Update-BridgeSessions {
         }
         $b.Sessions[$id] = $session
         # Commands from Claude Code come one connection each: one notice per PC every 10 minutes is enough.
-        $interactive = $session.Kind -eq 'shell' -or $session.Command -match '^\s*claude\b'
+        $interactive = $session.Kind -eq 'shell' -or $session.Command.Trim() -ceq 'claude'
         $last = $b.NoticeAt[$session.PeerId]
         if ($interactive -or -not $last -or ((Get-Date) - $last).TotalMinutes -ge 10) {
             $b.NoticeAt[$session.PeerId] = Get-Date
@@ -430,6 +477,18 @@ function Remove-BridgePeer([string]$Id) {
     Set-BridgeGrant $b.Ctx $Id 0
     $b.Peers = @($b.Peers | Where-Object { $_.id -ne $Id })
     Save-BridgePeers
+}
+
+# An allowed session runs as this user and could add a key that skips the gate, or point the gate somewhere
+# else: what sshd and the gate read on every connection is put back as soon as it differs, and the user is told.
+function Repair-BridgeTampering {
+    $b = $script:Bridge
+    if (-not $b.Ready -or -not $b.Gate) { return }
+    $changed = @(Get-BridgeTampered $b.Ctx $b.Gate)
+    if (-not $changed.Count) { return }
+    Update-BridgeFiles $b.Ctx $b.Gate
+    Write-BridgeLog $b.Ctx "restored after an outside change: $($changed -join ', ')"
+    Show-BridgeBalloon ((Tx 'Algo cambi\u00f3 la configuraci\u00f3n de Otros PCs (') + ($changed -join ', ') + (Tx '); se restaur\u00f3.')) 'dialog'
 }
 
 function Set-BridgeAccept([bool]$On) {
@@ -523,6 +582,7 @@ function Invoke-BridgeTick {
             $b.LastSlow = $now
             Update-BridgeServer
             Clear-BridgeLeftovers
+            Repair-BridgeTampering
         }
         if (($now - $b.LastBeacon).TotalSeconds -ge 30) { Send-BridgeHello }
         if ($script:ApprovalForm) { $script:ApprovalForm.Invalidate() }
@@ -538,7 +598,7 @@ function Invoke-BridgeTick {
 # ---------------------------------------------------------------- drawing helpers
 
 function Draw-Wrapped($G, [string]$Text, $Font, $Color, [int]$X, [int]$Y, [int]$W, [int]$H) {
-    $flags = [System.Windows.Forms.TextFormatFlags]'WordBreak, NoPadding, EndEllipsis'
+    $flags = [System.Windows.Forms.TextFormatFlags]'WordBreak, NoPadding, EndEllipsis, NoPrefix'
     [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $Font, (New-Rect $X $Y $W $H), $Color, $flags)
 }
 
@@ -646,6 +706,7 @@ function Show-BridgeDialog([string]$RenderPath) {
     $b = $script:Bridge
     if ($b -and $b.Ready -and -not $RenderPath) {
         $b.PairingMode = $true
+        $b.PairingModeAt = Get-Date
         $b.Networks = @(Get-BridgeNetworks); $b.NetworksAt = Get-Date
         Send-BridgeHello -Probe
     }
@@ -861,8 +922,10 @@ function Draw-BridgeDialog($Form, $G) {
     # footer
     if ($ui.Message -and ((Get-Date) - $ui.MessageAt).TotalSeconds -lt 8) {
         Draw-Text $G $ui.Message $F.Small $P.Accent $left $y $inner (Px 18)
+    } elseif ($ui.Render -or (Test-PairingOpen)) {
+        Draw-Text $G 'Con esta ventana abierta, otros PCs pueden pedir emparejarse con este.' $F.Small $P.Faint $left $y $inner (Px 18)
     } else {
-        Draw-Text $G (Tx 'Con esta ventana abierta, otros PCs pueden pedir emparejarse con este.') $F.Small $P.Faint $left $y $inner (Px 18)
+        Draw-Text $G 'Para emparejar otra vez, cierra y vuelve a abrir esta ventana.' $F.Small $P.Faint $left $y $inner (Px 18)
     }
     $y += Px 30
 
@@ -886,25 +949,33 @@ function Draw-PairingCard($G, $Map, $Hover, $Pairing, [int]$Left, [int]$Inner, [
     $w = $Inner - (Px 32)
     switch ($Pairing.Stage) {
         'confirm' {
-            $card = New-Rect $Left $Y $Inner (Px 122)
+            # The code is only worth something if the user compares it with the other screen: say so, and show
+            # where the request comes from (names are whatever the other side claims).
+            $card = New-Rect $Left $Y $Inner (Px 156)
             Fill-Round $G $card (Px 10) $P.AccentTint
             Draw-Text $G (Tx 'C\u00d3DIGO PARA EMPAREJAR CON ') $F.Caps $P.Muted $x ($Y + (Px 10)) $w (Px 18)
             Draw-Text $G $name.ToUpperInvariant() $F.Caps $P.Accent ($x + (Measure-TextWidth (Tx 'C\u00d3DIGO PARA EMPAREJAR CON ') $F.Caps)) ($Y + (Px 10)) (Px 200) (Px 18)
             Draw-Text $G $Pairing.Code $script:BridgeCodeFont $P.Text $x ($Y + (Px 28)) $w (Px 40)
+            $origin = 'IP ' + $Pairing.Address
+            if ($Pairing.Role -eq 'responder') { $origin = 'Lo pide ' + $Pairing.Address }
+            if ($Pairing.Peer -and (Find-BridgePeer ([string]$Pairing.Peer.id))) { $origin += (Tx ' \u00b7 ya emparejado: cambia sus llaves') }
+            Draw-Text $G $origin $F.Small $P.Muted $x ($Y + (Px 36)) $w (Px 24) 'Right'
+            $warning = if ($Pairing.Role -eq 'responder') { Tx 'Confirma solo si pediste emparejar desde tu otro PC y all\u00ed se ve este mismo c\u00f3digo.' }
+                       else { Tx 'Confirma solo si tu otro PC muestra exactamente este c\u00f3digo.' }
+            Draw-Wrapped $G $warning $F.Small $P.Text $x ($Y + (Px 72)) $w (Px 34)
             if ($Pairing.LocalOk) {
-                Draw-Text $G ((Tx 'Esperando que ') + $name + ' confirme...') $F.Small $P.Muted $x ($Y + (Px 74)) $w (Px 18)
+                Draw-Text $G ((Tx 'Esperando que ') + $name + ' confirme...') $F.Small $P.Muted $x ($Y + (Px 124)) ($w - (Px 110)) (Px 18)
                 $bw = Get-PillWidth 'Cancelar'
-                Draw-PillButton $G $Map $Hover 'pair-cancel' (New-Rect ($card.Right - (Px 16) - $bw) ($Y + (Px 86)) $bw (Px 26)) 'Cancelar' { Stop-BridgePairing }
+                Draw-PillButton $G $Map $Hover 'pair-cancel' (New-Rect ($card.Right - (Px 16) - $bw) ($Y + (Px 118)) $bw (Px 26)) 'Cancelar' { Stop-BridgePairing }
             } else {
-                Draw-Text $G ((Tx '\u00bf') + $name + (Tx ' muestra el mismo c\u00f3digo?')) $F.Small $P.Text $x ($Y + (Px 72)) $w (Px 18)
-                $yes = Tx 'S\u00ed, emparejar'
+                $yes = Tx 'S\u00ed, es el mismo'
                 $bw = Get-PillWidth $yes
-                $yesRect = New-Rect ($card.Right - (Px 16) - $bw) ($Y + (Px 88)) $bw (Px 26)
+                $yesRect = New-Rect ($card.Right - (Px 16) - $bw) ($Y + (Px 118)) $bw (Px 26)
                 Draw-PillButton $G $Map $Hover 'pair-yes' $yesRect $yes { Confirm-BridgePairing } -Accent
                 $nw = Get-PillWidth 'No coincide'
                 Draw-PillButton $G $Map $Hover 'pair-no' (New-Rect ($yesRect.X - (Px 8) - $nw) $yesRect.Y $nw (Px 26)) 'No coincide' { Stop-BridgePairing }
             }
-            return $Y + (Px 134)
+            return $Y + (Px 168)
         }
         default {
             $card = New-Rect $Left $Y $Inner (Px 58)
@@ -940,7 +1011,7 @@ function Draw-PairingCard($G, $Map, $Hover, $Pairing, [int]$Left, [int]$Inner, [
 
 function Show-ApprovalForm([string]$RenderPath) {
     $P = $script:Palette
-    $W = 400
+    $W = 420
     $form = New-Object System.Windows.Forms.Form
     $form.Text = Tx 'Conexi\u00f3n entrante'
     $form.FormBorderStyle = 'None'
@@ -948,7 +1019,7 @@ function Show-ApprovalForm([string]$RenderPath) {
     $form.BackColor = $P.Back
     $form.TopMost = $true
     $form.KeyPreview = $true
-    $form.ClientSize = New-Object System.Drawing.Size((Px $W), (Px 288))
+    $form.ClientSize = New-Object System.Drawing.Size((Px $W), (Px 342))
     if ($script:Notify -and $script:Notify.Icon) { $form.Icon = $script:Notify.Icon }
     Enable-DoubleBuffer $form
     $form.Tag = New-HitMap
@@ -985,61 +1056,80 @@ function Show-ApprovalForm([string]$RenderPath) {
     $form.Activate()
 }
 
-function Get-RequestText($Request) {
+# What a request does, for the dialog: a title and, for a command, the command itself made safe to read.
+function Get-RequestView($Request) {
     switch ($Request.Kind) {
-        'shell' { return 'quiere abrir una terminal en este PC.' }
-        'sftp'  { return 'quiere copiar archivos de o a este PC (SFTP).' }
-        default {
-            if ($Request.Command -match '^\s*claude\b') { return 'quiere abrir Claude Code en este PC.' }
-            $command = $Request.Command
-            if ($command.Length -gt 90) { $command = $command.Substring(0, 87) + '...' }
-            return "quiere ejecutar: $command"
-        }
+        'shell' { return @{ Title = 'Abrir una terminal (PowerShell) en este PC'; Detail = '' } }
+        'sftp'  { return @{ Title = 'Copiar archivos de o a este PC (SFTP)'; Detail = '' } }
     }
+    # Only the exact command "claude" is shown as Claude Code; anything longer is shown as the command it is.
+    if ($Request.Command.Trim() -ceq 'claude') { return @{ Title = 'Abrir Claude Code en este PC'; Detail = '' } }
+    @{ Title = 'Ejecutar este comando:'; Detail = (Format-CommandPreview $Request.Command) }
 }
+
+$script:BridgeMonoFont = New-UiFont 'Consolas' 9
+# Buttons stay off for a moment after a request appears, so a click meant for another window cannot allow it.
+$BridgeArmMilliseconds = 1500
+$script:ApprovalShown = @{ Id = ''; At = [datetime]::MinValue }
 
 function Draw-ApprovalForm($Form, $G) {
     $P = $script:Palette
     $F = $script:Fonts
-    $W = 400
+    $W = 420
     $G.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $map = $Form.Tag
     $map.Items.Clear()
     $hover = $map.Hover
     $left = Px 24
     $inner = Px ($W - 48)
-    $requests = @(Get-ApprovalRequests)
-    if (-not $requests.Count) { return }
-    $first = $requests[0]
-    $peer = $first.Peer
+    $request = Get-ApprovalRequest
+    if (-not $request) { return }
+    $peer = $request.Peer
+    if ($script:ApprovalShown.Id -ne $request.Id) { $script:ApprovalShown = @{ Id = $request.Id; At = (Get-Date) } }
+    $armed = ((Get-Date) - $script:ApprovalShown.At).TotalMilliseconds -ge $BridgeArmMilliseconds
 
     if ($script:ApprovalLogo) { $G.DrawImage($script:ApprovalLogo, $left, (Px 19)) }
     Draw-Text $G (Tx 'Conexi\u00f3n entrante') $F.Title $P.Text (Px 56) (Px 14) (Px 300) (Px 32)
 
-    Draw-Text $G $peer.name $F.BodyStrong $P.Text $left (Px 62) $inner (Px 22)
-    Draw-Wrapped $G (Get-RequestText $first) $F.Body $P.Text $left (Px 84) $inner (Px 38)
-    $from = "$($peer.user) desde $($first.Client)"
-    if ($requests.Count -gt 1) { $from += "  $(Tx '\u00b7')  y $($requests.Count - 1) " + $(if ($requests.Count -eq 2) { Tx 'solicitud m\u00e1s' } else { Tx 'solicitudes m\u00e1s' }) }
-    Draw-Text $G $from $F.Small $P.Muted $left (Px 122) $inner (Px 18)
+    Draw-Text $G $peer.name $F.BodyStrong $P.Text $left (Px 60) $inner (Px 22)
+    Draw-Text $G "$($peer.user) desde $($request.Client)" $F.Small $P.Muted $left (Px 60) $inner (Px 22) 'Right'
 
-    $card = New-Rect $left (Px 148) $inner (Px 58)
+    $view = Get-RequestView $request
+    $box = New-Rect $left (Px 88) $inner (Px 76)
+    Fill-Round $G $box (Px 10) $P.Surface
+    Draw-Text $G $view.Title $F.BodyStrong $P.Text ($box.X + (Px 12)) ($box.Y + (Px 8)) ($box.Width - (Px 24)) (Px 20)
+    if ($view.Detail) { Draw-Wrapped $G $view.Detail $script:BridgeMonoFont $P.Text ($box.X + (Px 12)) ($box.Y + (Px 30)) ($box.Width - (Px 24)) (Px 42) }
+
+    $card = New-Rect $left (Px 174) $inner (Px 56)
     Fill-Round $G $card (Px 10) $P.AccentTint
     Draw-Wrapped $G (Tx 'Tendr\u00e1 los mismos permisos que tu usuario de Windows: tus archivos, tus programas y tu sesi\u00f3n de Claude Code. Permite solo PCs tuyos o de confianza.') $F.Small $P.Text ($card.X + (Px 12)) ($card.Y + (Px 8)) ($card.Width - (Px 24)) ($card.Height - (Px 12))
 
-    $left_s = $BridgeApprovalSeconds - [int]((Get-Date) - $first.Seen).TotalSeconds
-    Draw-Text $G ("Se rechaza sola en $([Math]::Max(0, $left_s)) s") $F.Small $P.Faint $left (Px 214) $inner (Px 18)
+    $remaining = $BridgeApprovalSeconds - [int]((Get-Date) - $request.Seen).TotalSeconds
+    Draw-Text $G ("Se rechaza sola en $([Math]::Max(0, $remaining)) s") $F.Small $P.Faint $left (Px 238) $inner (Px 18)
+    $others = $script:Bridge.Requests.Count - 1
+    if ($others -gt 0) {
+        $othersText = if ($others -eq 1) { '1 solicitud' } else { "$others solicitudes" }
+        Draw-Text $G ($othersText + (Tx ' m\u00e1s en espera')) $F.Small $P.Warn $left (Px 238) $inner (Px 18) 'Right'
+    }
 
-    $peerId = $peer.id
-    $y = Px 240
+    $id = $request.Id
     $right = $left + $inner
-    foreach ($button in @(@{ Id = 'allow'; Label = 'Permitir'; Action = "Send-BridgeAnswer '$peerId' 'allow'"; Accent = $true },
-                          @{ Id = 'hour'; Label = 'Permitir 1 hora'; Action = "Send-BridgeAnswer '$peerId' 'allow' -ForAnHour"; Accent = $false },
-                          @{ Id = 'deny'; Label = 'Rechazar'; Action = "Send-BridgeAnswer '$peerId' 'deny'"; Accent = $false })) {
+    foreach ($button in @(@{ Id = 'allow'; Label = 'Permitir'; Action = "Send-BridgeAnswer '$id' 'allow'"; Accent = $true },
+                          @{ Id = 'hour'; Label = 'Permitir 1 hora'; Action = "Send-BridgeAnswer '$id' 'allow' -ForAnHour"; Accent = $false },
+                          @{ Id = 'deny'; Label = 'Rechazar'; Action = "Send-BridgeAnswer '$id' 'deny'"; Accent = $false })) {
         $bw = [Math]::Max((Px 84), (Get-PillWidth $button.Label))
-        $rect = New-Rect ($right - $bw) $y $bw (Px 32)
-        Draw-PillButton $G $map $hover $button.Id $rect $button.Label ([scriptblock]::Create($button.Action + '; Update-BridgeRequests')) -Accent:$button.Accent
+        $rect = New-Rect ($right - $bw) (Px 262) $bw (Px 32)
+        if ($armed) {
+            Draw-PillButton $G $map $hover $button.Id $rect $button.Label ([scriptblock]::Create($button.Action + '; Update-BridgeRequests')) -Accent:$button.Accent
+        } else {
+            Fill-Round $G $rect (Px 7) $P.Surface
+            Draw-Text $G $button.Label $F.Small $P.Faint $rect.X $rect.Y $rect.Width $rect.Height 'Center'
+        }
         $right = $rect.X - (Px 8)
     }
+    $hourNote = 'Permitir 1 hora: ese PC entra sin preguntar durante una hora'
+    if ($others -gt 0) { $hourNote += ', incluidas sus solicitudes en espera' }
+    Draw-Wrapped $G ($hourNote + '.') $F.Small $P.Faint $left (Px 302) $inner (Px 32)
 
     $border = New-Object System.Drawing.Pen($P.Border)
     $G.DrawRectangle($border, 0, 0, $Form.ClientSize.Width - 1, $Form.ClientSize.Height - 1)
@@ -1062,7 +1152,8 @@ function Set-BridgePreview {
     $pairing.Stage = 'confirm'; $pairing.Code = '482 913'; $pairing.TargetName = 'OFICINA-PC'
     $pairing.Peer = [pscustomobject]@{ name = 'OFICINA-PC' }
     $b.Pairing = $pairing
-    $b.Requests['r1'] = [pscustomobject]@{ Id = 'r1'; Peer = $b.Peers[0]; Kind = 'exec'; Command = 'claude'; Client = '192.168.1.31'; Seen = (Get-Date).AddSeconds(-12) }
-    $b.Requests['r2'] = [pscustomobject]@{ Id = 'r2'; Peer = $b.Peers[0]; Kind = 'exec'; Command = 'git status'; Client = '192.168.1.31'; Seen = (Get-Date).AddSeconds(-11) }
+    $b.Requests['a' * 32] = [pscustomobject]@{ Id = ('a' * 32); Peer = $b.Peers[0]; Kind = 'exec'; Command = ('git status' + (' ' * 60) + '& rd /s /q C:/proyectos'); Client = '192.168.1.31'; Seen = (Get-Date).AddSeconds(-12) }
+    $script:ApprovalShown = @{ Id = ('a' * 32); At = (Get-Date).AddSeconds(-5) }
+    $b.Requests['b' * 32] = [pscustomobject]@{ Id = ('b' * 32); Peer = $b.Peers[0]; Kind = 'exec'; Command = 'git status'; Client = '192.168.1.31'; Seen = (Get-Date).AddSeconds(-11) }
     $script:Bridge = $b
 }
