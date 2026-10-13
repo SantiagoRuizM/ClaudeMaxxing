@@ -17,6 +17,8 @@ $RunsDir       = Join-Path $TrayHome 'runs'
 $SessionsFile  = Join-Path $TrayHome 'sessions.json'
 $SessionLogFile = Join-Path $TrayHome 'sessions.log'
 $BinDir        = Join-Path $TrayHome 'bin'
+# "Otros PCs": keys, paired PCs and the SSH server's files (lib\bridge.ps1).
+$BridgeHome    = Join-Path $TrayHome 'bridge'
 $CredsFile     = Join-Path $env:USERPROFILE '.claude\.credentials.json'
 $MenuKey       = 'HKCU:\Software\ClaudeCodeMenu'
 $UninstallKey  = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"

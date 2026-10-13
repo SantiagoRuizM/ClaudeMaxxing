@@ -264,6 +264,157 @@ Assert-Equal '-w new -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude
 Assert-Equal $true ((Format-SessionsFullMessage 4 2).Contains('(2 pantallas)')) 'full message names the monitors'
 Assert-Equal $true ((Format-SessionsFullMessage 2 1).Contains('(1 pantalla)')) 'full message, one monitor'
 
+# --- Otros PCs (bridge): config text, pairing, gate
+. (Join-Path $TrayRoot 'lib\bridge.ps1')
+. (Join-Path $TrayRoot 'lib\bridgenet.ps1')
+$keyA = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPa+Sqs0YdEJlbrjplfv/pPL7Qh9n9FJfyg+mzTrzLsO'
+$keyB = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBb8gNU32IWHjUGgdvBO6Qj3zWe1r3fYxOKnf3lXwvSh'
+Assert-Equal $keyA (Get-BridgeKeyText "$keyA someone@pc") 'key text drops the comment'
+Assert-Equal $null (Get-BridgeKeyText 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC') 'only ed25519 keys are accepted'
+Assert-Equal $null (Get-BridgeKeyText ($keyA.Substring(0, 60))) 'truncated key is rejected'
+Assert-Equal $true (Test-BridgeName 'DESKTOP-4F2' 40) 'computer name is valid'
+Assert-Equal $false (Test-BridgeName 'a"b' 40) 'quote in a name is rejected'
+Assert-Equal $false (Test-BridgeName ('x' * 41) 40) 'name over the limit is rejected'
+Assert-Equal '"C:/Users/John Smith/k"' (Format-SshPath 'C:\Users\John Smith\k') 'ssh path with a space is quoted'
+Assert-Equal 'C:/a%%b/k' (Format-SshPath 'C:\a%b\k') 'ssh path doubles percent'
+
+$peerA = [pscustomobject]@{ id = 'aaaaaaaaaaaa'; name = 'Oficina PC'; user = 'santi'; port = 41022; address = '192.168.1.20'; hostKey = $keyA; clientKey = $keyB }
+$peerB = [pscustomobject]@{ id = 'bbbbbbbbbbbb'; name = 'oficina-pc'; user = 'John Smith'; port = 41022; address = '192.168.1.30'; hostKey = $keyB; clientKey = $keyA }
+Assert-Equal 'cmx-oficina-pc-aaaa' (Get-PeerAlias $peerA @($peerA, $peerB)) 'alias: same name gets the id appended'
+Assert-Equal 'cmx-oficina-pc' (Get-PeerAlias $peerA @($peerA)) 'alias from the computer name'
+
+Assert-Equal '"C:\Users\John Smith\g.exe" aaaaaaaaaaaa' (Format-GateCommand 'C:\Users\John Smith\g.exe' 'aaaaaaaaaaaa') 'gate command: one quoted path and the id'
+$threw = $false; try { [void](Format-GateCommand 'C:\Users\a&b\g.exe' 'aaaaaaaaaaaa') } catch { $threw = $true }
+Assert-Equal $true $threw 'gate path with & is refused (cmd.exe would split it)'
+$line = Format-AuthorizedKeyLine 'C:\x y\g.exe' 'aaaaaaaaaaaa' "$keyB c" @('10.0.0.0/8', '192.168.0.0/16')
+Assert-Equal ('restrict,pty,from="10.0.0.0/8,192.168.0.0/16",command="\"C:\x y\g.exe\" aaaaaaaaaaaa" ' + $keyB + ' cmx-aaaaaaaaaaaa') $line 'authorized_keys line'
+$ctx = New-BridgeContext -DataDir 'C:\data\bridge' -SshDir 'C:\app\ssh' -SshPort 41022
+$keys = Format-AuthorizedKeys $ctx @($peerA, [pscustomobject]@{ id = 'cccccccccccc'; name = 'x'; clientKey = $null }) 'C:\g.exe'
+Assert-Equal 2 @($keys.Trim() -split "`n").Count 'authorized_keys: header plus one line per PC with a client key'
+Assert-Equal $false ($keys.Contains('127.0.0.1')) 'loopback is not accepted outside tests'
+$sshd = Format-SshdConfig $ctx 'C:\app\ssh\sftp-server.exe'
+foreach ($expected in 'Port 41022', 'PasswordAuthentication no', 'DisableForwarding yes', 'AuthorizedKeysFile C:/data/bridge/authorized_keys', 'Subsystem sftp C:/app/ssh/sftp-server.exe') {
+    Assert-Equal $true ($sshd -split "`n" -contains $expected) "sshd_config: $expected"
+}
+$client = Format-SshClientConfig $ctx @($peerA, $peerB)
+Assert-Equal $true ($client.Contains("Host cmx-oficina-pc-bbbb`n    HostName 192.168.1.30`n    Port 41022`n    User `"John Smith`"")) 'ssh_config host block, user with a space quoted'
+Assert-Equal $true ($client.Contains('StrictHostKeyChecking yes') -and $client.Contains('HostKeyAlias claudemaxxing-aaaaaaaaaaaa')) 'ssh_config pins the host key under an alias'
+Assert-Equal "claudemaxxing-aaaaaaaaaaaa $keyA`nclaudemaxxing-bbbbbbbbbbbb $keyB`n" (Format-KnownHosts @($peerA, $peerB)) 'known_hosts by alias'
+
+$grants = ConvertFrom-GrantsText "aaaaaaaaaaaa 2000`nbbbbbbbbbbbb 900`nnot-an-id 5000`n" 1000
+Assert-Equal 'aaaaaaaaaaaa' (@($grants.Keys) -join ',') 'grants: expired and malformed lines dropped'
+Assert-Equal "aaaaaaaaaaaa 2000`n" (Format-GrantsText $grants) 'grants text'
+
+foreach ($nl in "`n", "`r`n") {
+    $label = if ($nl -eq "`n") { 'LF' } else { 'CRLF' }
+    $userConfig = "Host work${nl}    User me${nl}"
+    $withBlock = Add-SshIncludeBlock $userConfig 'C:\Users\u\.claude\usage-tray\bridge\ssh_config'
+    Assert-Equal $true ($withBlock.StartsWith($SshIncludeStart + $nl + 'Include C:/Users/u/.claude/usage-tray/bridge/ssh_config')) "ssh include goes first ($label)"
+    Assert-Equal $withBlock (Add-SshIncludeBlock $withBlock 'C:\Users\u\.claude\usage-tray\bridge\ssh_config') "ssh include added twice is a no-op ($label)"
+    Assert-Equal $userConfig (Remove-SshIncludeBlock $withBlock) "ssh include removal restores the file ($label)"
+}
+Assert-Equal '' (Remove-SshIncludeBlock (Add-SshIncludeBlock '' 'C:\b\ssh_config')) 'include in an empty file removes cleanly'
+
+Assert-Equal '192.168.1.255' (Get-BroadcastAddress '192.168.1.23' 24) 'broadcast /24'
+Assert-Equal '10.255.255.255' (Get-BroadcastAddress '10.1.2.3' 8) 'broadcast /8'
+Assert-Equal '172.16.7.255' (Get-BroadcastAddress '172.16.4.9' 22) 'broadcast /22'
+Assert-Equal $true (Test-PrivateAddress '172.20.0.5') 'private 172.20'
+Assert-Equal $false (Test-PrivateAddress '172.32.0.5') 'not private 172.32'
+Assert-Equal $false (Test-PrivateAddress '8.8.8.8') 'public address'
+
+$infoA = [ordered]@{ id = 'aaaaaaaaaaaa'; name = 'PC-A'; user = 'santi'; port = 41022; hostKey = $keyA; clientKey = $keyB }
+$infoB = [ordered]@{ id = 'bbbbbbbbbbbb'; name = 'PC-B'; user = 'ana'; port = 41022; hostKey = $keyB; clientKey = $keyA }
+$hello = ConvertFrom-BridgeDatagram (ConvertTo-BridgeDatagram @{ t = 'hello'; id = 'aaaaaaaaaaaa'; name = 'PC-A'; user = 'santi'; port = 41022; pairing = $false })
+Assert-Equal 'PC-A' $hello.name 'hello round trip'
+Assert-Equal $null (ConvertFrom-BridgeDatagram ([Text.Encoding]::UTF8.GetBytes('{"app":"cmx","v":1,"t":"hello","id":"zz"}'))) 'hello with a bad id is dropped'
+Assert-Equal $null (ConvertFrom-BridgeDatagram ([Text.Encoding]::UTF8.GetBytes('not json'))) 'garbage is dropped'
+Assert-Equal $null (ConvertFrom-BridgeDatagram (ConvertTo-BridgeDatagram @{ t = 'pair2'; sid = '0123456789abcdef'; from = $infoB; commit = 'xyz' })) 'pair2 without a valid commit is dropped'
+
+# Full pairing through the state machines, datagrams serialized as on the wire.
+function Pass($Msg) { ConvertFrom-BridgeDatagram (ConvertTo-BridgeDatagram $Msg) }
+$a = New-PairInitiator $infoA '192.168.1.30' 41021
+$b = New-PairResponder $infoB (Pass $a.Out) '192.168.1.20' 41021
+Step-Pairing $a (Pass $b.Out)
+Assert-Equal 'revealed' $a.Stage 'initiator reveals its nonce after the commit'
+Step-Pairing $b (Pass $a.Out)
+Assert-Equal 'confirm' $b.Stage 'responder shows the code'
+Step-Pairing $a (Pass $b.Out)
+Assert-Equal 'confirm' $a.Stage 'initiator checks the commit and shows the code'
+Assert-Equal $true ($a.Code -match '^\d{3} \d{3}$') 'code is six digits'
+Assert-Equal $a.Code $b.Code 'both screens show the same code'
+$dup = $b.Out; Step-Pairing $b (Pass @{ t = 'pair3'; sid = $a.Sid; nonce = $a.Nonce })
+Assert-Equal 'pair4' $b.Out.t 'a repeated pair3 gets pair4 again'
+Confirm-Pairing $a
+Assert-Equal 'confirm' $a.Stage 'one confirmation is not enough'
+Step-Pairing $b (Pass $a.Out)
+Assert-Equal 'confirm' $b.Stage 'remote ok alone does not finish the responder'
+Confirm-Pairing $b
+Assert-Equal 'done' $b.Stage 'responder done after both confirm'
+Step-Pairing $a (Pass $b.Out)
+Assert-Equal 'done' $a.Stage 'initiator done after both confirm'
+$record = New-PeerRecord $a
+Assert-Equal 'bbbbbbbbbbbb|192.168.1.30|ana' ('{0}|{1}|{2}' -f $record.id, $record.address, $record.user) 'peer record from the pairing'
+
+# A machine in the middle that swaps the responder's keys: the commit no longer matches.
+$a2 = New-PairInitiator $infoA '192.168.1.30' 41021
+$b2 = New-PairResponder $infoB (Pass $a2.Out) '192.168.1.20' 41021
+$forged = Pass $b2.Out
+$forged.from.hostKey = $keyA
+Step-Pairing $a2 $forged
+Step-Pairing $b2 (Pass $a2.Out)
+Step-Pairing $a2 (Pass $b2.Out)
+Assert-Equal 'failed' $a2.Stage 'swapped keys are caught by the commit'
+Assert-Equal $true ((Get-PairCode $infoA $infoB 'n1' 'n2') -ne (Get-PairCode $infoA $infoB 'n1' 'n3')) 'code depends on the nonces'
+$c = New-PairInitiator $infoA '192.168.1.30' 41021
+$d = New-PairResponder $infoB (Pass $c.Out) '192.168.1.20' 41021
+Step-Pairing $c (Pass $d.Out); Step-Pairing $d (Pass $c.Out); Step-Pairing $c (Pass $d.Out)
+Stop-Pairing $d
+Step-Pairing $c (Pass $d.Out)
+Assert-Equal 'cancelled' $c.Stage 'cancel on one PC cancels the other'
+
+# The gate, compiled and run for real (no sshd): command passthrough, grants, approval and denial.
+$gateHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-gate-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$savedCommand = $env:SSH_ORIGINAL_COMMAND
+try {
+    $gctx = New-BridgeContext -DataDir $gateHome -SshDir 'C:\none'
+    $gate = Import-BridgeGate $gctx
+    Write-BridgeText $gctx.GateConf (Format-GateConf 'C:\none\sftp-server.exe' 'PC-TEST' 3)
+    function Invoke-Gate([string]$Command, [string]$Answer) {
+        $env:SSH_ORIGINAL_COMMAND = $Command
+        $psi = New-Object System.Diagnostics.ProcessStartInfo($gate, 'aaaaaaaaaaaa')
+        $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        if ($Answer) {
+            $deadline = (Get-Date).AddSeconds(10)
+            while ((Get-Date) -lt $deadline -and -not @(Get-ChildItem -LiteralPath $gctx.RequestsDir -Filter '*.json' -ErrorAction SilentlyContinue).Count) { Start-Sleep -Milliseconds 50 }
+            $request = Get-ChildItem -LiteralPath $gctx.RequestsDir -Filter '*.json' | Select-Object -First 1
+            $script:LastRequest = Get-Content -LiteralPath $request.FullName -Raw | ConvertFrom-Json
+            [IO.File]::WriteAllText(($request.FullName -replace '\.json$', '.answer'), $Answer)
+        }
+        $out = $proc.StandardOutput.ReadToEnd()
+        $proc.WaitForExit()
+        [pscustomobject]@{ Out = $out.Trim(); Err = $errTask.Result.Trim(); Code = $proc.ExitCode }
+    }
+    $r = Invoke-Gate 'echo gate-ok' 'allow'
+    Assert-Equal 'gate-ok|0' "$($r.Out)|$($r.Code)" 'gate runs the command once allowed'
+    Assert-Equal 'exec|echo gate-ok|aaaaaaaaaaaa' ('{0}|{1}|{2}' -f $script:LastRequest.kind, $script:LastRequest.command, $script:LastRequest.peer) 'gate request names the PC and the command'
+    $r = Invoke-Gate 'exit /b 7' 'allow'
+    Assert-Equal 7 $r.Code 'gate passes the exit code through'
+    $r = Invoke-Gate 'echo nope' 'deny'
+    Assert-Equal "1|False" "$($r.Code)|$($r.Out -match 'nope')" 'denied: nothing runs'
+    Assert-Equal $true ($r.Err -match 'no permitio') 'denied: the client is told'
+    $r = Invoke-Gate 'echo late' ''
+    Assert-Equal $true ($r.Code -eq 1 -and $r.Err -match 'nadie respondio') 'no answer in time: closed'
+    Set-BridgeGrant $gctx 'aaaaaaaaaaaa' ((Get-UnixNow) + 60)
+    $r = Invoke-Gate 'echo granted' ''
+    Assert-Equal 'granted' $r.Out 'a grant lets the PC in without asking'
+    Assert-Equal 0 @(Get-ChildItem -LiteralPath $gctx.RequestsDir, $gctx.SessionsDir -File).Count 'gate leaves no request or session files behind'
+} finally {
+    $env:SSH_ORIGINAL_COMMAND = $savedCommand
+    Remove-Item -LiteralPath $gateHome -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- installer: what gets copied to the install folder
 . (Join-Path $TrayRoot 'lib\installer.ps1')
 $manifest = Get-RuntimeManifest $TrayRoot
