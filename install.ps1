@@ -9,7 +9,10 @@
 #      UAC prompt to trust this PC's signing certificate) and points it at the installed open-session.ps1,
 #   6. voice: /voz for menu sessions, edge-tts and ffplay (winget and pip, unless -SkipVoiceDeps) and the
 #      global hotkeys (unless -NoHotkeys),
-#   7. startup shortcut, an entry in Settings > Apps (its uninstall runs the installed uninstall.ps1), and
+#   7. Otros PCs (unless -SkipBridge): the pinned, Microsoft-signed portable OpenSSH in <install>\ssh, the
+#      Include in ~/.ssh/config, and the firewall rules (Private networks, local subnet; one UAC prompt the
+#      first time),
+#   8. startup shortcut, an entry in Settings > Apps (its uninstall runs the installed uninstall.ps1), and
 #      starts the tray.
 param(
     [string]$InstallDir,
@@ -17,7 +20,8 @@ param(
     [switch]$SkipMenu,
     [switch]$BuildMenu,
     [switch]$SkipVoiceDeps,
-    [switch]$NoHotkeys
+    [switch]$NoHotkeys,
+    [switch]$SkipBridge
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +30,8 @@ $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $RepoRoot 'lib\statusline.ps1')
 . (Join-Path $RepoRoot 'lib\schedule.ps1')
 . (Join-Path $RepoRoot 'lib\installer.ps1')
+. (Join-Path $RepoRoot 'lib\bridge.ps1')
+. (Join-Path $RepoRoot 'lib\bridgeinstall.ps1')
 if (-not $InstallDir) { $InstallDir = $DefaultInstallDir }
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
 if ($InstallDir -eq $RepoRoot.TrimEnd('\')) { throw 'The install folder cannot be the repo itself.' }
@@ -139,7 +145,23 @@ if (-not $NoHotkeys) {
     & $powershell -NoProfile -ExecutionPolicy Bypass -File $ctl hotkeys on | ForEach-Object { Write-Host $_ }
 }
 
-# ---------------------------------------------------------------- 7. startup, Settings > Apps, start
+# ---------------------------------------------------------------- 7. Otros PCs
+Write-Step 'Otros PCs (terminals between PCs over SSH)'
+if ($SkipBridge) {
+    Write-Host 'skipped (-SkipBridge)'
+} else {
+    try {
+        Write-Host (Install-BridgeOpenSsh $InstallDir)
+        $bridgeCtx = New-BridgeContext -SshDir (Join-Path $InstallDir 'ssh')
+        Write-Host (Install-SshInclude $bridgeCtx)
+        Write-Host 'firewall rules (Private networks, local subnet; accept the UAC prompt if one appears)...'
+        Write-Host "firewall: $(Set-BridgeFirewall (Join-Path $InstallDir 'ssh\sshd.exe'))"
+    } catch {
+        Add-Warning "Otros PCs is not fully set up: $($_.Exception.Message). Run install.ps1 again to finish it (the firewall rules can also be created from the tray, in Otros PCs...)."
+    }
+}
+
+# ---------------------------------------------------------------- 8. startup, Settings > Apps, start
 Write-Step 'Startup and Settings > Apps'
 $tray = Get-TrayLaunch $InstallDir
 New-Shortcut $TrayLink $tray.File $tray.Arguments $InstallDir "$AppName - Claude usage in the notification area"

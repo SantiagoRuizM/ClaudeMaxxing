@@ -100,6 +100,19 @@ function Format-SshPath([string]$Path) {
     $value
 }
 
+# Paths in ssh_config and its Include line, which two different ssh clients read: Windows' OpenSSH and Git's
+# (MSYS, the one Claude Code's Bash tool runs). Git's takes "C:/..." in Include as relative to ~/.ssh, so paths
+# under the user's profile are written as ~/..., which both expand to that same folder.
+function Format-SshClientPath([string]$Path, [string]$UserHome = $env:USERPROFILE) {
+    $prefix = $UserHome.TrimEnd('\') + '\'
+    if ($Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        $value = '~/' + $Path.Substring($prefix.Length).Replace('\', '/').Replace('%', '%%')
+        if ($value -match '[\s#]') { return '"' + $value + '"' }
+        return $value
+    }
+    Format-SshPath $Path
+}
+
 # "Martin's PC" -> cmx-martin-s-pc; two paired PCs with the same name get the start of their id appended.
 function Get-PeerAlias($Peer, $AllPeers) {
     $base = ([string]$Peer.name).ToLowerInvariant() -replace '[^a-z0-9]+', '-'
@@ -185,10 +198,10 @@ function Format-SshClientConfig($Ctx, $Peers) {
         $lines += "    Port $($peer.port)"
         $lines += "    User $user"
         $lines += "    HostKeyAlias $(Get-HostKeyAlias $peer.id)"
-        $lines += "    UserKnownHostsFile $(Format-SshPath $Ctx.KnownHosts)"
+        $lines += "    UserKnownHostsFile $(Format-SshClientPath $Ctx.KnownHosts)"
         $lines += '    StrictHostKeyChecking yes'
         $lines += '    CheckHostIP no'
-        $lines += "    IdentityFile $(Format-SshPath $Ctx.ClientKey)"
+        $lines += "    IdentityFile $(Format-SshClientPath $Ctx.ClientKey)"
         $lines += '    IdentitiesOnly yes'
         $lines += '    PasswordAuthentication no'
         $lines += '    KbdInteractiveAuthentication no'
@@ -232,7 +245,7 @@ $SshIncludeEnd   = '# <<< ClaudeMaxxing'
 
 function Add-SshIncludeBlock([string]$Text, [string]$IncludePath) {
     $nl = if ($Text -match "`r`n") { "`r`n" } else { "`n" }
-    $block = $SshIncludeStart + $nl + 'Include ' + (Format-SshPath $IncludePath) + $nl + $SshIncludeEnd + $nl
+    $block = $SshIncludeStart + $nl + 'Include ' + (Format-SshClientPath $IncludePath) + $nl + $SshIncludeEnd + $nl
     $rest = Remove-SshIncludeBlock $Text
     if ($rest) { return $block + $nl + $rest }
     $block
@@ -408,13 +421,53 @@ function Get-BridgeServerError($Ctx) {
     } catch { '' }
 }
 
-# ---------------------------------------------------------------- network
+# ---------------------------------------------------------------- firewall
 
-# Both rules exist and are on (install.ps1 creates them; reading them needs no admin rights).
-function Test-BridgeFirewall {
+$BridgePowerShell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+# Both rules exist, are on, and let in the given sshd and this PowerShell (reading them needs no admin).
+function Test-BridgeFirewall([string]$SshdPath) {
     $rules = @(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' })
-    $rules.Count -ge 2
+    if ($rules.Count -lt 2) { return $false }
+    if (-not $SshdPath) { return $true }
+    $programs = @($rules | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue | ForEach-Object { $_.Program })
+    ($programs -contains $SshdPath) -and ($programs -contains $BridgePowerShell)
 }
+
+# Commands for an elevated PowerShell: inbound rules for the SSH server (TCP) and discovery (UDP), Private
+# networks only and from the local subnet only, so nothing outside the LAN or on public Wi-Fi gets through.
+function Get-BridgeFirewallScript([string]$SshdPath) {
+    $q = { param($s) "'" + $s.Replace("'", "''") + "'" }
+    @(
+        "Remove-NetFirewallRule -Group $(& $q $BridgeFirewallGroup) -ErrorAction SilentlyContinue"
+        "New-NetFirewallRule -DisplayName 'ClaudeMaxxing - SSH entre PCs (TCP $BridgeSshPort)' -Group $(& $q $BridgeFirewallGroup) -Direction Inbound -Action Allow -Protocol TCP -LocalPort $BridgeSshPort -Program $(& $q $SshdPath) -Profile Private -RemoteAddress LocalSubnet | Out-Null"
+        "New-NetFirewallRule -DisplayName 'ClaudeMaxxing - encontrar PCs (UDP $BridgeUdpPort)' -Group $(& $q $BridgeFirewallGroup) -Direction Inbound -Action Allow -Protocol UDP -LocalPort $BridgeUdpPort -Program $(& $q $BridgePowerShell) -Profile Private -RemoteAddress LocalSubnet | Out-Null"
+    ) -join "`n"
+}
+
+# Runs PowerShell commands elevated (one UAC prompt). Returns $true when they ran and succeeded.
+function Invoke-Elevated([string]$Script) {
+    $wrapped = "`$ErrorActionPreference = 'Stop'`ntry {`n$Script`n} catch { exit 1 }`nexit 0"
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($wrapped))
+    try {
+        $p = Start-Process -FilePath $BridgePowerShell -Verb RunAs -Wait -PassThru -WindowStyle Hidden `
+            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
+        return ($p.ExitCode -eq 0)
+    } catch {
+        # The user declined the UAC prompt.
+        return $false
+    }
+}
+
+function Set-BridgeFirewall([string]$SshdPath) {
+    if (Test-BridgeFirewall $SshdPath) { return 'up to date' }
+    if (Invoke-Elevated (Get-BridgeFirewallScript $SshdPath)) { return 'created' }
+    throw 'the firewall rules were not created (UAC prompt declined?)'
+}
+
+function Get-BridgeFirewallRemovalScript { "Remove-NetFirewallRule -Group '$BridgeFirewallGroup' -ErrorAction SilentlyContinue" }
+
+# ---------------------------------------------------------------- network
 
 # IPv4 addresses on networks Windows marks Private, with their broadcast address and network name.
 function Get-BridgeNetworks {
