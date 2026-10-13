@@ -295,8 +295,8 @@ $ctx = New-BridgeContext -DataDir 'C:\data\bridge' -SshDir 'C:\app\ssh' -SshPort
 $keys = Format-AuthorizedKeys $ctx @($peerA, [pscustomobject]@{ id = 'cccccccccccc'; name = 'x'; clientKey = $null }) 'C:\g.exe'
 Assert-Equal 2 @($keys.Trim() -split "`n").Count 'authorized_keys: header plus one line per PC with a client key'
 Assert-Equal $false ($keys.Contains('127.0.0.1')) 'loopback is not accepted outside tests'
-$sshd = Format-SshdConfig $ctx 'C:\app\ssh\sftp-server.exe'
-foreach ($expected in 'Port 41022', 'PasswordAuthentication no', 'DisableForwarding yes', 'AuthorizedKeysFile C:/data/bridge/authorized_keys', 'Subsystem sftp C:/app/ssh/sftp-server.exe') {
+$sshd = Format-SshdConfig $ctx 'C:\app\ssh\sftp-server.exe' @('192.168.1.20', '10.0.0.5')
+foreach ($expected in 'Port 41022', 'ListenAddress 192.168.1.20', 'ListenAddress 10.0.0.5', 'PasswordAuthentication no', 'DisableForwarding yes', 'AuthorizedKeysFile C:/data/bridge/authorized_keys', 'Subsystem sftp C:/app/ssh/sftp-server.exe') {
     Assert-Equal $true ($sshd -split "`n" -contains $expected) "sshd_config: $expected"
 }
 $client = Format-SshClientConfig $ctx @($peerA, $peerB)

@@ -25,9 +25,10 @@ $OpenSshRelease = @{
                Sha256 = '698C6AEC31C1DD0FB996206E8741F4531A97355686B5431EF347D531B07FCD42' }
 }
 
-# Every path and port the bridge uses. Tests and the loopback check pass their own folder and ports.
+# Every path and port the bridge uses. Tests and the loopback check pass their own folder and ports, and a fixed
+# ListenAddress; without one the server listens only on this PC's addresses in Private networks.
 function New-BridgeContext([string]$DataDir = $BridgeHome, [string]$SshDir, [int]$SshPort = $BridgeSshPort,
-        [int]$UdpPort = $BridgeUdpPort, [string]$ListenAddress = '0.0.0.0', [switch]$AllowLoopback) {
+        [int]$UdpPort = $BridgeUdpPort, [string]$ListenAddress = '', [switch]$AllowLoopback) {
     if (-not $SshDir) { $SshDir = Join-Path $DefaultInstallDir 'ssh' }
     @{
         Home = $DataDir; SshDir = $SshDir; SshPort = $SshPort; UdpPort = $UdpPort
@@ -159,11 +160,11 @@ function Format-AuthorizedKeys($Ctx, $Peers, [string]$GateExe) {
     ($lines -join "`n") + "`n"
 }
 
-function Format-SshdConfig($Ctx, [string]$SftpServer) {
+function Format-SshdConfig($Ctx, [string]$SftpServer, [string[]]$Listen) {
     $lines = @(
         '# Written by the ClaudeMaxxing tray every time it starts this server; edits are overwritten.'
         "Port $($Ctx.SshPort)"
-        "ListenAddress $($Ctx.ListenAddress)"
+    ) + @($Listen | ForEach-Object { "ListenAddress $_" }) + @(
         'AddressFamily inet'
         "HostKey $(Format-SshPath $Ctx.HostKey)"
         "AuthorizedKeysFile $(Format-SshPath $Ctx.AuthorizedKeys)"
@@ -358,7 +359,8 @@ function Import-BridgeGate($Ctx) {
     $exe
 }
 
-# Rewrites everything the server and the ssh client read from the paired PCs.
+# Rewrites everything the server and the ssh client read from the paired PCs (sshd_config is written when the
+# server starts, with the addresses it listens on).
 function Update-BridgeFiles($Ctx, [string]$GateExe) {
     $peers = Read-BridgePeers $Ctx
     $sftp = Join-Path $Ctx.SshDir 'sftp-server.exe'
@@ -366,7 +368,6 @@ function Update-BridgeFiles($Ctx, [string]$GateExe) {
     if ($GateExe) {
         Write-BridgeText $Ctx.AuthorizedKeys (Format-AuthorizedKeys $Ctx $peers $GateExe)
         Write-BridgeText $Ctx.GateConf (Format-GateConf $sftp $env:COMPUTERNAME)
-        Write-BridgeText $Ctx.SshdConfig (Format-SshdConfig $Ctx $sftp)
     }
     Write-BridgeText $Ctx.SshConfig (Format-SshClientConfig $Ctx $peers)
     Write-BridgeText $Ctx.KnownHosts (Format-KnownHosts $peers)
@@ -394,18 +395,23 @@ function Stop-BridgeServer($Ctx) {
     $proc.ProcessId
 }
 
-function Start-BridgeServer($Ctx, [string]$GateExe) {
+# $Listen: the addresses to listen on (this PC's in Private networks); the context's fixed one wins.
+function Start-BridgeServer($Ctx, [string]$GateExe, [string[]]$Listen) {
     $sshd = Join-Path $Ctx.SshDir 'sshd.exe'
     if (-not (Test-Path -LiteralPath $sshd)) { throw "OpenSSH is not installed ($sshd)" }
+    if ($Ctx.ListenAddress) { $Listen = @($Ctx.ListenAddress) }
+    $Listen = @($Listen | Where-Object { $_ })
+    if (-not $Listen.Count) { throw 'no Private network address to listen on' }
     [void](Stop-BridgeServer $Ctx)
     Update-BridgeFiles $Ctx $GateExe
+    Write-BridgeText $Ctx.SshdConfig (Format-SshdConfig $Ctx (Join-Path $Ctx.SshDir 'sftp-server.exe') $Listen)
     if ((Test-Path -LiteralPath $Ctx.SshdLog) -and (Get-Item -LiteralPath $Ctx.SshdLog).Length -gt 1MB) {
         Move-Item -LiteralPath $Ctx.SshdLog -Destination ($Ctx.SshdLog + '.1') -Force
     }
     $arguments = '-D -f "{0}" -E "{1}"' -f $Ctx.SshdConfig, $Ctx.SshdLog
     $proc = Start-Process -FilePath $sshd -ArgumentList $arguments -WindowStyle Hidden -PassThru
     Write-BridgeText $Ctx.PidFile ([string]$proc.Id)
-    Write-BridgeLog $Ctx "sshd started (PID $($proc.Id), port $($Ctx.SshPort))"
+    Write-BridgeLog $Ctx "sshd started (PID $($proc.Id), $($Listen -join ', ') port $($Ctx.SshPort))"
     $proc
 }
 

@@ -109,7 +109,8 @@ public static class ClaudeMaxxingGate
             {
                 if (File.Exists(answerFile))
                 {
-                    try { return File.ReadAllText(answerFile).Trim(); } catch (IOException) { }
+                    // An empty read is a write still in progress: keep waiting.
+                    try { string text = File.ReadAllText(answerFile).Trim(); if (text.Length > 0) return text; } catch (IOException) { }
                 }
                 if (!told && (DateTime.UtcNow - start).TotalMilliseconds > 1500)
                 {

@@ -20,7 +20,7 @@ function New-BridgeState([string]$SshDir) {
         Ctx = (New-BridgeContext -SshDir $SshDir); SshdPath = (Join-Path $SshDir 'sshd.exe')
         Ready = $false; Problem = ''; Detail = ''
         Identity = $null; Keys = $null; Gate = $null; Udp = $null; FirewallOk = $false
-        Server = $null; ServerStarts = @(); Peers = @(); Settings = $null
+        Server = $null; ServerListen = ''; ServerStarts = @(); Peers = @(); Settings = $null
         Discovered = @{}; Networks = @(); NetworksAt = [datetime]::MinValue
         Pairing = $null; PairingMode = $false
         Requests = [ordered]@{}; Sessions = @{}; NoticeAt = @{}
@@ -48,9 +48,10 @@ function Initialize-BridgeTray([string]$SshDir) {
     Clear-BridgeLeftovers
     Update-BridgeFiles $b.Ctx $b.Gate
     $b.Ready = $true
+    $b.Networks = @(Get-BridgeNetworks); $b.NetworksAt = Get-Date
+    $b.FirewallOk = Test-BridgeFirewall $b.SshdPath
     Update-BridgeNetwork
     Update-BridgeServer
-    $b.Networks = @(Get-BridgeNetworks); $b.NetworksAt = Get-Date
     Send-BridgeHello -Probe
 }
 
@@ -61,12 +62,12 @@ function Stop-BridgeTray {
     if ($b.Ready) { [void](Stop-BridgeServer $b.Ctx) }
 }
 
-# Firewall rules present: open the discovery socket. Missing: no socket and no server (Windows would otherwise
-# ask to allow PowerShell or sshd, and a dismissed prompt leaves block rules behind).
+# The discovery socket is open only with the firewall rules present and at least one Private network. Otherwise
+# nothing listens: on a Public network, or without the rules, Windows would ask to allow PowerShell or sshd,
+# and both answers are bad (Allow opens it on public Wi-Fi; dismissing leaves block rules behind).
 function Update-BridgeNetwork {
     $b = $script:Bridge
-    $b.FirewallOk = Test-BridgeFirewall $b.SshdPath
-    if (-not $b.FirewallOk) {
+    if (-not $b.FirewallOk -or -not (Get-BridgeListen).Count) {
         if ($b.Udp) { $b.Udp.Close(); $b.Udp = $null }
         return
     }
@@ -76,11 +77,25 @@ function Update-BridgeNetwork {
     }
 }
 
+# This PC's addresses in Private networks: the only ones the server listens on.
+function Get-BridgeListen {
+    $b = $script:Bridge
+    if ($b.Ctx.ListenAddress) { return @($b.Ctx.ListenAddress) }
+    @($b.Networks | ForEach-Object { $_.Address } | Select-Object -Unique)
+}
+
 function Update-BridgeServer {
     $b = $script:Bridge
     if (-not $b.Ready) { return }
-    $want = $b.FirewallOk -and $b.Settings.acceptIncoming -and @($b.Peers | Where-Object { $_.clientKey }).Count -gt 0
+    $listen = @(Get-BridgeListen)
+    $want = $b.FirewallOk -and $b.Settings.acceptIncoming -and $listen.Count -gt 0 -and @($b.Peers | Where-Object { $_.clientKey }).Count -gt 0
     $running = $b.Server -and -not $b.Server.HasExited
+    # A new address (another network, a new DHCP lease): restart on the new one.
+    if ($want -and $running -and $b.ServerListen -ne ($listen -join ',')) {
+        [void](Stop-BridgeServer $b.Ctx)
+        $b.Server = $null
+        $running = $false
+    }
     if ($want -and -not $running) {
         $recent = @($b.ServerStarts | Where-Object { $_ -gt (Get-Date).AddMinutes(-5) })
         if ($recent.Count -ge 3) {
@@ -91,7 +106,8 @@ function Update-BridgeServer {
             return
         }
         try {
-            $b.Server = Start-BridgeServer $b.Ctx $b.Gate
+            $b.Server = Start-BridgeServer $b.Ctx $b.Gate $listen
+            $b.ServerListen = $listen -join ','
             $b.ServerStarts = $recent + @(Get-Date)
             if ($b.Problem -eq 'server') { $b.Problem = '' }
         } catch {
@@ -310,7 +326,7 @@ function Update-BridgeRequests {
         if (-not $record) { continue }
         $peer = Find-BridgePeer ([string]$record.peer)
         if (-not $peer) {
-            [IO.File]::WriteAllText(($present[$id] -replace '\.json$', '.answer'), 'deny')
+            Write-AnswerFile ($present[$id] -replace '\.json$', '.answer') 'deny'
             continue
         }
         $b.Requests[$id] = [pscustomobject]@{
@@ -333,11 +349,19 @@ function Get-ApprovalRequests {
     @($b.Requests.Values | Where-Object { $_.Peer.id -eq $first.Peer.id })
 }
 
+# The gate polls for the file: write it whole under another name, then rename, so it never reads it half-written.
+function Write-AnswerFile([string]$Path, [string]$Answer) {
+    try {
+        [IO.File]::WriteAllText("$Path.tmp", $Answer)
+        Move-Item -LiteralPath "$Path.tmp" -Destination $Path -Force
+    } catch { Remove-Item -LiteralPath "$Path.tmp" -ErrorAction SilentlyContinue }
+}
+
 function Send-BridgeAnswer([string]$PeerId, [string]$Answer, [switch]$ForAnHour) {
     $b = $script:Bridge
     if ($ForAnHour) { Set-BridgeGrant $b.Ctx $PeerId ((Get-UnixNow) + 3600) }
     foreach ($request in @($b.Requests.Values | Where-Object { $_.Peer.id -eq $PeerId })) {
-        try { [IO.File]::WriteAllText((Join-Path $b.Ctx.RequestsDir "$($request.Id).answer"), $Answer) } catch { }
+        Write-AnswerFile (Join-Path $b.Ctx.RequestsDir "$($request.Id).answer") $Answer
         $b.Requests.Remove($request.Id)
     }
     $peer = Find-BridgePeer $PeerId
@@ -420,6 +444,7 @@ function Set-BridgeAccept([bool]$On) {
 function Repair-BridgeFirewall {
     $b = $script:Bridge
     try { [void](Set-BridgeFirewall $b.SshdPath) } catch { Write-BridgeLog $b.Ctx $_.Exception.Message }
+    $b.FirewallOk = Test-BridgeFirewall $b.SshdPath
     Update-BridgeNetwork
     Update-BridgeServer
     Send-BridgeHello -Probe
@@ -474,12 +499,22 @@ function Update-BridgeMenu($Item) {
 
 function Invoke-BridgeTick {
     $b = $script:Bridge
-    if (-not $b) { Initialize-BridgeTray (Join-Path $TrayRoot 'ssh'); return }
+    if (-not $b) {
+        try { Initialize-BridgeTray (Join-Path $TrayRoot 'ssh') }
+        catch {
+            if ($script:Bridge) { $script:Bridge.Problem = 'error'; $script:Bridge.Detail = $_.Exception.Message; Write-BridgeLog $script:Bridge.Ctx "init: $($_.Exception.Message)" }
+        }
+        return
+    }
     if (-not $b.Ready -or $b.Busy) { return }
     $b.Busy = $true
     try {
         $now = Get-Date
-        if (($now - $b.NetworksAt).TotalSeconds -ge 60) { $b.Networks = @(Get-BridgeNetworks); $b.NetworksAt = $now; $b.Dirty = $true }
+        if (($now - $b.NetworksAt).TotalSeconds -ge 60) {
+            $before = @(Get-BridgeListen) -join ','
+            $b.Networks = @(Get-BridgeNetworks); $b.NetworksAt = $now
+            if ((@(Get-BridgeListen) -join ',') -ne $before) { Update-BridgeNetwork; Update-BridgeServer; Send-BridgeHello -Probe; $b.Dirty = $true }
+        }
         if ($b.Udp) { Receive-BridgeMessages }
         Update-PairingProgress
         Update-BridgeRequests
@@ -539,8 +574,9 @@ function Get-BridgeStatus {
         'openssh' { return @{ Text = (Tx 'Falta OpenSSH: vuelve a ejecutar install.ps1.'); Color = $P.Error } }
         'error'   { return @{ Text = "No se pudo preparar: $($b.Detail)"; Color = $P.Error } }
     }
-    if (-not $b.FirewallOk) { return @{ Text = 'Falta la regla del firewall.'; Color = $P.Warn; Fix = 'Permitir...' } }
-    if (-not $b.Networks.Count) { return @{ Text = (Tx 'Sin red privada: ni busca PCs ni acepta conexiones.'); Color = $P.Warn } }
+    if (-not $b.FirewallOk) { return @{ Text = 'Falta la regla del firewall.'; Color = $P.Warn; Fix = 'Permitir...'; FixAction = { Repair-BridgeFirewall } } }
+    # New Wi-Fi networks are Public by default: the fix is marking this one Private in Settings.
+    if (-not $b.Networks.Count) { return @{ Text = 'Red no privada: ni busca PCs ni acepta conexiones.'; Color = $P.Warn; Fix = 'Hacerla privada...'; FixAction = { Start-Process 'ms-settings:network-status' } } }
     $network = ($b.Networks | Select-Object -First 1).Name
     if ($b.Problem -eq 'server') { return @{ Text = "El servidor SSH no arranca: $($b.Detail)"; Color = $P.Error } }
     if (-not $b.Settings.acceptIncoming) { return @{ Text = "Red $network " + (Tx '\u00b7') + ' no acepta conexiones entrantes'; Color = $P.Muted } }
@@ -710,7 +746,7 @@ function Draw-BridgeDialog($Form, $G) {
     if ($status.Fix) {
         $fixW = Get-PillWidth $status.Fix
         $fix = New-Rect ($card.Right - (Px 16) - $fixW) ($y + (Px 46)) $fixW (Px 22)
-        Draw-PillButton $G $map $hover 'fix' $fix $status.Fix { Repair-BridgeFirewall } -Accent
+        Draw-PillButton $G $map $hover 'fix' $fix $status.Fix $status.FixAction -Accent
         $statusW -= $fixW + (Px 8)
     }
     Draw-Text $G $status.Text $F.Small $status.Color (Px 40) ($y + (Px 48)) $statusW (Px 18)

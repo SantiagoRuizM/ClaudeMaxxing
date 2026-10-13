@@ -14,6 +14,11 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
 . (Join-Path $TrayRoot 'lib\bridge.ps1')
 . (Join-Path $TrayRoot 'lib\bridgenet.ps1')
+# Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
+# prompts) to everything it starts, including remote sessions on this PC.
+if ($env:CLAUDECODE) {
+    foreach ($name in 'NO_COLOR', 'GIT_EDITOR', 'GIT_TERMINAL_PROMPT', 'GIT_ASKPASS') { Remove-Item "env:$name" -ErrorAction SilentlyContinue }
+}
 Clear-ClaudeSessionEnv
 if ($UsagePath) { $UsageFile = $UsagePath }
 if ($ExtrasPath) { $ExtrasFile = $ExtrasPath }
