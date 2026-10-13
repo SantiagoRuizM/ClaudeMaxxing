@@ -15,4 +15,7 @@ Uso del plan de Claude en la bandeja de Windows, sesiones de Claude Code abierta
 - Pruebas:
   - `powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1` (bandeja, huecos, instalador, paquete del menú; revisa además que todos los `.ps1` del repo sean ASCII y parseen).
   - `powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1` (voz, sin audio).
+  - Otros PCs (`lib/bridge*.ps1`, `lib/bridgegate.cs`), con dos PCs falsos en loopback y el OpenSSH instalado (o `-SshDir`): `test\bridge-e2e.ps1` (protocolo, `sshd`, los tres clientes `ssh`) y `test\bridge-tray-e2e.ps1` con `-STA` (las funciones de la bandeja). No están en el CI.
+- Otros PCs: el `sshd` corre como el usuario, lanzado por la bandeja (sin servicio); la bandeja instalada lo para al salir y `Stop-RecordedTray` también. Las rutas que leen los clientes `ssh` van como `~/...` (`Format-SshClientPath`): el `ssh` de Git, el que usa Claude Code, toma `C:/...` en `Include` como relativo a `~/.ssh`.
+- Las herramientas convierten `\uXXXX` en el carácter real al escribir archivos: para dejar `\u00f3` literal en un `.ps1`, revisa que el archivo siga siendo ASCII (lo comprueba `test\run-tests.ps1`).
 - Para probar el lanzador sin tocar las sesiones reales: el `open-session.ps1` instalado con `-StatePath <json aparte> -Run <comando>`, `$env:CLAUDEVOICE='off'` y `$env:TEMP` apuntando a una carpeta aparte (ahí guarda la voz su estado).
