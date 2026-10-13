@@ -65,8 +65,13 @@ function Sync-Runtime([string]$Source, [string]$Target) {
     $manifest.Count
 }
 
-# Stops the tray recorded in tray.pid (wherever it was started from), after checking it really is tray.ps1.
+# Stops the tray recorded in tray.pid (wherever it was started from), after checking it really is tray.ps1,
+# and the "Otros PCs" SSH server it started (killing the tray skips its own cleanup).
 function Stop-RecordedTray {
+    if (Get-Command Stop-BridgeServer -ErrorAction SilentlyContinue) {
+        $serverPid = Stop-BridgeServer (New-BridgeContext)
+        if ($serverPid) { Write-Host "Otros PCs SSH server stopped (PID $serverPid)" }
+    }
     if (-not (Test-Path -LiteralPath $TrayPidFile)) { return $null }
     $trayPid = 0
     [void][int]::TryParse(([IO.File]::ReadAllText($TrayPidFile)).Trim(), [ref]$trayPid)

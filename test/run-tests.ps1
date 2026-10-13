@@ -277,6 +277,9 @@ Assert-Equal $false (Test-BridgeName 'a"b' 40) 'quote in a name is rejected'
 Assert-Equal $false (Test-BridgeName ('x' * 41) 40) 'name over the limit is rejected'
 Assert-Equal '"C:/Users/John Smith/k"' (Format-SshPath 'C:\Users\John Smith\k') 'ssh path with a space is quoted'
 Assert-Equal 'C:/a%%b/k' (Format-SshPath 'C:\a%b\k') 'ssh path doubles percent'
+Assert-Equal '~/.claude/usage-tray/bridge/ssh_config' (Format-SshClientPath 'C:\Users\Ana\.claude\usage-tray\bridge\ssh_config' 'C:\Users\Ana') 'client path under the profile uses ~ (Git ssh reads C:/ in Include as relative)'
+Assert-Equal '"~/My Files/k"' (Format-SshClientPath 'C:\Users\Ana\My Files\k' 'C:\Users\Ana\') 'client path with a space is quoted'
+Assert-Equal 'D:/data/k' (Format-SshClientPath 'D:\data\k' 'C:\Users\Ana') 'client path outside the profile stays absolute'
 
 $peerA = [pscustomobject]@{ id = 'aaaaaaaaaaaa'; name = 'Oficina PC'; user = 'santi'; port = 41022; address = '192.168.1.20'; hostKey = $keyA; clientKey = $keyB }
 $peerB = [pscustomobject]@{ id = 'bbbbbbbbbbbb'; name = 'oficina-pc'; user = 'John Smith'; port = 41022; address = '192.168.1.30'; hostKey = $keyB; clientKey = $keyA }

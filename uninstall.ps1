@@ -1,5 +1,6 @@
 # Removes ClaudeMaxxing for the current user: the tray and its startup shortcut, the voice hotkeys, the
-# "Abrir con Claude Code" Explorer entry (package, certificate and launcher; one UAC prompt), scheduled sessions,
+# "Abrir con Claude Code" Explorer entry (package, certificate and launcher), Otros PCs (its SSH server, firewall
+# rules and ~/.ssh/config block; the rules go in the same UAC prompt as the menu certificate), scheduled sessions,
 # the statusline block, the voice hooks if they were installed for every session, the Settings > Apps entry and
 # the install folder. Usage data (~/.claude/usage-tray) and voice state (%TEMP%\claude-voice) are kept unless
 # -RemoveData. -KeepMenu leaves the Explorer entry, which then opens plain Windows Terminal.
@@ -11,6 +12,8 @@ $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Here 'lib\schedule.ps1')
 . (Join-Path $Here 'lib\statusline.ps1')
 . (Join-Path $Here 'lib\installer.ps1')
+. (Join-Path $Here 'lib\bridge.ps1')
+. (Join-Path $Here 'lib\bridgeinstall.ps1')
 if (-not $InstallDir) { $InstallDir = $DefaultInstallDir }
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -33,11 +36,24 @@ if ($globalVoice) {
     & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $voiceDir 'install.ps1') -Uninstall | ForEach-Object { Write-Host $_ }
 }
 
+# Otros PCs: the server stopped with the tray above; removing the firewall rules needs admin rights.
+Write-Host (Uninstall-SshInclude)
+$bridgeRules = @(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count
+$rulesScript = if ($bridgeRules) { Get-BridgeFirewallRemovalScript } else { '' }
+
 if ($KeepMenu) {
     if (Test-Path -LiteralPath $MenuKey) { Remove-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue }
     Write-Host 'menu launcher removed (the Explorer entry opens plain Windows Terminal)'
+    if ($rulesScript) { [void](Invoke-Elevated $rulesScript) }
 } else {
-    & (Join-Path $Here 'menu\uninstall.ps1')
+    & (Join-Path $Here 'menu\uninstall.ps1') -AlsoElevated $rulesScript
+}
+if ($bridgeRules) {
+    if (@(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count) {
+        Write-Host "Otros PCs firewall rules kept (UAC declined): remove the '$BridgeFirewallGroup' group in Windows Defender Firewall"
+    } else {
+        Write-Host 'Otros PCs firewall rules removed'
+    }
 }
 
 $removed = Remove-AllSessionTasks
