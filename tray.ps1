@@ -3,18 +3,22 @@
 # Launch: powershell -NoProfile -ExecutionPolicy Bypass -STA -File tray.ps1
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
-param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab)
+# -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
+param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
+    [string]$RenderBridgeTo, [string]$RenderApprovalTo)
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\usage.ps1')
 . (Join-Path $TrayRoot 'lib\schedule.ps1')
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
+. (Join-Path $TrayRoot 'lib\bridge.ps1')
+. (Join-Path $TrayRoot 'lib\bridgenet.ps1')
 Clear-ClaudeSessionEnv
 if ($UsagePath) { $UsageFile = $UsagePath }
 if ($ExtrasPath) { $ExtrasFile = $ExtrasPath }
 
-$Rendering = [bool]($RenderTo -or $RenderDialogTo)
+$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo)
 if (-not $Rendering) {
     $createdNew = $false
     $script:TrayMutex = New-Object System.Threading.Mutex($true, 'Local\ClaudeTray', [ref]$createdNew)
@@ -25,6 +29,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\theme.ps1')
 . (Join-Path $TrayRoot 'lib\dialog.ps1')
+. (Join-Path $TrayRoot 'lib\bridgeui.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
@@ -316,6 +321,12 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
 [void]$menu.Items.Add('Abrir uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
 [void]$menu.Items.Add('-')
+# Otros PCs: terminals on paired PCs and the incoming sessions, rebuilt each time the submenu opens.
+$script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PCs')
+[void]$script:BridgeMenu.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
+$script:BridgeMenu.Add_DropDownOpening({ Update-BridgeMenu $script:BridgeMenu })
+[void]$menu.Items.Add($script:BridgeMenu)
+[void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Salir', $null, { [System.Windows.Forms.Application]::Exit() })
 $Notify.ContextMenuStrip = $menu
 
@@ -323,6 +334,7 @@ $Notify.Add_MouseClick({
     param($sender, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Switch-Popup }
 })
+$Notify.Add_BalloonTipClicked({ if ($script:BridgeBalloonAction -eq 'dialog') { Show-BridgeDialog } })
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 15000
@@ -336,6 +348,19 @@ $timer.Add_Tick({
 
 Update-ScheduleState
 Update-UsageState
+
+# Otros PCs: the first tick sets it up (keys, firewall check, server), so the icon shows without waiting for it.
+$script:BridgeTimer = New-Object System.Windows.Forms.Timer
+$script:BridgeTimer.Interval = 400
+$script:BridgeTimer.Add_Tick({ Invoke-BridgeTick })
+
+if ($RenderBridgeTo -or $RenderApprovalTo) {
+    Set-BridgePreview
+    if ($RenderBridgeTo) { Show-BridgeDialog $RenderBridgeTo }
+    if ($RenderApprovalTo) { Show-ApprovalForm $RenderApprovalTo }
+    $Notify.Dispose()
+    exit 0
+}
 
 if ($RenderDialogTo) {
     Show-ScheduleDialog $RenderDialogTo $PreviewCloud $DialogTab
@@ -355,11 +380,14 @@ if ($RenderTo) {
 }
 
 $timer.Start()
+$script:BridgeTimer.Start()
 Start-UsageRefresh
 try {
     [System.Windows.Forms.Application]::Run()
 } finally {
     $timer.Stop()
+    $script:BridgeTimer.Stop()
+    Stop-BridgeTray
     $Notify.Visible = $false
     $Notify.Dispose()
     Remove-Item -LiteralPath $TrayPidFile -ErrorAction SilentlyContinue
