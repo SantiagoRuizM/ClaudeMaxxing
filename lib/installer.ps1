@@ -3,7 +3,7 @@
 
 # Everything the installed tray, menu launcher and voice need; nothing else from the repo is copied.
 $script:RuntimeFiles = @(
-    'tray.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1',
+    'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1',
     'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1'
 )
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
@@ -85,6 +85,20 @@ function Stop-RecordedTray {
         Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue
     }
     $trayPid
+}
+
+# Stops the Claude Whisper window recorded in whisper.pid, after checking it really is whisper.ps1, with its
+# claude process (the tree of that one PID).
+function Stop-RecordedWhisper {
+    $pidFile = Join-Path $TrayHome 'whisper\whisper.pid'
+    if (-not (Test-Path -LiteralPath $pidFile)) { return $null }
+    $whisperPid = 0
+    [void][int]::TryParse(([IO.File]::ReadAllText($pidFile)).Trim(), [ref]$whisperPid)
+    Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $whisperPid" -ErrorAction SilentlyContinue
+    if (-not $proc -or $proc.CommandLine -notlike '*whisper.ps1*') { return $null }
+    & taskkill.exe /PID $whisperPid /T /F 2>$null | Out-Null
+    $whisperPid
 }
 
 function Get-TrayLaunch([string]$InstallDir) {

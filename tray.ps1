@@ -14,6 +14,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
 . (Join-Path $TrayRoot 'lib\bridge.ps1')
 . (Join-Path $TrayRoot 'lib\bridgenet.ps1')
+. (Join-Path $TrayRoot 'lib\whisper.ps1')
 # Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
 # prompts) to everything it starts, including remote sessions on this PC.
 if ($env:CLAUDECODE) {
@@ -326,6 +327,8 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
 [void]$menu.Items.Add('Abrir uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
 [void]$menu.Items.Add('-')
+# Claude Whisper: live call copilot in its own process (whisper.ps1).
+[void]$menu.Items.Add('Claude Whisper', $null, { Start-WhisperWindow $TrayRoot })
 # Otros PCs: terminals on paired PCs and the incoming sessions, rebuilt each time the submenu opens.
 $script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PCs')
 [void]$script:BridgeMenu.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
@@ -339,7 +342,24 @@ $Notify.Add_MouseClick({
     param($sender, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Switch-Popup }
 })
-$Notify.Add_BalloonTipClicked({ if ($script:BridgeBalloonAction -eq 'dialog') { Show-BridgeDialog } })
+$Notify.Add_BalloonTipClicked({
+    if ($script:BridgeBalloonAction -eq 'dialog') { Show-BridgeDialog }
+    elseif ($script:BridgeBalloonAction -eq 'whisper') { Start-WhisperWindow $TrayRoot }
+})
+
+# Like a meeting assistant: when a call app starts using the microphone, offer Claude Whisper. Only once
+# Claude Whisper has been used on this PC (its settings exist), and not while it is open.
+$script:MeetingAppsSeen = @()
+function Test-MeetingStarted {
+    if (-not (Test-Path -LiteralPath $WhisperSettingsFile) -or (Test-WhisperRunning)) { $script:MeetingAppsSeen = @(); return }
+    try { Import-WhisperNative; $apps = Get-MeetingApps ([ClaudeWhisper.AudioCapture]::MicrophoneUsers()) } catch { return }
+    $new = @($apps | Where-Object { $script:MeetingAppsSeen -notcontains $_ })
+    $script:MeetingAppsSeen = $apps
+    if ($new.Count -eq 0 -or -not $script:Notify.Visible) { return }
+    $script:BridgeBalloonAction = 'whisper'
+    $script:Notify.ShowBalloonTip(6000, 'Claude Whisper', ((Tx '{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir Claude Whisper.') -f $new[0]),
+        [System.Windows.Forms.ToolTipIcon]::Info)
+}
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 15000
@@ -347,6 +367,7 @@ $script:Ticks = 0
 $timer.Add_Tick({
     $script:Ticks++
     if ($script:Ticks % 20 -eq 0) { Update-ScheduleState }
+    Test-MeetingStarted
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }
 })
