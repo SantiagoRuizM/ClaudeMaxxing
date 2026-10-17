@@ -352,6 +352,7 @@ $Notify.Add_BalloonTipClicked({
 $script:MeetingAppsSeen = @()
 function Test-MeetingStarted {
     if (-not (Test-Path -LiteralPath $WhisperSettingsFile) -or (Test-WhisperRunning)) { $script:MeetingAppsSeen = @(); return }
+    if (-not (Get-WhisperSettings (Read-JsonFile $WhisperSettingsFile)).meetingNotice) { return }
     try { Import-WhisperNative; $apps = Get-MeetingApps ([ClaudeWhisper.AudioCapture]::MicrophoneUsers()) } catch { return }
     $new = @($apps | Where-Object { $script:MeetingAppsSeen -notcontains $_ })
     $script:MeetingAppsSeen = $apps

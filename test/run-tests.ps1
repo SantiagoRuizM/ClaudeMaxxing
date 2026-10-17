@@ -526,6 +526,12 @@ Assert-Equal $true (Test-WhisperQuestion 'Tell me about a time you failed.') 'qu
 Assert-Equal $true (Test-WhisperQuestion 'Ok. Walk me through your last project.') 'question: second sentence'
 Assert-Equal $false (Test-WhisperQuestion (Tx 'Buenos d\u00edas, gracias por venir a la entrevista.')) 'question: greeting is not'
 Assert-Equal $false (Test-WhisperQuestion 'Vale.') 'question: too short'
+Assert-Equal $false (Test-WhisperQuestion (Tx 'Como te dec\u00eda, usamos Python en todo el equipo.')) 'question: como without accent is a statement'
+Assert-Equal $false (Test-WhisperQuestion (Tx 'Cuando empec\u00e9 en la empresa \u00e9ramos tres.')) 'question: cuando without accent is a statement'
+Assert-Equal $false (Test-WhisperQuestion 'Te comento que el equipo es de cinco personas.') 'question: te comento is a statement'
+Assert-Equal $false (Test-WhisperQuestion 'When I joined we were only three people.') 'question: english statement'
+Assert-Equal $true (Test-WhisperQuestion (Tx 'Qu\u00e9 proyecto te gust\u00f3 m\u00e1s de todos')) 'question: accented interrogative without mark'
+Assert-Equal $true (Test-WhisperQuestion 'What would you do differently next time') 'question: english opener pair'
 Assert-Equal (Tx '\u00bfQu\u00e9 tal Python?') (Get-WhisperQuestionText @('Hola, bienvenido.', (Tx '\u00bfQu\u00e9 tal Python?'))) 'question text: greeting left out'
 Assert-Equal 'Hola. Vale.' (Get-WhisperQuestionText @('Hola.', 'Vale.')) 'question text: everything when no question'
 
@@ -561,7 +567,7 @@ $ev = ConvertFrom-ClaudeLine '{"type":"result","subtype":"error_max_turns","is_e
 Assert-Equal 'result|boom' "$($ev.Kind)|$($ev.Text)" 'stream-json: failed turn carries its error'
 Assert-Equal $null (ConvertFrom-ClaudeLine 'not json') 'stream-json: noise ignored'
 $in = ConvertTo-ClaudeInputLine 'mira' 'QUJD' | ConvertFrom-Json
-Assert-Equal 'user|image|QUJD|text|mira' ('{0}|{1}|{2}|{3}|{4}' -f $in.type, $in.message.content[0].type, $in.message.content[0].source.data, $in.message.content[1].type, $in.message.content[1].text) 'stream-json: image message'
+Assert-Equal 'user|image|image/png|QUJD|text|mira' ('{0}|{1}|{2}|{3}|{4}|{5}' -f $in.type, $in.message.content[0].type, $in.message.content[0].source.media_type, $in.message.content[0].source.data, $in.message.content[1].type, $in.message.content[1].text) 'stream-json: image message'
 Assert-Equal 'hola' ((ConvertTo-ClaudeInputLine 'hola' '' | ConvertFrom-Json).message.content) 'stream-json: text message'
 
 $hk = ConvertFrom-WhisperHotkey 'Ctrl+Alt+Shift+R'

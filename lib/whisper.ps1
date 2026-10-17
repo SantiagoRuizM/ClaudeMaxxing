@@ -31,6 +31,7 @@ function Get-WhisperDefaults {
         hotkeyScreen = 'Ctrl+Alt+Shift+C'
         hotkeyToggle = 'Ctrl+Alt+Shift+W'
         topMost      = $true
+        meetingNotice = $true
         bounds       = $null
     }
 }
@@ -157,30 +158,35 @@ function ConvertTo-PlainWords([string]$Text) {
     @($plain -split '[^a-z0-9]+' | Where-Object { $_ })
 }
 
-$script:QuestionStarts = @(
-    'que', 'como', 'cual', 'cuales', 'cuando', 'donde', 'quien', 'quienes', 'cuanto', 'cuantos', 'cuanta', 'cuantas', 'por que', 'para que',
-    'cuentame', 'cuentanos', 'hablame', 'hablanos', 'explica', 'explicame', 'explicanos', 'describe', 'describeme', 'dime', 'danos',
-    'puedes', 'podrias', 'sabes', 'conoces', 'has', 'tienes', 'te', 'estas', 'eres', 'harias', 'imagina', 'supongamos',
-    'what', 'how', 'why', 'when', 'where', 'who', 'which', 'whats', 'hows', 'can you', 'could you', 'would you', 'tell me', 'tell us',
-    'describe', 'explain', 'walk me', 'walk us', 'have you', 'do you', 'did you', 'are you', 'is there', 'give me', 'imagine', 'suppose',
-    'o que', 'qual', 'quais', 'quando', 'onde', 'quem', 'voce', 'conte', 'fale',
-    'quoi', 'quel', 'quelle', 'comment', 'pourquoi', 'quand', 'ou', 'qui', 'est ce', 'pouvez', 'parlez',
-    'was', 'wie', 'warum', 'wann', 'wo', 'wer', 'welche', 'welcher', 'erzahlen', 'konnen',
-    'cosa', 'come', 'perche', 'quando', 'dove', 'chi', 'quale', 'puoi', 'parlami'
+# Interrogative words only count with their accent (que/como/cuando also start plain statements:
+# "Como te dec\u00eda...", "Cuando empec\u00e9..."); the speech service writes the accents and the question marks.
+$script:QuestionWords = @((Tx 'qu\u00e9 c\u00f3mo cu\u00e1l cu\u00e1les cu\u00e1ndo d\u00f3nde qui\u00e9n qui\u00e9nes cu\u00e1nto cu\u00e1ntos cu\u00e1nta cu\u00e1ntas') -split ' ') +
+    @((Tx 'por qu\u00e9|para qu\u00e9|o que|est-ce que|qu\u00e9 tal') -split '[|]')
+# Prompts that ask for an answer without a question mark, compared without accents. English question
+# openers go in pairs ("how would", "what is") because single words also start statements ("When I joined...").
+$script:QuestionPrompts = @(
+    'cuentame', 'cuentanos', 'hablame', 'hablanos', 'explica', 'explicame', 'explicanos', 'describe', 'describeme', 'describenos',
+    'dime', 'danos', 'imagina', 'imaginate', 'supongamos', 'platicame', 'comentame', 'menciona', 'podrias contarme', 'podrias explicar',
+    'tell me', 'tell us', 'walk me', 'walk us', 'explain', 'give me', 'give us', 'imagine', 'suppose', 'talk me', 'talk us',
+    'how would', 'how do', 'how did', 'how does', 'how can', 'how have', 'what would', 'what do', 'what did', 'what is', 'what are',
+    'whats your', 'why would', 'why do', 'why did', 'why should', 'which one', 'have you', 'do you', 'did you', 'are you', 'can you',
+    'could you', 'would you', 'is there',
+    'conte', 'fale', 'me conte', 'me fale', 'descreva', 'explique', 'racontez', 'parlez', 'expliquez', 'decrivez',
+    'erzahlen sie', 'beschreiben sie', 'erklaren sie', 'parlami', 'raccontami', 'descrivi', 'spiegami', 'parlaci', 'raccontaci'
 )
 
 # True when a finished utterance from the other side asks for an answer: a question mark, or a sentence
-# that starts like a question or a prompt ("cuentame...", "walk me through...").
+# that starts with an accented interrogative or a prompt ("cuentame...", "walk me through...").
 function Test-WhisperQuestion([string]$Text) {
     $text = ([string]$Text).Trim()
     if ($text.Length -lt 8) { return $false }
     if ($text.Contains('?') -or $text.Contains([string][char]0x00BF)) { return $true }
     foreach ($sentence in ($text -split '(?<=[\.\!;:])\s+')) {
-        $words = ConvertTo-PlainWords $sentence
+        $words = @($sentence.ToLowerInvariant() -split '[^\p{L}\p{Nd}\-]+' | Where-Object { $_ })
         if ($words.Count -lt 3) { continue }
-        $head1 = $words[0]
-        $head2 = "$($words[0]) $($words[1])"
-        if ($script:QuestionStarts -contains $head2 -or $script:QuestionStarts -contains $head1) { return $true }
+        if ($script:QuestionWords -ccontains $words[0] -or $script:QuestionWords -ccontains "$($words[0]) $($words[1])") { return $true }
+        $plain = ConvertTo-PlainWords $sentence
+        if ($script:QuestionPrompts -contains $plain[0] -or $script:QuestionPrompts -contains "$($plain[0]) $($plain[1])") { return $true }
     }
     $false
 }
@@ -327,6 +333,15 @@ function Get-ClaudeExtraEnv { @('CLAUDE_CODE_DISABLE_ADVISOR_TOOL', '1') }
 function Get-ClaudeRemovedEnv {
     $names = @([Environment]::GetEnvironmentVariables().Keys | Where-Object { $_ -match '^(CLAUDE_CODE_|CLAUDECODE$|CLAUDE_PID$)' })
     $names + @('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX')
+}
+
+# When Claude Code's login (the OAuth access token the speech service also uses) expires, or $null.
+function Get-ClaudeLoginExpiry([string]$CredentialsPath) {
+    try {
+        $oauth = (Get-Content -LiteralPath $CredentialsPath -Raw | ConvertFrom-Json).claudeAiOauth
+        if (-not $oauth -or -not $oauth.expiresAt) { return $null }
+        [DateTimeOffset]::FromUnixTimeMilliseconds([long]$oauth.expiresAt).LocalDateTime
+    } catch { $null }
 }
 
 # ---------------------------------------------------------------- native side
