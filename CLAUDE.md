@@ -1,6 +1,6 @@
 # ClaudeMaxxing
 
-Uso del plan de Claude en la bandeja de Windows, sesiones de Claude Code abiertas desde el menú del Explorador en mitades de pantalla, y voz por sesión (`voice/`). Ver `README.md` y `voice/README.md`.
+Uso del plan de Claude en la bandeja de Windows, sesiones de Claude Code abiertas desde el menú del Explorador en mitades de pantalla, voz por sesión (`voice/`) y Claude Whisper, el copiloto de llamadas (`whisper.ps1`, `lib/whisper*`). Ver `README.md` y `voice/README.md`.
 
 ## Al trabajar en este proyecto
 

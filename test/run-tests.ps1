@@ -8,6 +8,7 @@ $TrayRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path $TrayRoot 'lib\statusline.ps1')
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\whisper.ps1')
 
 $script:Failures = 0
 $script:Count = 0
@@ -507,6 +508,88 @@ try {
 } finally { $zip.Dispose() }
 $source = [IO.File]::ReadAllText((Join-Path $TrayRoot 'menu\package\AppxManifest.xml'))
 Assert-Equal ($source.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") ($packed.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") 'MSIX manifest matches menu\package\AppxManifest.xml (run menu\package.ps1 after editing it)'
+
+# --- Claude Whisper: settings, questions, echo, keyterms, transcript, stream-json, hotkeys, claude arguments
+Add-Type -AssemblyName System.Windows.Forms
+$ws = Get-WhisperSettings $null
+Assert-Equal 'es' $ws.language 'whisper: default language'
+Assert-Equal $true $ws.autoAnswer 'whisper: auto answer on by default'
+$ws = Get-WhisperSettings ([pscustomobject]@{ language = 'xx'; model = 'opus'; autoAnswer = $false; profile = 5 })
+Assert-Equal 'es' $ws.language 'whisper: unknown language falls back'
+Assert-Equal 'opus' $ws.model 'whisper: saved model kept'
+Assert-Equal $false $ws.autoAnswer 'whisper: saved bool kept'
+Assert-Equal '5' $ws.profile 'whisper: text settings are strings'
+
+Assert-Equal $true (Test-WhisperQuestion (Tx '\u00bfCu\u00e1l es tu experiencia con Kubernetes?')) 'question: question mark'
+Assert-Equal $true (Test-WhisperQuestion (Tx 'Cu\u00e9ntame sobre un proyecto dif\u00edcil.')) 'question: cuentame prompt'
+Assert-Equal $true (Test-WhisperQuestion 'Tell me about a time you failed.') 'question: tell me'
+Assert-Equal $true (Test-WhisperQuestion 'Ok. Walk me through your last project.') 'question: second sentence'
+Assert-Equal $false (Test-WhisperQuestion (Tx 'Buenos d\u00edas, gracias por venir a la entrevista.')) 'question: greeting is not'
+Assert-Equal $false (Test-WhisperQuestion 'Vale.') 'question: too short'
+Assert-Equal (Tx '\u00bfQu\u00e9 tal Python?') (Get-WhisperQuestionText @('Hola, bienvenido.', (Tx '\u00bfQu\u00e9 tal Python?'))) 'question text: greeting left out'
+Assert-Equal 'Hola. Vale.' (Get-WhisperQuestionText @('Hola.', 'Vale.')) 'question text: everything when no question'
+
+Assert-Equal $true (Test-WhisperEcho (Tx 'cu\u00e1l es tu experiencia con python') @((Tx '\u00bfCu\u00e1l es tu experiencia con Python?'))) 'echo: mic repeats the speakers'
+Assert-Equal $false (Test-WhisperEcho 'trabaje cinco anos con django' @((Tx '\u00bfCu\u00e1l es tu experiencia con Python?'))) 'echo: own answer kept'
+Assert-Equal $false (Test-WhisperEcho 'hola' @()) 'echo: nothing heard'
+
+$terms = Get-WhisperKeyterms ([pscustomobject]@{ keyterms = 'Acme Corp; GraphQL'; profile = (Tx 'Trabaj\u00e9 con Kubernetes, AWS, C# y .NET en Mercado Libre.'); meeting = 'Puesto: SRE en PayFlow' })
+foreach ($t in 'Acme Corp', 'GraphQL', 'AWS', 'C#', '.NET', 'PayFlow', 'SRE') {
+    Assert-Equal $true ((',' + $terms + ',').Contains(",$t,")) "keyterms: $t"
+}
+Assert-Equal $false ($terms -match '[^\x20-\x7E]') 'keyterms: printable ASCII only'
+
+$tr = New-WhisperTranscript
+$at = Get-Date
+Assert-Equal $null (Update-WhisperTranscript $tr 'them' 'interim' 'Hola qu' $at) 'transcript: interim finishes nothing'
+Assert-Equal 'Hola qu' $tr.Open.them 'transcript: interim is the open line'
+$line = Update-WhisperTranscript $tr 'them' 'final' ' Hola, que tal ' $at
+Assert-Equal 'Hola, que tal' $line.Text 'transcript: final line trimmed'
+Assert-Equal '' $tr.Open.them 'transcript: final closes the open line'
+[void](Update-WhisperTranscript $tr 'me' 'final' 'Bien' $at)
+Assert-Equal $null (Update-WhisperTranscript $tr 'me' 'final' '   ' $at) 'transcript: empty final ignored'
+Assert-Equal ("Ellos: Hola, que tal`n" + (Tx 'T\u00fa') + ': Bien') (Format-WhisperTranscript (Pop-WhisperUnsent $tr)) 'transcript: unsent lines formatted'
+$rest = Pop-WhisperUnsent $tr
+Assert-Equal 0 $rest.Count 'transcript: nothing unsent after a request'
+
+$ev = ConvertFrom-ClaudeLine '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hola"}}}'
+Assert-Equal 'delta|Hola' "$($ev.Kind)|$($ev.Text)" 'stream-json: text delta'
+Assert-Equal $null (ConvertFrom-ClaudeLine '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"x"}}}') 'stream-json: thinking is not shown'
+$ev = ConvertFrom-ClaudeLine '{"type":"result","subtype":"error_during_execution","is_error":true}'
+Assert-Equal 'result||True' "$($ev.Kind)|$($ev.Text)|$($ev.Interrupted)" 'stream-json: interrupted turn is not an error'
+$ev = ConvertFrom-ClaudeLine '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"boom"}'
+Assert-Equal 'result|boom' "$($ev.Kind)|$($ev.Text)" 'stream-json: failed turn carries its error'
+Assert-Equal $null (ConvertFrom-ClaudeLine 'not json') 'stream-json: noise ignored'
+$in = ConvertTo-ClaudeInputLine 'mira' 'QUJD' | ConvertFrom-Json
+Assert-Equal 'user|image|QUJD|text|mira' ('{0}|{1}|{2}|{3}|{4}' -f $in.type, $in.message.content[0].type, $in.message.content[0].source.data, $in.message.content[1].type, $in.message.content[1].text) 'stream-json: image message'
+Assert-Equal 'hola' ((ConvertTo-ClaudeInputLine 'hola' '' | ConvertFrom-Json).message.content) 'stream-json: text message'
+
+$hk = ConvertFrom-WhisperHotkey 'Ctrl+Alt+Shift+R'
+Assert-Equal '7|82' "$($hk.Mods)|$($hk.Key)" 'hotkey: ctrl+alt+shift+r'
+$hk = ConvertFrom-WhisperHotkey 'Win+Ctrl+1'
+Assert-Equal '10|49' "$($hk.Mods)|$($hk.Key)" 'hotkey: digit key'
+Assert-Equal $null (ConvertFrom-WhisperHotkey 'R') 'hotkey: needs a modifier'
+Assert-Equal $null (ConvertFrom-WhisperHotkey 'Ctrl+Nope') 'hotkey: unknown key'
+
+$prompt = New-WhisperSystemPrompt (Get-WhisperSettings ([pscustomobject]@{ language = 'en'; profile = 'Ten years of Go.' }))
+Assert-Equal $true ($prompt.Contains('Ten years of Go.') -and $prompt.Contains('English')) 'system prompt: profile and language'
+Assert-Equal $false ($prompt.Contains('## ' + (Tx 'Indicaciones del usuario'))) 'system prompt: empty sections left out'
+$cargs = Get-ClaudeArguments 'sonnet' 'C:\x\p.txt'
+foreach ($flag in '--input-format stream-json', '--tools ""', '--safe-mode', '--setting-sources project', '--no-session-persistence', '--system-prompt-file "C:\x\p.txt"') {
+    Assert-Equal $true $cargs.Contains($flag) "claude arguments: $flag"
+}
+Assert-Equal $true ((Get-ClaudeRemovedEnv) -contains 'ANTHROPIC_API_KEY') 'claude env: API key removed (subscription only)'
+Assert-Equal 'Teams,Zoom' ((Get-MeetingApps @('chrome', 'ms-teams', 'Zoom', 'CptHost')) -join ',') 'meeting apps from mic users'
+
+$csTemp = Join-Path $env:TEMP ('whisper-test-{0}.dll' -f [guid]::NewGuid().ToString('N'))
+try {
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $TrayRoot 'lib\whisper.cs'))) -ReferencedAssemblies System.Web.Extensions, System.Windows.Forms -OutputAssembly $csTemp -OutputType Library
+    Add-Type -Path $csTemp
+    Assert-Equal 'Kubernetes,C#,Caf' ([ClaudeWhisper.SttStream]::CleanKeyterms((Tx 'Kubernetes, C#,kubernetes,  ,Caf\u00e9'))) 'whisper.cs: compiles; keyterms cleaned like Claude Code'
+    Assert-Equal $null ([ClaudeWhisper.SttStream]::ReadToken((Join-Path $env:TEMP 'no-such-credentials.json'))) 'whisper.cs: no credentials, no token'
+} catch {
+    Assert-Equal '' $_.Exception.Message 'whisper.cs compiles'
+}
 
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {

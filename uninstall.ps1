@@ -20,6 +20,8 @@ $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.
 
 $stopped = Stop-RecordedTray
 if ($stopped) { Write-Host "tray stopped (PID $stopped)" }
+$stopped = Stop-RecordedWhisper
+if ($stopped) { Write-Host "Claude Whisper stopped (PID $stopped)" }
 foreach ($link in $TrayLink, $LegacyTrayLink) {
     if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link; Write-Host "removed $link" }
 }

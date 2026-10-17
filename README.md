@@ -6,6 +6,7 @@ Tools for working with several Claude Code sessions at once on Windows 11:
 - **"Abrir con Claude Code"** in the Explorer right-click menu: every session opens in its own half of a screen (two per monitor), with its own color and a name such as "Martín · codificador".
 - **Voice**: each session opened from the menu reads a one-line summary of every answer aloud, with its own voice and a short musical signature. Details in [`voice/README.md`](voice/README.md) (Spanish).
 - **Otros PCs**: PCs on the same Wi-Fi that both run ClaudeMaxxing find each other. After you pair them once, either one can open a terminal or Claude Code on the other, or run commands there from Claude Code with `ssh cmx-<pc>`. The other PC asks before letting anyone in. See [Otros PCs](#otros-pcs-terminals-between-your-pcs).
+- **Claude Whisper**: a live copilot for calls (job interviews, meetings, sales calls). It transcribes the call as it happens, spots the questions the other side asks, and shows an answer from Claude written for you to say, using your profile and notes. It can also read your screen (for example a coding exercise). Everything runs on your Claude subscription through Claude Code. See [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
 
 The user interface is in Spanish, and so are the voices (Latin American neural voices).
 
@@ -60,7 +61,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 | `%LOCALAPPDATA%\ClaudeMaxxing\ssh` | Otros PCs: the portable OpenSSH (`sshd`, `ssh`, `sftp`...) |
 | Windows Defender Firewall | Otros PCs: two inbound rules in the `ClaudeMaxxing` group, TCP 41022 for that `sshd.exe` and UDP 41021 for PowerShell, **Private networks only, from the local subnet only** |
 | `~/.ssh/config` | Otros PCs: a marked block at the top that includes `~/.claude/usage-tray/bridge/ssh_config` (a backup of the file is kept the first time) |
-| `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, voice history, and Otros PCs keys and paired PCs (`bridge\`) |
+| `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, voice history, Otros PCs keys and paired PCs (`bridge\`), and Claude Whisper's settings and call history (`whisper\`) |
 
 ## Uninstall
 
@@ -140,6 +141,28 @@ For two (or more) PCs on the same network that both run ClaudeMaxxing. Typical u
 
 **Limits.** Both PCs need ClaudeMaxxing, with the tray running and the user signed in. Logins are only as that PC's own Windows user. **Olvidar** removes the PC only on the PC where you click it. Each PC uses its own Claude plan.
 
+### Claude Whisper: a live copilot for calls
+
+Open **Claude Whisper** from the tray menu and press **Escuchar** when the call starts. The window stays on top of the call app.
+
+- **Transcript.** What the PC plays (the other side of the call, any app: Teams, Zoom, Meet in a browser...) shows as **Ellos**, and your microphone as **Tú**. Words appear as they are spoken.
+- **Answers.** When the other side finishes a question, Claude writes what you could say: one or two sentences, then a few short points. It uses what you put in **Contexto**: your CV or experience, the conversation (job, company, goal) and your instructions (tone, length). It doesn't make up experience you didn't list; where a detail is missing it leaves a gap like `[años]`. A newer question stops an answer still being written. Earlier answers stay one click away (‹ ›).
+- **Responder** (Ctrl+Alt+Shift+R) asks for an answer now, **Pantalla** (Ctrl+Alt+Shift+C) sends the monitor under the mouse to Claude (it solves an exercise on screen, or tells you what matters there), and the box at the bottom asks Claude anything without saying it in the call. Ctrl+Alt+Shift+W hides or shows the window. The keys can be changed in `~/.claude/usage-tray/whisper/settings.json`.
+- **History.** Every call is saved as Markdown (transcript and answers) in `~/.claude/usage-tray/whisper/sessions`; **⋯ > Historial de llamadas** opens the folder.
+- **Calls starting.** Once you have used Claude Whisper, the tray shows a notice when a call app (Teams, Zoom, Webex, Slack, Discord...) starts using the microphone; click it to open Claude Whisper.
+- **Without headphones** the microphone also hears the speakers. While the other side is talking, your mic is muted for the transcript, and lines that repeat what they just said are dropped. Headphones work best.
+
+**How it works.**
+- Audio is captured with WASAPI (the speakers in loopback, and the microphone), converted to 16 kHz mono and streamed to the speech-to-text service that Claude Code's own voice dictation uses (`wss://api.anthropic.com/api/ws/speech_to_text/voice_stream`), signed in with Claude Code's login from `~/.claude/.credentials.json`. That service is built for hold-to-talk: it keeps one growing transcript per connection. Claude Whisper cuts it into lines itself: a line ends after a pause, or when the text stops changing, and the connection is replaced by a fresh one every minute or so, at a pause.
+- Answers come from a single `claude -p` that stays open for the whole call (stream-json in and out), so Claude keeps the conversation and every answer skips the start-up time. It runs with no tools, no CLAUDE.md, hooks, plugins or MCP servers, and none of your Claude Code settings, from its own folder. API key variables are removed from its environment, so it always uses your subscription. Your context goes in its system prompt.
+- Everything is plain PowerShell and C# compiled on the first run (`lib/whisper.cs`); nothing else is installed.
+
+**Things to know.**
+- **The speech-to-text service is not a public API.** It is what Claude Code's `/voice` dictation calls, used here outside Claude Code and for longer stretches than dictation. It is undocumented: it could change, be limited, or stop working, and continuous use like this may not be what the subscription intends. If it fails, the window says so and keeps retrying; the answers part keeps working with what you type.
+- **Every answer uses your plan.** Each answer is a Claude turn and counts against the 5-hour and weekly limits like any other. Answers start automatically only after a question; you can turn that off in **Contexto** and use **Responder** instead. Haiku is faster and lighter on the limits; Sonnet is the default.
+- **The call is sent to Anthropic.** Audio goes to the speech service and the transcript to Claude, under your Claude account. Tell the people in the call when that matters, and follow the rules that apply to recording or transcribing calls where you are.
+- Claude Whisper does not hide itself: the window shows in screen sharing and in the taskbar like any other window.
+
 ## Development
 
 The repo is only the installer. After editing anything, run `install.ps1` again to deploy it.
@@ -150,6 +173,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1   #
 powershell -NoProfile -ExecutionPolicy Bypass -File test\bridge-e2e.ps1        # Otros PCs on loopback: two fake PCs pair over UDP and log in with every ssh client found
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File test\bridge-tray-e2e.ps1   # the same through the tray functions (approval, grant, sessions)
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draws the popup to an image (-RenderBridgeTo / -RenderApprovalTo: Otros PCs windows)
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Claude Whisper with sample data (shows the window for a moment)
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -SimulateWav call.wav -ExitAfter 30 -ReportTo report.json   # end to end: a 16 kHz mono WAV as the other side, real transcription and answers
 ```
 
 The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and are not part of CI.
@@ -163,12 +188,13 @@ The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and
 
 ## Español
 
-ClaudeMaxxing reúne tres herramientas para trabajar con varias sesiones de Claude Code en Windows 11:
+ClaudeMaxxing reúne estas herramientas para trabajar con Claude Code en Windows 11:
 
 - una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal), la opción de **agendar sesión** y un **plan semanal** que reparte el límite semanal en sesiones hasta el corte;
 - la entrada **Abrir con Claude Code** en el menú del Explorador, que abre cada sesión en una mitad de pantalla, con su color y su nombre;
 - la **voz**: cada sesión lee en voz alta un resumen de cada respuesta ([`voice/README.md`](voice/README.md));
-- **Otros PCs**: los PCs de la misma red con ClaudeMaxxing se encuentran solos. Una vez emparejados (los dos muestran el mismo código de 6 dígitos y confirmas en ambos), desde la bandeja abres una terminal o Claude Code en el otro PC, y desde Claude Code puedes usar `ssh cmx-<pc> "comando"`. El otro PC siempre pregunta antes de dejar entrar (**Permitir**, **Permitir 1 hora** o **Rechazar**) y avisa cuando se abre y se cierra una sesión. Va por SSH, con un `sshd` que corre como tu usuario mientras la bandeja está abierta, solo en redes privadas y solo desde la red local.
+- **Otros PCs**: los PCs de la misma red con ClaudeMaxxing se encuentran solos. Una vez emparejados (los dos muestran el mismo código de 6 dígitos y confirmas en ambos), desde la bandeja abres una terminal o Claude Code en el otro PC, y desde Claude Code puedes usar `ssh cmx-<pc> "comando"`. El otro PC siempre pregunta antes de dejar entrar (**Permitir**, **Permitir 1 hora** o **Rechazar**) y avisa cuando se abre y se cierra una sesión. Va por SSH, con un `sshd` que corre como tu usuario mientras la bandeja está abierta, solo en redes privadas y solo desde la red local;
+- **Claude Whisper**: un copiloto para llamadas (entrevistas, reuniones, ventas). Se abre desde el menú de la bandeja; al pulsar **Escuchar** transcribe en vivo lo que suena en el PC (**Ellos**) y tu micrófono (**Tú**), detecta cuándo te hacen una pregunta y Claude te propone qué decir, con tu perfil y tus notas de **Contexto**. **Responder** (Ctrl+Alt+Shift+R) pide una respuesta ya, **Pantalla** (Ctrl+Alt+Shift+C) le manda a Claude el monitor donde está el ratón (por ejemplo un ejercicio de programación) y Ctrl+Alt+Shift+W oculta o muestra la ventana. Cada llamada queda guardada en Markdown en `~/.claude/usage-tray/whisper/sessions`. Todo va con tu suscripción de Claude a través de Claude Code: la transcripción usa el mismo servicio que el dictado por voz de Claude Code (no es una API pública: puede cambiar o dejar de funcionar) y las respuestas, un `claude -p` que queda abierto durante la llamada. Cada respuesta cuenta para tus límites de uso. La llamada se envía a Anthropic: avisa a los demás cuando corresponda. Detalles en [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
 
 **Instalar:** clona el repo o descárgalo en ZIP, y ejecuta:
 

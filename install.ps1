@@ -76,6 +76,8 @@ if ([Environment]::OSVersion.Version.Build -lt 22000) {
 Write-Step 'Stopping the running tray'
 $stopped = Stop-RecordedTray
 if ($stopped) { Write-Host "tray stopped (PID $stopped)" } else { Write-Host 'no tray running' }
+$stopped = Stop-RecordedWhisper
+if ($stopped) { Write-Host "Claude Whisper stopped (PID $stopped)" }
 
 # ---------------------------------------------------------------- 3. runtime files
 Write-Step 'Copying the runtime'
