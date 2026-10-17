@@ -145,6 +145,18 @@ function Send-ClaudeTurn([string]$Kind, [string]$Text, [string]$Title, [string]$
     }
 }
 
+# The speech service only reads Claude Code's login; claude refreshes it when it makes a request. So when
+# the login is about to expire, or the service refuses it, a tiny turn renews it (at most once a minute;
+# a turn already running renews it too).
+$script:LastLoginRefresh = [datetime]::MinValue
+function Request-LoginRefresh([string]$Why) {
+    if (((Get-Date) - $script:LastLoginRefresh).TotalSeconds -lt 60) { return }
+    $script:LastLoginRefresh = Get-Date
+    Write-WhisperLog "login refresh ($Why)"
+    if (-not $script:Claude -or $script:Claude.HasExited) { [void](Start-Claude); return }
+    if ($script:Turns.Count -eq 0) { Send-ClaudeTurn 'warmup' (New-WhisperRequest 'warmup' '' '') '' '' }
+}
+
 function Request-Answer([string]$Question) {
     $unsent = Pop-WhisperUnsent $script:Transcript
     $title = if ($Question) { $Question } else { Tx 'Sugerencia para ahora' }
@@ -169,7 +181,10 @@ function Request-Ask([string]$Text) {
     Send-ClaudeTurn 'ask' (New-WhisperRequest 'ask' (Format-WhisperTranscript $unsent) $Text) $Text.Trim() ''
 }
 
-# The monitor under the mouse, without this window on it, scaled to at most 1600 px wide.
+# The monitor under the mouse, without this window on it, as a PNG with its long side at most 1568 px
+# (Claude scales larger images down to that anyway; a screen that size is well under the image limit).
+# PNG, not JPEG: with the JPEG encoder and its quality setting here, Windows Defender (AMSI) blocked the
+# whole script as malicious; it does not with PNG.
 function Get-ScreenPng {
     $opacity = $script:Form.Opacity
     $script:Form.Opacity = 0
@@ -184,7 +199,7 @@ function Get-ScreenPng {
     } finally {
         $script:Form.Opacity = $opacity
     }
-    $scale = [Math]::Min(1.0, 1600.0 / $shot.Width)
+    $scale = [Math]::Min(1.0, 1568.0 / [Math]::Max($shot.Width, $shot.Height))
     $image = $shot
     if ($scale -lt 1) {
         $image = New-Object System.Drawing.Bitmap([int]($shot.Width * $scale), [int]($shot.Height * $scale))
@@ -315,8 +330,7 @@ function Read-EngineEvents {
                 Write-WhisperLog "$source error: $text"
                 if ($text -eq 'auth') {
                     $script:StreamState[$source] = 'auth'
-                    # An expired login: a claude turn refreshes it, then the next connection works.
-                    if (-not $script:Claude) { [void](Start-Claude) }
+                    Request-LoginRefresh 'speech service refused the login'
                 } else { $script:StreamState[$source] = 'error' }
             }
             'device' {
@@ -678,7 +692,10 @@ function Register-WhisperHotkeys {
         $hk = ConvertFrom-WhisperHotkey $map[$id]
         if (-not $hk -or -not $script:Hotkeys.Register($id, [uint32]$hk.Mods, [uint32]$hk.Key)) { $failed += $map[$id] }
     }
-    if ($failed.Count -gt 0) { $script:HotkeyProblem = (Tx 'Atajo ocupado por otra app: ') + ($failed -join ', ') }
+    if ($failed.Count -gt 0) {
+        $script:HotkeyProblem = (Tx 'Atajo ocupado por otra app: ') + ($failed -join ', ')
+        Write-WhisperLog "hotkeys not registered: $($failed -join ', ')"
+    }
 }
 
 function Switch-WhisperWindow {
@@ -711,6 +728,10 @@ $script:Timer.Add_Tick({
     if ($script:Ticks % 80 -eq 0 -and -not $Testing) {
         $users = ([ClaudeWhisper.AudioCapture]::MicrophoneUsers() | Where-Object { $_ -notin 'powershell', 'audiodg' }) -join ', '
         if ($users -ne $script:MicUsers) { $script:MicUsers = $users; Update-Controls }
+    }
+    if ($script:Listening -and $script:Ticks % 1000 -eq 0) {
+        $expiry = Get-ClaudeLoginExpiry $CredsFile
+        if ($expiry -and $expiry -lt (Get-Date).AddMinutes(5)) { Request-LoginRefresh 'login about to expire' }
     }
     if ($ExitAfter -gt 0 -and ((Get-Date) - $script:StartedAt).TotalSeconds -ge $ExitAfter) { $script:Form.Close() }
 })

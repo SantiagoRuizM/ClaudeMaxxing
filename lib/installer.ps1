@@ -97,7 +97,12 @@ function Stop-RecordedWhisper {
     Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
     $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $whisperPid" -ErrorAction SilentlyContinue
     if (-not $proc -or $proc.CommandLine -notlike '*whisper.ps1*') { return $null }
+    # The conhost --headless host that started it goes too.
+    $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ParentProcessId)" -ErrorAction SilentlyContinue
     & taskkill.exe /PID $whisperPid /T /F 2>$null | Out-Null
+    if ($parent -and $parent.Name -eq 'conhost.exe' -and $parent.CommandLine -like '*whisper.ps1*') {
+        Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue
+    }
     $whisperPid
 }
 

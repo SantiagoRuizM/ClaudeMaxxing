@@ -242,7 +242,8 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     $autoCheck = New-Check (Tx 'Responder solo cuando te hagan una pregunta') $Settings.autoAnswer
     $micCheck = New-Check (Tx 'Transcribir tu micr\u00f3fono') $Settings.useMic
     $gateCheck = New-Check (Tx 'Silenciar tu micr\u00f3fono mientras hablan (sin auriculares)') $Settings.gateMic
-    $checks.Controls.Add($autoCheck); $checks.Controls.Add($micCheck); $checks.Controls.Add($gateCheck)
+    $meetingCheck = New-Check (Tx 'Avisar desde la bandeja cuando empiece una llamada (Teams, Zoom...)') $Settings.meetingNotice
+    $checks.Controls.Add($autoCheck); $checks.Controls.Add($micCheck); $checks.Controls.Add($gateCheck); $checks.Controls.Add($meetingCheck)
     Add-Row $checks
 
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -269,6 +270,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     $updated.autoAnswer = $autoCheck.Checked
     $updated.useMic = $micCheck.Checked
     $updated.gateMic = $gateCheck.Checked
+    $updated.meetingNotice = $meetingCheck.Checked
     $dlg.Dispose()
     $updated
 }
