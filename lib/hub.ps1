@@ -30,6 +30,7 @@ $script:HubFonts = @{
 $script:HubSections = @(
     @{ Id = 'home'; Label = 'Inicio'; Glyph = '\ue80f' },
     @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
+    @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
     @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968' },
     @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720' },
@@ -158,6 +159,7 @@ function Update-HubCache([switch]$Full) {
 
 function Set-HubSection([string]$Id) {
     $script:Hub.Section = $Id
+    if ($Id -eq 'stats') { Update-HubStats }
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
@@ -169,6 +171,7 @@ function Set-HubMessage([string]$Text) {
 
 function Update-HubNow {
     try { Update-HubCache } catch { }
+    try { Complete-HubStatsScan } catch { }
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
@@ -296,8 +299,11 @@ function Set-HubHotkeys([bool]$On) {
 # ---------------------------------------------------------------- window
 
 function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
+    # "stats-hours", "stats-models-all"...: a tab (and the all-time range) of Estadisticas.
+    $statsTab = 'summary'; $statsRange = 'recent'
+    if ($Section -match '^stats-([a-z]+?)(?:-(all))?$') { $statsTab = $Matches[1]; if ($Matches[2]) { $statsRange = 'all' }; $Section = 'stats' }
     if ($script:HubDialog) {
-        if ($Section) { $script:Hub.Section = $Section }
+        if ($Section) { Set-HubSection $Section }
         Update-HubNow
         if ($script:HubDialog.WindowState -eq 'Minimized') { $script:HubDialog.WindowState = 'Normal' }
         $script:HubDialog.Activate()
@@ -317,9 +323,10 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     Register-HitMap $dlg
     $script:HubDialog = $dlg
     $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Logo = (New-TintedLogo $P.Accent (Px 22)); Cache = @{}
-        SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = '' }
+        SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = ''
+        StatsTab = $statsTab; StatsRange = $statsRange; StatsError = '' }
     # A damaged data file must not take the click handler (and the tray) down: the section just shows less.
-    if ($RenderPath) { Set-HubPreview } else { try { Update-HubCache -Full } catch { } }
+    if ($RenderPath) { Set-HubPreview } else { try { Update-HubCache -Full; if ($script:Hub.Section -eq 'stats') { Update-HubStats } } catch { } }
 
     $dlg.Add_KeyDown({ param($sender, $e) if ($e.KeyCode -eq 'Escape') { $sender.Close() } })
     # Drag the window by the header or the brand area.
@@ -717,6 +724,7 @@ function Draw-Hub($Form, $G) {
 
     switch ($hub.Section) {
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
+        'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
         'pcs'     { Draw-HubPcsSection $G $map $hover $x0 $inner }
         'whisper' { Draw-HubWhisperSection $G $map $hover $x0 $inner }
@@ -1301,5 +1309,8 @@ function Set-HubPreview {
         ('### Claude ' + [char]0x00B7 + ' Pantalla'), '**Ellos** 10:52:30 Thanks, that is all.')
     $c.Calls = @($first, $second)
     $c.CallCount = 2
+    # Estadisticas: the last real result on this PC, when there is one (the window is only drawn locally).
+    $c.Stats = Read-JsonFile $StatsFile
+    $c.ToolStats = @{ Calls = 2; CallMinutes = 45; CallAnswers = 3; Runs = 14; RunsOk = 13; MenuOpens = 90; Paired = 2 }
     $c.ScheduleRows = @(Get-ScheduleRows $script:PendingTasks (Read-JsonFile $CloudFile) (Read-JsonFile $HistoryFile) $now 5)
 }
