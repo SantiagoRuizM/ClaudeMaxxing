@@ -4,8 +4,9 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, usage, code, pcs, whisper, voice).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
-    [string]$RenderBridgeTo, [string]$RenderApprovalTo)
+    [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home')
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
@@ -15,6 +16,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\bridge.ps1')
 . (Join-Path $TrayRoot 'lib\bridgenet.ps1')
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
+. (Join-Path $TrayRoot 'lib\sessions.ps1')
 # Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
 # prompts) to everything it starts, including remote sessions on this PC.
 if ($env:CLAUDECODE) {
@@ -24,7 +26,7 @@ Clear-ClaudeSessionEnv
 if ($UsagePath) { $UsageFile = $UsagePath }
 if ($ExtrasPath) { $ExtrasFile = $ExtrasPath }
 
-$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo)
+$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo -or $RenderHubTo)
 if (-not $Rendering) {
     $createdNew = $false
     $script:TrayMutex = New-Object System.Threading.Mutex($true, 'Local\ClaudeTray', [ref]$createdNew)
@@ -36,6 +38,8 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\theme.ps1')
 . (Join-Path $TrayRoot 'lib\dialog.ps1')
 . (Join-Path $TrayRoot 'lib\bridgeui.ps1')
+. (Join-Path $TrayRoot 'lib\whisperui.ps1')
+. (Join-Path $TrayRoot 'lib\hub.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
@@ -277,13 +281,12 @@ $Popup.Add_Paint({
     Draw-Text $g $script:FooterRight $F.Small $P.Muted (Px 18) (Px ($bottom + 2)) (Px ($PopupWidth - 36)) (Px 24) 'Right'
 
     $button = New-Rect (Px 18) (Px ($bottom + 32)) (Px ($PopupWidth - 36)) (Px 36)
-    $buttonColor = if ($map.Hover -eq 'schedule') { $P.AccentHover } else { $P.Accent }
+    $buttonColor = if ($map.Hover -eq 'hub') { $P.AccentHover } else { $P.Accent }
     Fill-Round $g $button (Px 8) $buttonColor
-    Draw-Text $g (Tx 'Agendar sesi\u00f3n') $F.Button $P.AccentText $button.X $button.Y $button.Width $button.Height 'Center'
-    Add-Hit $map 'schedule' $button {
+    Draw-Text $g 'Entrar a ClaudeMaxxing' $F.Button $P.AccentText $button.X $button.Y $button.Width $button.Height 'Center'
+    Add-Hit $map 'hub' $button {
         $script:Popup.Hide()
-        Show-ScheduleDialog
-        Update-ScheduleState
+        Show-HubDialog
     }
 
     $g.DrawRectangle($pen, 0, 0, $w - 1, $h - 1)
@@ -321,6 +324,7 @@ $Notify.Text = 'Claude'
 $Notify.Visible = -not $Rendering
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
+[void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
 [void]$menu.Items.Add('Actualizar datos', $null, { Start-UsageRefresh })
 [void]$menu.Items.Add((Tx 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
@@ -380,6 +384,12 @@ Update-UsageState
 $script:BridgeTimer = New-Object System.Windows.Forms.Timer
 $script:BridgeTimer.Interval = 400
 $script:BridgeTimer.Add_Tick({ Invoke-BridgeTick })
+
+if ($RenderHubTo) {
+    Show-HubDialog $HubSection $RenderHubTo
+    $Notify.Dispose()
+    exit 0
+}
 
 if ($RenderBridgeTo -or $RenderApprovalTo) {
     Set-BridgePreview

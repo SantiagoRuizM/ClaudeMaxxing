@@ -2,7 +2,7 @@
 
 Tools for working with several Claude Code sessions at once on Windows 11:
 
-- **Usage tray**: your Claude plan usage (5-hour window and weekly limit) in the notification area, when each one resets, and **Agendar sesión** to start the 5-hour window ahead of time.
+- **Usage tray**: your Claude plan usage (5-hour window and weekly limit) in the notification area, and when each one resets. Its **Entrar a ClaudeMaxxing** button opens the ClaudeMaxxing window, where every tool below has its status and settings (see [The ClaudeMaxxing window](#the-claudemaxxing-window)), including **Agendar sesión** to start the 5-hour window ahead of time.
 - **"Abrir con Claude Code"** in the Explorer right-click menu: every session opens in its own half of a screen (two per monitor), with its own color and a name such as "Martín · codificador".
 - **Voice**: each session opened from the menu reads a one-line summary of every answer aloud, with its own voice and a short musical signature. Details in [`voice/README.md`](voice/README.md) (Spanish).
 - **Otros PCs**: PCs on the same Wi-Fi that both run ClaudeMaxxing find each other. After you pair them once, either one can open a terminal or Claude Code on the other, or run commands there from Claude Code with `ssh cmx-<pc>`. The other PC asks before letting anyone in. See [Otros PCs](#otros-pcs-terminals-between-your-pcs).
@@ -80,6 +80,17 @@ This removes everything listed above, including the menu entry, its certificate 
 - Claude Code's statusline receives `rate_limits` on every response. The block added to your statusline script saves them to `~/.claude/usage-tray/usage.json`; what the statusline shows doesn't change. The tray reads that file every 15 s. Left-click opens or closes the popup; right-click opens the menu.
 - The **↻** button asks for live usage from the endpoint that `/usage` uses (`api.anthropic.com/api/oauth/usage`, with Claude Code's local token). The tray also asks it on start, and when you open the popup if the data is more than 10 minutes old. That endpoint is **undocumented**: if it changes, the popup shows the error and keeps the statusline data. Extra usage and an available limit reset show up as extra sections when the account has them.
 - The green dot means some Claude Code session answered in the last 10 minutes.
+
+### The ClaudeMaxxing window
+
+**Entrar a ClaudeMaxxing**, the button at the bottom of the popup (also first in the tray menu), opens one window with every tool. A side menu switches between these sections:
+
+- **Inicio**: an overview. It shows session and weekly usage and the next scheduled session. It also has a diagram of the PCs on your network: this PC in the middle and each other PC around it. The line to each PC shows its state: an orange line when it has a session open on this PC, green when it is online, dashed grey when it hasn't been seen lately, and dotted for PCs with ClaudeMaxxing that aren't paired yet. Last come Claude Whisper's latest calls, the open Claude Code sessions and the voice switches.
+- **Uso y agenda**: both limits, a refresh, the scheduled sessions, and buttons for **Agendar sesión...** and **Plan semanal...** (the dialog described below).
+- **Claude Code**: the sessions opened from the Explorer menu, with color, name, role, voice and screen half. **Mostrar** brings a session's window to the front, and **Nueva sesión...** opens one in a folder you pick. It also tells you whether the menu entry is installed.
+- **Otros PCs**: the same diagram, larger. The section also has this PC's status, the **Acepta conexiones** switch and the paired PCs, with **Terminal**, **Claude Code** and **Desconectar**. Pairing still happens in the Otros PCs window (**Emparejar o buscar un PC...**), because pairing is only accepted while that window is open.
+- **Claude Whisper**: open or show it, **Contexto...**, language, model, the answer, microphone and call-notice options, and the hotkeys. Also its call history: date, length, number of answers and the first question. Click a call to open its Markdown file. While Whisper is open, its settings are changed in its own window, so here they are read-only.
+- **Voz**: voice on or off for every session, the global hotkeys, **Probar voz**, **Repetir lo último** and **Detener audio**. It also lists the sessions that spoke in the last 12 hours, each with its own on/off switch.
 
 ### Scheduling a session
 
@@ -172,7 +183,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1         #
 powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1   # voice, no audio
 powershell -NoProfile -ExecutionPolicy Bypass -File test\bridge-e2e.ps1        # Otros PCs on loopback: two fake PCs pair over UDP and log in with every ssh client found
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File test\bridge-tray-e2e.ps1   # the same through the tray functions (approval, grant, sessions)
-powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draws the popup to an image (-RenderBridgeTo / -RenderApprovalTo: Otros PCs windows)
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draws the popup to an image (-RenderBridgeTo / -RenderApprovalTo: Otros PCs windows; -RenderHubTo with -HubSection home|usage|code|pcs|whisper|voice: the ClaudeMaxxing window)
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Claude Whisper with sample data (shows the window for a moment)
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -SimulateWav call.wav -ExitAfter 30 -ReportTo report.json   # end to end: a 16 kHz mono WAV as the other side, real transcription and answers
 ```
@@ -190,7 +201,7 @@ The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and
 
 ClaudeMaxxing reúne estas herramientas para trabajar con Claude Code en Windows 11:
 
-- una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal), la opción de **agendar sesión** y un **plan semanal** que reparte el límite semanal en sesiones hasta el corte;
+- una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal), la opción de **agendar sesión** y un **plan semanal** que reparte el límite semanal en sesiones hasta el corte. El botón **Entrar a ClaudeMaxxing** de la bandeja abre una ventana con todas las herramientas, cada una con su estado y su configuración. Está dividida en las secciones Inicio, Uso y agenda, Claude Code, Otros PCs, Claude Whisper y Voz. Incluye un diagrama de los PCs cercanos que muestra si hay conexión con cada uno y el historial de llamadas de Claude Whisper;
 - la entrada **Abrir con Claude Code** en el menú del Explorador, que abre cada sesión en una mitad de pantalla, con su color y su nombre;
 - la **voz**: cada sesión lee en voz alta un resumen de cada respuesta ([`voice/README.md`](voice/README.md));
 - **Otros PCs**: los PCs de la misma red con ClaudeMaxxing se encuentran solos. Una vez emparejados (los dos muestran el mismo código de 6 dígitos y confirmas en ambos), desde la bandeja abres una terminal o Claude Code en el otro PC, y desde Claude Code puedes usar `ssh cmx-<pc> "comando"`. El otro PC siempre pregunta antes de dejar entrar (**Permitir**, **Permitir 1 hora** o **Rechazar**) y avisa cuando se abre y se cierra una sesión. Va por SSH, con un `sshd` que corre como tu usuario mientras la bandeja está abierta, solo en redes privadas y solo desde la red local;
