@@ -6,6 +6,9 @@
 # Needs autoplan.ps1, hubstats.ps1 (stats scan) and the tray's schedule state. Keep this file ASCII.
 
 $script:AutoSyncAt = [datetime]::MinValue
+# Hand-made tasks are checked this far ahead (the week plan goes up to the weekly cutoff), not only over
+# the days the tray keeps scheduled.
+$AutoConflictDays = 14
 $script:AutoLastResult = $null
 
 # The newest stats: every scan writes $StatsFile; the open window may hold the same result already parsed.
@@ -54,7 +57,7 @@ function Get-HubAutoView {
     $conflicts = @()
     if ($state.Plan -and $state.Plan.HasData) {
         $slots = Get-AutoSlots $state.Plan.Starts $now $state.Settings.days
-        $conflicts = Get-AutoConflicts $slots $script:PendingTasks $now $state.Settings.days
+        $conflicts = Get-AutoConflicts (Get-AutoSlots $state.Plan.Starts $now $AutoConflictDays) $script:PendingTasks $now $AutoConflictDays
     }
     @{ Settings = $state.Settings; Plan = $state.Plan; Slots = @($slots); Conflicts = @($conflicts) }
 }
@@ -88,14 +91,18 @@ function Step-AutoBoundary([int]$Delta, [switch]$Reset) {
     Update-HubAuto
 }
 
+# "Limpiar": removes the hand-made tasks that would interrupt the chain (those listed on the card, nothing
+# else), whether the automatic agenda is on or not.
 function Remove-AutoConflicts {
     $view = $script:Hub.Cache.Auto
     if (-not $view) { return }
     $count = 0
     foreach ($task in @($view.Conflicts)) { Remove-SessionTask $task.Name; $count++ }
+    Update-ScheduleState
     Invoke-AutoSchedule -Force
-    Set-HubMessage ("$count " + $(if ($count -eq 1) { 'sesi' + (Tx '\u00f3') + 'n quitada' } else { 'sesiones quitadas' }))
+    Set-HubMessage ((Tx '\u2713 ') + $(if ($count -eq 1) { 'Limpiada 1 agendada a mano' } else { "Limpiadas $count agendadas a mano" }))
     Update-HubAuto
+    Update-HubNow
 }
 
 function Format-HourMark([int]$Hour, [int]$Minute = 0) { '{0:00}:{1:00}' -f ($Hour % 24), $Minute }
@@ -221,16 +228,12 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
     }
     $conflicts = @($view.Conflicts)
     if ($conflicts.Count) {
-        # Off, only a warning; on, a button removes them (only the ones in the way, never on its own).
-        $bw = 0
-        if ($on) {
-            $label = 'Quitar ' + $conflicts.Count
-            $bw = Get-PillWidth $label
-            Draw-PillButton $G $Map $Hover 'auto-conflicts' (New-Rect ($Card.Right - (Px 16) - $bw) $y $bw (Px 24)) $label { Remove-AutoConflicts } -Accent
-        }
+        # Always a button: they interrupt the chain whether the agenda is on yet or not.
+        $label = 'Limpiar ' + $conflicts.Count
+        $bw = Get-PillWidth $label
+        Draw-PillButton $G $Map $Hover 'auto-conflicts' (New-Rect ($Card.Right - (Px 16) - $bw) $y $bw (Px 24)) $label { Remove-AutoConflicts } -Accent
         $times = @($conflicts | Select-Object -First 2 | ForEach-Object { Format-DialogDateTime $_.At (Get-Date) }) -join ', '
-        $verb = if ($on) { if ($conflicts.Count -eq 1) { 'rompe' } else { 'rompen' } } else { if ($conflicts.Count -eq 1) { 'romper' + (Tx '\u00ed') + 'a' } else { 'romper' + (Tx '\u00ed') + 'an' } }
-        $statusText = "$($conflicts.Count) " + $(if ($conflicts.Count -eq 1) { 'agendada a mano' } else { 'agendadas a mano' }) + " $verb la cadena (" + $times + $(if ($conflicts.Count -gt 2) { (Tx '\u2026') } else { '' }) + ')'
+        $statusText = "$($conflicts.Count) " + $(if ($conflicts.Count -eq 1) { 'agendada a mano interrumpe' } else { 'agendadas a mano interrumpen' }) + ' la cadena (' + $times + $(if ($conflicts.Count -gt 2) { (Tx '\u2026') } else { '' }) + ')'
         $statusColor = $P.Warn
         Draw-Text $G $statusText $F.Small $statusColor $x $y ($w - $bw - (Px 10)) (Px 24)
     } else {
