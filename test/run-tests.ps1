@@ -617,6 +617,43 @@ try {
     Assert-Equal '' $_.Exception.Message 'whisper.cs compiles'
 }
 
+# --- Agenda automatica (lib\autoplan.ps1)
+. (Join-Path $TrayRoot 'lib\autoplan.ps1')
+Assert-Equal 'Auto-20261019-1505' (Get-SessionTaskName (Get-Date -Year 2026 -Month 10 -Day 19 -Hour 15 -Minute 5) 'Auto-') 'auto task name'
+$autoSettings = Get-AutoPlanSettings ([pscustomobject]@{ enabled = $true; boundary = 30; days = 20 })
+Assert-Equal 'True|-1|7' ('{0}|{1}|{2}' -f $autoSettings.enabled, $autoSettings.boundary, $autoSettings.days) 'auto settings: bad boundary means computed, days capped'
+# a day from 6:00 to 1:00 with the most use at 14-16
+$hourly = @(1200, 0, 0, 0, 0, 0, 1200, 1800, 2400, 3000, 3000, 3000, 3000, 3000, 4200, 4500, 3000, 3000, 2400, 2400, 2400, 1800, 1800, 1200)
+$autoProfile = Get-UsageProfile $hourly 3
+Assert-Equal 1500 $autoProfile[15] 'auto: profile is the average per active day'
+$peak = Get-PeakZone $autoProfile
+Assert-Equal '14|16|15' ('{0}|{1}|{2}' -f $peak.Start, $peak.End, $peak.Boundary) 'auto: the busiest 2 hours and their middle'
+$span = Get-ActiveSpan $autoProfile
+Assert-Equal '6|25' ('{0}|{1}' -f $span.Start, $span.End) 'auto: the active day runs from the end of the night to past midnight'
+Assert-Equal '5,10,15,20' ((Get-AutoChain 15 $span) -join ',') 'auto: 5-hour chain through the boundary, from the start of the day'
+Assert-Equal '10,15,20,25' ((Get-AutoChain 1 ([pscustomobject]@{ Start = 10; End = 27 })) -join ',') 'auto: a boundary after midnight stays in the same day'
+$plan = Get-AutoPlan $hourly 3 -1
+Assert-Equal '15|False' ('{0}|{1}' -f $plan.Boundary, $plan.Manual) 'auto: computed boundary'
+Assert-Equal '17|True' ('{0}|{1}' -f (Get-AutoPlan $hourly 3 17).Boundary, (Get-AutoPlan $hourly 3 17).Manual) 'auto: a boundary moved by hand wins'
+$autoNow = Get-Date -Year 2026 -Month 10 -Day 19 -Hour 12 -Minute 0 -Second 0 -Millisecond 0
+$slots = Get-AutoSlots $plan.Starts $autoNow 1
+Assert-Equal '19 15:05,19 20:05,20 05:05,20 10:05,20 15:05,20 20:05' (@($slots | ForEach-Object { $_.ToString('dd HH:mm') }) -join ',') 'auto: starts from now through tomorrow'
+$slots24 = Get-AutoSlots @(0, 5, 10, 15, 20) $autoNow 1
+Assert-Equal '' (@($slots24 | Where-Object { $_.ToString('dd HH:mm') -eq '20 00:05' }) -join ',') 'auto: no start inside the window before it'
+$tasks = @(
+    [pscustomobject]@{ Name = 'Session-20261019-1520'; At = $autoNow.Date.AddHours(15).AddMinutes(20) },
+    [pscustomobject]@{ Name = 'Session-20261020-0705'; At = $autoNow.Date.AddDays(1).AddHours(7).AddMinutes(5) },
+    [pscustomobject]@{ Name = 'Auto-20261019-1705'; At = $autoNow.Date.AddHours(17).AddMinutes(5) },
+    [pscustomobject]@{ Name = 'Auto-20261019-2005'; At = $autoNow.Date.AddHours(20).AddMinutes(5) }
+)
+$changes = Get-AutoChanges $slots $tasks $autoNow
+Assert-Equal '20 05:05,20 10:05,20 15:05,20 20:05' (@($changes.Add | ForEach-Object { $_.ToString('dd HH:mm') }) -join ',') 'auto: adds what has nothing scheduled near it'
+Assert-Equal 'Auto-20261019-1705' (@($changes.Remove | ForEach-Object { $_.Name }) -join ',') 'auto: removes only its own tasks off the plan'
+Assert-Equal 'Session-20261020-0705' (@(Get-AutoConflicts $slots $tasks $autoNow 1 | ForEach-Object { $_.Name }) -join ',') 'auto: hand-made tasks that break the chain'
+Assert-Equal $true (Test-AutoAligned $autoNow.Date.AddHours(15).AddMinutes(10) $plan.Starts) 'auto: a window ending on a planned change is aligned'
+Assert-Equal $false (Test-AutoAligned $autoNow.Date.AddHours(17).AddMinutes(40) $plan.Starts) 'auto: one ending elsewhere is not'
+Assert-Equal $false (Get-AutoPlan (@(0) * 24) 1 -1).HasData 'auto: no use, no plan'
+
 # --- Estadisticas (lib\stats.cs): two sessions at once, a subagent, hook and local-command lines
 $statsDir = Join-Path $env:TEMP ('cmx-stats-test-' + [guid]::NewGuid().ToString('N'))
 try {

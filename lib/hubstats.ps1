@@ -106,15 +106,16 @@ function Update-HubStats([switch]$Force) {
     if ($Force -or -not $hub.Cache.Stats -or (Get-StatsAgeMinutes $hub.Cache.Stats) -ge $StatsMaxAgeMinutes) { Start-HubStatsScan }
 }
 
+# Also called by the tray with the window closed (Agenda automatica), so $script:Hub may be $null.
 function Start-HubStatsScan {
     if ($script:StatsTask -and -not $script:StatsTask.IsCompleted) { return }
-    $script:Hub.StatsError = ''
+    if ($script:Hub) { $script:Hub.StatsError = '' }
     try {
         Import-StatsNative
         $projects = Join-Path $env:USERPROFILE '.claude\projects'
         $script:StatsTask = [ClaudeMaxxing.Stats]::ScanAsync($projects, $StatsCacheFile, $StatsFile)
     } catch {
-        $script:Hub.StatsError = $_.Exception.Message
+        if ($script:Hub) { $script:Hub.StatsError = $_.Exception.Message }
     }
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
@@ -124,11 +125,14 @@ function Complete-HubStatsScan {
     $task = $script:StatsTask
     if (-not $task -or -not $task.IsCompleted) { return }
     $script:StatsTask = $null
+    # The result is also in $StatsFile; with the window closed there is nothing else to update.
+    if (-not $script:Hub -or -not $script:HubDialog) { return }
     if ($task.IsFaulted) {
         $script:Hub.StatsError = $task.Exception.GetBaseException().Message
         return
     }
     try { $script:Hub.Cache.Stats = $task.Result | ConvertFrom-Json } catch { $script:Hub.StatsError = $_.Exception.Message }
+    Update-HubAuto
 }
 
 # Counts from the other tools, read from their own files.
