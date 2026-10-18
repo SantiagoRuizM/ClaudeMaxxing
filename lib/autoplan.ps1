@@ -16,15 +16,21 @@ $AutoPlanFile = Join-Path $TrayHome 'autoplan.json'
 $AutoTaskPrefix = 'Auto-'
 $AutoPeakWidth = 2
 $AutoQuietRatio = 0.15
+# A new peak zone replaces the one in use only when it beats it by more than this: with an even profile the
+# boundary would otherwise jump between days, and moving it mid-day breaks the chain already running.
+$AutoKeepMargin = 0.10
 
 function Get-AutoPlanSettings($Saved) {
-    $settings = [ordered]@{ enabled = $false; boundary = -1; days = 2 }
+    # boundary: moved by hand (-1: computed). lastBoundary: the computed one in use, kept unless clearly beaten.
+    $settings = [ordered]@{ enabled = $false; boundary = -1; days = 2; lastBoundary = -1 }
     if ($Saved) {
+        if ($null -ne $Saved.lastBoundary) { try { $settings.lastBoundary = [int]$Saved.lastBoundary } catch { } }
         if ($null -ne $Saved.enabled) { $settings.enabled = [bool]$Saved.enabled }
         if ($null -ne $Saved.boundary) { try { $settings.boundary = [int]$Saved.boundary } catch { } }
         if ($null -ne $Saved.days) { try { $settings.days = [int]$Saved.days } catch { } }
     }
     if ($settings.boundary -lt -1 -or $settings.boundary -gt 23) { $settings.boundary = -1 }
+    if ($settings.lastBoundary -lt -1 -or $settings.lastBoundary -gt 23) { $settings.lastBoundary = -1 }
     $settings.days = [Math]::Max(1, [Math]::Min(7, $settings.days))
     $settings
 }
@@ -87,10 +93,20 @@ function Get-ChainLoads([double[]]$Profile, [int[]]$Starts) {
     , [double[]]@(foreach ($start in $Starts) { $sum = 0.0; for ($i = 0; $i -lt 5; $i++) { $sum += $Profile[($start + $i) % 24] }; $sum })
 }
 
-# Everything the window shows and the tray schedules, from the stats' hourly totals.
-function Get-AutoPlan($Hourly, [int]$ActiveDays, [int]$BoundaryOverride = -1) {
+# Everything the window shows and the tray schedules, from the stats' hourly totals. $Previous: the computed
+# boundary in use, kept while the best zone does not beat its zone by more than $AutoKeepMargin.
+function Get-AutoPlan($Hourly, [int]$ActiveDays, [int]$BoundaryOverride = -1, [int]$Previous = -1) {
     $usageProfile = Get-UsageProfile $Hourly $ActiveDays
     $peak = Get-PeakZone $usageProfile
+    if ($Previous -ge 0 -and $Previous -ne $peak.Boundary) {
+        $half = [int][Math]::Floor($AutoPeakWidth / 2)
+        $start = ($Previous - $half + 24) % 24
+        $sum = 0.0
+        for ($i = 0; $i -lt $AutoPeakWidth; $i++) { $sum += $usageProfile[($start + $i) % 24] }
+        if ($peak.Seconds -le $sum * (1 + $AutoKeepMargin)) {
+            $peak = [pscustomobject]@{ Start = $start; End = ($start + $AutoPeakWidth) % 24; Boundary = $Previous; Seconds = $sum }
+        }
+    }
     $boundary = if ($BoundaryOverride -ge 0) { $BoundaryOverride } else { $peak.Boundary }
     $span = Get-ActiveSpan $usageProfile
     $starts = Get-AutoChain $boundary $span

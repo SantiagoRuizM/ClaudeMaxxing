@@ -653,6 +653,11 @@ Assert-Equal 'Session-20261020-0705' (@(Get-AutoConflicts $slots $tasks $autoNow
 Assert-Equal $true (Test-AutoAligned $autoNow.Date.AddHours(15).AddMinutes(10) $plan.Starts) 'auto: a window ending on a planned change is aligned'
 Assert-Equal $false (Test-AutoAligned $autoNow.Date.AddHours(17).AddMinutes(40) $plan.Starts) 'auto: one ending elsewhere is not'
 Assert-Equal $false (Get-AutoPlan (@(0) * 24) 1 -1).HasData 'auto: no use, no plan'
+$even = @(0) * 24; $even[12] = 1000; $even[13] = 1000; $even[14] = 1020; $even[15] = 1020
+Assert-Equal '15|13' ('{0}|{1}' -f (Get-AutoPlan $even 1 -1 -1).Boundary, (Get-AutoPlan $even 1 -1 13).Boundary) 'auto: a near tie keeps the boundary in use'
+$even[14] = 1300; $even[15] = 1300
+Assert-Equal '15|14' ('{0}|{1}' -f (Get-AutoPlan $even 1 -1 13).Boundary, (Get-AutoPlan $even 1 -1 13).Peak.Start) 'auto: a clearly busier zone moves it'
+Assert-Equal 2 (Get-AutoPlanSettings ([pscustomobject]@{ lastBoundary = 2 })).lastBoundary 'auto settings: last boundary kept'
 
 # --- Estadisticas (lib\stats.cs): two sessions at once, a subagent, hook and local-command lines
 $statsDir = Join-Path $env:TEMP ('cmx-stats-test-' + [guid]::NewGuid().ToString('N'))
