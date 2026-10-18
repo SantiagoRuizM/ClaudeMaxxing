@@ -152,6 +152,7 @@ function Update-HubCache([switch]$Full) {
         $c.MenuInstalled = [bool](Get-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue)
         $c.Screens = [System.Windows.Forms.Screen]::AllScreens.Count
         $c.VoiceInstalled = Test-Path -LiteralPath (Join-Path $TrayRoot 'voice\hooks\speak.ps1')
+        $c.Auto = Get-HubAutoView
     }
 }
 
@@ -160,6 +161,8 @@ function Update-HubCache([switch]$Full) {
 function Set-HubSection([string]$Id) {
     $script:Hub.Section = $Id
     if ($Id -eq 'stats') { Update-HubStats }
+    # The automatic agenda needs the stats: the first time, compute them.
+    if ($Id -eq 'usage') { Update-HubAuto; if (-not (Test-Path -LiteralPath $StatsFile)) { Update-HubStats } }
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
@@ -765,7 +768,7 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $next = Get-HubNextRow
     if ($next) {
         Draw-Text $G (Format-DialogDateTime $next.At (Get-Date)) $F.BodyStrong $P.Text ($card.X + (Px 14)) ($card.Y + (Px 32)) ($card.Width - (Px 28)) (Px 20)
-        Draw-Text $G $(if ($next.Kind -eq 'pc') { 'En este PC' } else { 'En la nube' }) $F.Small $P.Muted ($card.X + (Px 14)) ($card.Y + (Px 52)) (Px 90) (Px 18)
+        Draw-Text $G $(if ($next.TaskName -like "$AutoTaskPrefix*") { (Tx 'Autom\u00e1tica') } elseif ($next.Kind -eq 'pc') { 'En este PC' } else { 'En la nube' }) $F.Small $P.Muted ($card.X + (Px 14)) ($card.Y + (Px 52)) (Px 90) (Px 18)
     } else {
         Draw-Text $G 'Nada agendado' $F.BodyStrong $P.Muted ($card.X + (Px 14)) ($card.Y + (Px 32)) ($card.Width - (Px 28)) (Px 20)
     }
@@ -884,16 +887,19 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     Draw-Text $G (Tx 'L\u00cdMITES DEL PLAN') $F.Caps $P.Muted $X0 (Px 74) (Px 200) (Px 18)
 
     $y = Px 102
-    $card = New-Rect $X0 $y $Inner (Px 152)
+    $card = New-Rect $X0 $y $Inner (Px 128)
     Draw-HubCard $G $card
     if (-not $view -or -not $view.HasData) {
         Draw-Text $G (Tx 'Sin datos de uso todav\u00eda') $F.BodyStrong $P.Text ($card.X + (Px 18)) ($card.Y + (Px 20)) ($card.Width - (Px 36)) (Px 22)
         Draw-Text $G 'Manda un mensaje en Claude Code o pulsa Actualizar.' $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 44)) ($card.Width - (Px 36)) (Px 20)
     } else {
-        Draw-HubUsage $G (Tx 'SESI\u00d3N (5 H)') $view.Session ($card.X + (Px 18)) ($card.Y + (Px 18)) ($card.Width - (Px 36))
-        Draw-HubUsage $G 'SEMANAL' $view.Weekly ($card.X + (Px 18)) ($card.Y + (Px 88)) ($card.Width - (Px 36))
+        Draw-HubUsage $G (Tx 'SESI\u00d3N (5 H)') $view.Session ($card.X + (Px 18)) ($card.Y + (Px 14)) ($card.Width - (Px 36))
+        Draw-HubUsage $G 'SEMANAL' $view.Weekly ($card.X + (Px 18)) ($card.Y + (Px 72)) ($card.Width - (Px 36))
     }
-    $y = $card.Bottom + (Px 12)
+    $y = $card.Bottom + (Px 10)
+    $autoCard = New-Rect $X0 $y $Inner (Px 196)
+    Draw-HubAutoCard $G $Map $Hover $autoCard
+    $y = $autoCard.Bottom + (Px 10)
 
     # extra usage and a limit reset offer
     $extra = $script:Extras.ExtraUsage
@@ -901,6 +907,7 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     if ($extra -or $reset) {
         $row = New-Rect $X0 $y $Inner (Px 44)
         Fill-Round $G $row (Px 10) $(if ($reset) { $P.AccentTint } else { $P.Surface })
+        # (only room for one: the limit reset offer goes first)
         if ($reset) {
             Draw-Text $G $reset.Title $F.BodyStrong $P.Text ($row.X + (Px 14)) ($row.Y + (Px 3)) ($row.Width - (Px 120)) (Px 20)
             Draw-Text $G $reset.Detail $F.Small $P.Muted ($row.X + (Px 14)) ($row.Y + (Px 22)) ($row.Width - (Px 120)) (Px 18)
@@ -931,7 +938,7 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $upcoming = $item.State -in 'pending', 'requested', 'creating', 'cloud-ok', 'cloud-failed'
         $pill = New-Rect ($row.X + (Px 10)) ($row.Y + (Px 9)) (Px 42) (Px 16)
         Fill-Round $G $pill (Px 8) $(if ($upcoming) { $P.AccentTint } else { $P.Track })
-        Draw-Text $G $(if ($item.Kind -eq 'pc') { 'PC' } else { 'NUBE' }) $F.Badge $(if ($upcoming) { $P.Accent } else { $P.Muted }) $pill.X $pill.Y $pill.Width $pill.Height 'Center'
+        Draw-Text $G $(if ($item.TaskName -like "$AutoTaskPrefix*") { 'AUTO' } elseif ($item.Kind -eq 'pc') { 'PC' } else { 'NUBE' }) $F.Badge $(if ($upcoming) { $P.Accent } else { $P.Muted }) $pill.X $pill.Y $pill.Width $pill.Height 'Center'
         Draw-Text $G (Format-DialogDateTime $item.At $now) $F.Body $(if ($upcoming) { $P.Text } else { $P.Muted }) ($row.X + (Px 62)) $row.Y (Px 240) $row.Height
         $status = Get-HubRowStatus $item
         Draw-Text $G $status.Text $F.Small $status.Color $row.X $row.Y ($row.Width - (Px 14)) $row.Height 'Right'
@@ -1310,6 +1317,8 @@ function Set-HubPreview {
         ('### Claude ' + [char]0x00B7 + ' Pantalla'), '**Ellos** 10:52:30 Thanks, that is all.')
     $c.Calls = @($first, $second)
     $c.CallCount = 2
+    $c.Auto = Get-HubAutoView
+    if ($c.Auto.Plan) { $c.Auto.Settings.enabled = $true }
     # Estadisticas: the last real result on this PC, when there is one (the window is only drawn locally).
     $c.Stats = Read-JsonFile $StatsFile
     $c.ToolStats = @{ Calls = 2; CallMinutes = 45; CallAnswers = 3; Runs = 14; RunsOk = 13; MenuOpens = 90; Paired = 2 }

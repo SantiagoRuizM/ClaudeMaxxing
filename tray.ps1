@@ -16,6 +16,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\bridge.ps1')
 . (Join-Path $TrayRoot 'lib\bridgenet.ps1')
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
+. (Join-Path $TrayRoot 'lib\autoplan.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
 # Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
 # prompts) to everything it starts, including remote sessions on this PC.
@@ -41,6 +42,7 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\whisperui.ps1')
 . (Join-Path $TrayRoot 'lib\hub.ps1')
 . (Join-Path $TrayRoot 'lib\hubstats.ps1')
+. (Join-Path $TrayRoot 'lib\hubauto.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
@@ -373,6 +375,9 @@ $script:Ticks = 0
 $timer.Add_Tick({
     $script:Ticks++
     if ($script:Ticks % 20 -eq 0) { Update-ScheduleState }
+    # Agenda automatica (lib\hubauto.ps1): a stats scan finished with the window closed, and the hourly sync.
+    if (-not $script:HubDialog) { Complete-HubStatsScan }
+    Invoke-AutoSchedule
     Test-MeetingStarted
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }

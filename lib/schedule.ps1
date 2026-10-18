@@ -5,11 +5,12 @@ $script:SessionTaskPath = '\ClaudeMaxxing\'
 # Folder used before the rename; only cleaned up.
 $script:LegacySessionTaskPath = '\ClaudeTray\'
 
-function Get-SessionTaskName([datetime]$At) {
-    'Session-' + $At.ToString('yyyyMMdd-HHmm')
+# Prefix: Session- for the ones you schedule, Auto- for the automatic agenda (libutoplan.ps1).
+function Get-SessionTaskName([datetime]$At, [string]$Prefix = 'Session-') {
+    $Prefix + $At.ToString('yyyyMMdd-HHmm')
 }
 
-function New-SessionTask([datetime]$At, [string]$ScriptPath) {
+function New-SessionTask([datetime]$At, [string]$ScriptPath, [string]$Prefix = 'Session-') {
     $arguments = '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $ScriptPath
     $action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument $arguments
     $trigger = New-ScheduledTaskTrigger -Once -At $At
@@ -19,7 +20,7 @@ function New-SessionTask([datetime]$At, [string]$ScriptPath) {
         -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
         -DeleteExpiredTaskAfter (New-TimeSpan -Hours 1)
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName (Get-SessionTaskName $At) -TaskPath $script:SessionTaskPath `
+    Register-ScheduledTask -TaskName (Get-SessionTaskName $At $Prefix) -TaskPath $script:SessionTaskPath `
         -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
         -Description 'ClaudeMaxxing: start a Claude usage session' -Force | Out-Null
 }
