@@ -268,6 +268,52 @@ function Format-WhisperLogLine($Line) {
     '**{0}** {1} {2}' -f (Format-WhisperSpeaker $Line.Source), $Line.At.ToString('HH:mm:ss'), $Line.Text
 }
 
+# ---------------------------------------------------------------- call history
+
+# A Claude Whisper call log (whisper\sessions\yyyyMMdd-HHmmss.md): when, how long, how many lines from each
+# side, how many answers from Claude and the first thing Claude answered.
+function ConvertFrom-WhisperCallLog([string]$Name, [string[]]$Lines) {
+    $started = $null
+    $parsed = [datetime]::MinValue
+    if ([datetime]::TryParseExact($Name, 'yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture, 'None', [ref]$parsed)) { $started = $parsed }
+    $meTag = '**' + (Tx 'T\u00fa') + '** '
+    $them = 0; $me = 0; $answers = 0; $first = ''; $firstThem = ''
+    $times = New-Object System.Collections.Generic.List[timespan]
+    foreach ($line in $Lines) {
+        if ($line.StartsWith('**Ellos** ')) {
+            $them++
+            if (-not $firstThem) { $firstThem = ($line -replace '^\*\*Ellos\*\* (\d{2}:\d{2}:\d{2} )?', '').Trim() }
+        } elseif ($line.StartsWith($meTag)) {
+            $me++
+        } elseif ($line.StartsWith('### Claude')) {
+            $answers++
+            if (-not $first) { $first = ($line -replace ('^### Claude\s*' + [char]0x00B7 + '?\s*'), '').Trim() }
+        }
+        if ($line -match '^\*\*[^*]+\*\* (\d{2}):(\d{2}):(\d{2}) ') {
+            $times.Add((New-Object TimeSpan([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])))
+        }
+    }
+    $minutes = 0
+    if ($times.Count -ge 2) {
+        $span = $times[$times.Count - 1] - $times[0]
+        if ($span.TotalSeconds -lt 0) { $span = $span.Add([TimeSpan]::FromHours(24)) }
+        $minutes = [int][Math]::Ceiling($span.TotalMinutes)
+    }
+    # An answered turn's title holds everything they said since the last one: keep it from the question on.
+    $topic = if ($first) { $first } else { $firstThem }
+    $mark = $topic.IndexOf([char]0x00BF)
+    if ($mark -gt 0) { $topic = $topic.Substring($mark) }
+    [pscustomobject]@{
+        Name = $Name; Started = $started; Them = $them; Me = $me; Answers = $answers; Minutes = $minutes; Topic = $topic; Path = ''
+    }
+}
+
+function Format-CallDuration([int]$Minutes) {
+    if ($Minutes -lt 1) { return '<1 min' }
+    if ($Minutes -lt 60) { return "$Minutes min" }
+    '{0} h {1} min' -f [int][Math]::Floor($Minutes / 60), ($Minutes % 60)
+}
+
 # ---------------------------------------------------------------- hotkeys
 
 # "Ctrl+Alt+Shift+R" -> @{ Mods = 7; Key = 82 } (mods: 1 Alt, 2 Ctrl, 4 Shift, 8 Win), or $null.

@@ -528,6 +528,26 @@ Assert-Equal $false (Test-WhisperQuestion (Tx 'Buenos d\u00edas, gracias por ven
 Assert-Equal $false (Test-WhisperQuestion 'Vale.') 'question: too short'
 Assert-Equal $false (Test-WhisperQuestion (Tx 'Como te dec\u00eda, usamos Python en todo el equipo.')) 'question: como without accent is a statement'
 Assert-Equal $false (Test-WhisperQuestion (Tx 'Cuando empec\u00e9 en la empresa \u00e9ramos tres.')) 'question: cuando without accent is a statement'
+
+# Call history, as the ClaudeMaxxing window lists it.
+$callLog = @(
+    (Tx '# Claude Whisper \u00b7 2026-10-17 23:58'), '',
+    '**Ellos** 23:58:04 Buenos dias.', (Tx '**Ellos** 23:58:10 \u00bfCu\u00e1l es tu experiencia con Python?'),
+    (Tx '### Claude \u00b7 \u00bfCu\u00e1l es tu experiencia con Python?'), '', 'Llevo cuatro anos con Python.', '',
+    (Tx '**T\u00fa** 00:03:30 Llevo cuatro a\u00f1os.'), (Tx '### Claude \u00b7 Pantalla')
+)
+$call = ConvertFrom-WhisperCallLog '20261017-235804' $callLog
+Assert-Equal '2026-10-17 23:58:04' $call.Started.ToString('yyyy-MM-dd HH:mm:ss') 'call log: start from the file name'
+Assert-Equal '2|1|2' ('{0}|{1}|{2}' -f $call.Them, $call.Me, $call.Answers) 'call log: lines from each side and answers'
+Assert-Equal 6 $call.Minutes 'call log: duration across midnight'
+Assert-Equal (Tx '\u00bfCu\u00e1l es tu experiencia con Python?') $call.Topic 'call log: topic is the first answered question'
+$call = ConvertFrom-WhisperCallLog 'notes' @('**Ellos** 10:00:00 Hola a todos.')
+Assert-Equal $null $call.Started 'call log: other file names have no start'
+Assert-Equal 'Hola a todos.' $call.Topic 'call log: without answers, the topic is what they said first'
+$call = ConvertFrom-WhisperCallLog 'x' @((Tx '### Claude \u00b7 Buenos d\u00edas. \u00bfQu\u00e9 tal el viaje?'))
+Assert-Equal (Tx '\u00bfQu\u00e9 tal el viaje?') $call.Topic 'call log: topic starts at the question'
+Assert-Equal '<1 min' (Format-CallDuration 0) 'call duration: under a minute'
+Assert-Equal '1 h 5 min' (Format-CallDuration 65) 'call duration: hours'
 Assert-Equal $false (Test-WhisperQuestion 'Te comento que el equipo es de cinco personas.') 'question: te comento is a statement'
 Assert-Equal $false (Test-WhisperQuestion 'When I joined we were only three people.') 'question: english statement'
 Assert-Equal $true (Test-WhisperQuestion (Tx 'Qu\u00e9 proyecto te gust\u00f3 m\u00e1s de todos')) 'question: accented interrogative without mark'

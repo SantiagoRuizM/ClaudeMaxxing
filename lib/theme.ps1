@@ -7,6 +7,10 @@ if (-not ('ClaudeTray.Native' -as [type])) {
 [DllImport("user32.dll")] public static extern bool ReleaseCapture();
 [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
+[DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
 '@
 }
 
