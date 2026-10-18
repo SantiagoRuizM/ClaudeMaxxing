@@ -4,7 +4,7 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, usage, code, pcs, whisper, voice).
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, usage, stats, code, pcs, whisper, voice; stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
     [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home')
 
@@ -40,6 +40,7 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\bridgeui.ps1')
 . (Join-Path $TrayRoot 'lib\whisperui.ps1')
 . (Join-Path $TrayRoot 'lib\hub.ps1')
+. (Join-Path $TrayRoot 'lib\hubstats.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }

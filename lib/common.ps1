@@ -17,6 +17,9 @@ $RunsDir       = Join-Path $TrayHome 'runs'
 $SessionsFile  = Join-Path $TrayHome 'sessions.json'
 $SessionLogFile = Join-Path $TrayHome 'sessions.log'
 $BinDir        = Join-Path $TrayHome 'bin'
+# Estadisticas in the ClaudeMaxxing window: the last result and the per-transcript cache (lib\stats.cs).
+$StatsFile     = Join-Path $TrayHome 'stats.json'
+$StatsCacheFile = Join-Path $TrayHome 'stats-cache.json'
 # "Otros PCs": keys, paired PCs and the SSH server's files (lib\bridge.ps1).
 $BridgeHome    = Join-Path $TrayHome 'bridge'
 $CredsFile     = Join-Path $env:USERPROFILE '.claude\.credentials.json'

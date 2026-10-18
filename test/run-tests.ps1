@@ -617,6 +617,54 @@ try {
     Assert-Equal '' $_.Exception.Message 'whisper.cs compiles'
 }
 
+# --- Estadisticas (lib\stats.cs): two sessions at once, a subagent, hook and local-command lines
+$statsDir = Join-Path $env:TEMP ('cmx-stats-test-' + [guid]::NewGuid().ToString('N'))
+try {
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $TrayRoot 'lib\stats.cs'))) -ReferencedAssemblies System.Web.Extensions, System.Core
+    $t0 = [DateTime]::UtcNow.AddHours(-2)
+    function Get-Stamp([int]$Seconds) { $t0.AddSeconds($Seconds).ToString('yyyy-MM-ddTHH:mm:ss.fffZ') }
+    $tail = ',"cwd":"C:\\work\\demo","sessionId":"s"}'
+    function New-Prompt([int]$At, [string]$Text, [string]$Extra = '') { '{"parentUuid":null,"isSidechain":false,"promptId":"p","type":"user","message":{"role":"user","content":"' + $Text + '"}' + $Extra + ',"uuid":"u' + $At + '","timestamp":"' + (Get-Stamp $At) + '"' + $tail }
+    function New-Reply([int]$At, [string]$Id, [string]$Model, [string]$Content, [string]$Usage) {
+        '{"parentUuid":"x","isSidechain":false,"message":{"model":"' + $Model + '","id":"' + $Id + '","type":"message","role":"assistant","content":[' + $Content + '],"usage":{' + $Usage + '}},"requestId":"r","type":"assistant","uuid":"a' + $At + '","timestamp":"' + (Get-Stamp $At) + '"' + $tail
+    }
+    $usage1 = '"input_tokens":10,"cache_creation_input_tokens":50,"cache_read_input_tokens":1000,"output_tokens":20'
+    $sessionA = @(
+        (New-Prompt 0 'hola'),
+        (New-Reply 60 'msg_1' 'claude-opus-5-5' '{"type":"thinking","thinking":"","signature":"x"}' $usage1),
+        (New-Reply 60 'msg_1' 'claude-opus-5-5' '{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}' $usage1),
+        ('{"parentUuid":"a","isSidechain":false,"promptId":"p","type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"ok"}]},"uuid":"u120","timestamp":"' + (Get-Stamp 120) + '"' + $tail),
+        (New-Reply 180 'msg_2' 'claude-opus-5-5' '{"type":"text","text":"listo"}' '"input_tokens":1,"output_tokens":5'),
+        (New-Prompt 240 'Stop hook' ',"isMeta":true'),
+        (New-Prompt 300 '<local-command-stdout>x</local-command-stdout>')
+    )
+    $sessionB = @((New-Prompt 100 'otra'), (New-Reply 400 'msg_3' 'claude-sonnet-5' '{"type":"text","text":"si"}' '"input_tokens":2,"output_tokens":7'))
+    $subagent = @((New-Reply 150 'msg_4' 'claude-haiku-4-5-20251001' '{"type":"tool_use","id":"toolu_2","name":"Read","input":{}}' '"input_tokens":3,"output_tokens":3'))
+    $project = Join-Path $statsDir 'projects\C--work-demo'
+    New-Item -ItemType Directory -Force -Path (Join-Path $project 'a\subagents') | Out-Null
+    [IO.File]::WriteAllLines((Join-Path $project 'a.jsonl'), [string[]]$sessionA)
+    [IO.File]::WriteAllLines((Join-Path $project 'b.jsonl'), [string[]]$sessionB)
+    [IO.File]::WriteAllLines((Join-Path $project 'a\subagents\agent-1.jsonl'), [string[]]$subagent)
+    $cachePath = Join-Path $statsDir 'cache.json'
+    $outPath = Join-Path $statsDir 'stats.json'
+    $result = [ClaudeMaxxing.Stats]::Scan((Join-Path $statsDir 'projects'), $cachePath, $outPath) | ConvertFrom-Json
+    $all = $result.all
+    Assert-Equal '2|4|2|1' ('{0}|{1}|{2}|{3}' -f $all.prompts, $all.responses, $all.sessions, $all.subagents) 'stats: prompts (no hook or local-command lines), replies, sessions, subagents'
+    Assert-Equal '460|720' ('{0}|{1}' -f $all.seconds, $all.sessionSeconds) 'stats: wall-clock time merges parallel sessions; session time adds them'
+    Assert-Equal '35|1000|50' ('{0}|{1}|{2}' -f $all.tokens.output, $all.tokens.cacheRead, $all.tokens.cacheWrite) 'stats: a reply split over several lines counts its tokens once'
+    Assert-Equal 'Bash:1,Read:1' (@($all.tools | ForEach-Object { "$($_.name):$($_.count)" } | Sort-Object) -join ',') 'stats: tool uses, subagents included'
+    Assert-Equal 'demo|2' ('{0}|{1}' -f $all.projects[0].name, $all.projects[0].sessions) 'stats: project from the working folder'
+    Assert-Equal 460 (($all.hourly | Measure-Object -Sum).Sum) 'stats: hours of the day add up to the wall-clock time'
+    Assert-Equal 2 $result.recent.prompts 'stats: the last 30 days include today'
+    Assert-Equal $true (Test-Path -LiteralPath $outPath) 'stats: result written'
+    $again = [ClaudeMaxxing.Stats]::Scan((Join-Path $statsDir 'projects'), $cachePath, $outPath) | ConvertFrom-Json
+    Assert-Equal '0|2' ('{0}|{1}' -f $again.filesRead, $again.all.prompts) 'stats: unchanged transcripts come from the cache'
+} catch {
+    Assert-Equal '' $_.Exception.Message 'stats.cs compiles and scans'
+} finally {
+    Remove-Item -LiteralPath $statsDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {
     $tokens = $null; $errors = $null
