@@ -659,6 +659,10 @@ try {
     Assert-Equal $true (Test-Path -LiteralPath $outPath) 'stats: result written'
     $again = [ClaudeMaxxing.Stats]::Scan((Join-Path $statsDir 'projects'), $cachePath, $outPath) | ConvertFrom-Json
     Assert-Equal '0|2' ('{0}|{1}' -f $again.filesRead, $again.all.prompts) 'stats: unchanged transcripts come from the cache'
+    # Claude Code deletes old transcripts; their days stay in the statistics.
+    Remove-Item -LiteralPath (Join-Path $project 'b.jsonl')
+    $kept = [ClaudeMaxxing.Stats]::Scan((Join-Path $statsDir 'projects'), $cachePath, $outPath) | ConvertFrom-Json
+    Assert-Equal '2|720|2' ('{0}|{1}|{2}' -f $kept.all.prompts, $kept.all.sessionSeconds, $kept.all.sessions) 'stats: a deleted transcript stays in the history'
 } catch {
     Assert-Equal '' $_.Exception.Message 'stats.cs compiles and scans'
 } finally {

@@ -1,7 +1,9 @@
 // Statistics for the ClaudeMaxxing window: when and how much you work with Claude Code, read from Claude
 // Code's own transcripts (~/.claude/projects/<project>/<session>.jsonl, subagents in <session>/subagents).
 // Lines are not fully parsed (there are hundreds of MB): a few anchored regexes take the fields needed.
-// Each file's summary is cached by size and write time, so later scans only read what changed.
+// Each file's summary is cached by size and write time, so later scans only read what changed. The cache is
+// also the history: Claude Code deletes transcripts after 30 days (cleanupPeriodDays), and the summaries of
+// deleted files are kept, so "all time" keeps growing.
 // Active time: the gaps between consecutive events of a session, when shorter than IdleGap; a lone event
 // counts one minute. Times are local. Keep this file ASCII.
 using System;
@@ -111,8 +113,11 @@ namespace ClaudeMaxxing
                         try { stats = ReadFile(path, info); read++; } catch { continue; }
                     }
                     files.Add(stats);
+                    cache.Remove(path);
                 }
             }
+            // What is left in the cache was deleted from disk: keep it.
+            files.AddRange(cache.Values);
             try
             {
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(cachePath));

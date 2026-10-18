@@ -3,6 +3,9 @@
 # $StatsFile; this file starts that scan, keeps the result in $script:Hub.Cache.Stats and draws it in four
 # tabs: Resumen, Horarios, Proyectos, Modelos y herramientas. Charts are one hue (the accent): bars for
 # amounts, a light-to-dark heatmap for day x hour; hovering a bar or a cell reads its value out.
+# Drawing a tab takes a few hundred ms in PowerShell, too slow to redo on every mouse move: the tab body is
+# drawn once into a bitmap (again when the data, tab or range change) and each paint copies it and draws only
+# the hovered bar or cell and its value on top ($script:Hub.StatsOverlay).
 # Needs hub.ps1. Keep this file ASCII.
 
 $script:StatsTask = $null
@@ -168,8 +171,8 @@ function Draw-HubStat($G, [System.Drawing.Rectangle]$Rect, [string]$Label, [stri
     if ($Sub) { Draw-Text $G $Sub $F.Small $(if ($SubColor) { $SubColor } else { $P.Muted }) $x ($Rect.Y + (Px 54)) $w (Px 16) }
 }
 
-# Vertical bars on a baseline, rounded only at the top. Returns the hovered bar's text, if any.
-function Draw-HubBars($G, $Map, $Hover, [string]$Id, [System.Drawing.Rectangle]$Rect, [double[]]$Values, [string[]]$Labels, [string[]]$Tips) {
+# Vertical bars on a baseline, rounded only at the top. Hovering a bar shows its tip in $Readout.
+function Draw-HubBars($G, $Map, [string]$Id, [System.Drawing.Rectangle]$Rect, [double[]]$Values, [string[]]$Labels, [string[]]$Tips, [System.Drawing.Rectangle]$Readout) {
     $P = $script:Palette
     $F = $script:Fonts
     $n = $Values.Count
@@ -181,26 +184,17 @@ function Draw-HubBars($G, $Map, $Hover, [string]$Id, [System.Drawing.Rectangle]$
     $slot = $Rect.Width / $n
     $gap = [Math]::Max((Px 2), [int]($slot * 0.22))
     $barW = [Math]::Max(1, [int]($slot - $gap))
-    $tip = $null
     $radius = [Math]::Min((Px 4), [int]($barW / 2))
     for ($i = 0; $i -lt $n; $i++) {
         $x = $Rect.X + [int]($i * $slot) + [int]($gap / 2)
         $hitId = "$Id-$i"
-        $hovered = $Hover -eq $hitId
-        if ($hovered) {
-            Fill-Round $G (New-Rect ($x - [int]($gap / 2)) $Rect.Y ([int]$slot) $plotH) (Px 4) $P.SurfaceHover
-            $tip = $Tips[$i]
-        }
+        $bar = $null
         if ($max -gt 0 -and $Values[$i] -gt 0) {
             $h = [Math]::Max((Px 3), [int]($plotH * $Values[$i] / $max))
-            $color = if ($hovered) { $P.AccentHover } else { $P.Accent }
-            Fill-Round $G (New-Rect $x ($base - $h) $barW $h) $radius $color
-            if ($h -gt $radius) {
-                $brush = New-Object System.Drawing.SolidBrush($color)
-                $G.FillRectangle($brush, $x, $base - $radius, $barW, $radius)
-                $brush.Dispose()
-            }
+            $bar = New-Rect $x ($base - $h) $barW $h
+            Draw-HubBar $G $bar $radius $P.Accent
         }
+        $script:Hub.StatsOverlay[$hitId] = @{ Bar = $bar; Radius = $radius; Tip = $Tips[$i]; Readout = $Readout }
         if ($Labels -and $Labels[$i]) {
             $lw = Px 60
             Draw-Text $G $Labels[$i] $F.Small $P.Faint ($x + [int]($barW / 2) - [int]($lw / 2)) ($base + (Px 3)) $lw $labelH 'Center'
@@ -210,25 +204,45 @@ function Draw-HubBars($G, $Map, $Hover, [string]$Id, [System.Drawing.Rectangle]$
     $pen = New-Object System.Drawing.Pen($P.Border)
     $G.DrawLine($pen, $Rect.X, $base, $Rect.Right, $base)
     $pen.Dispose()
-    $tip
+}
+
+# A bar rounded at the top and square on its baseline.
+function Draw-HubBar($G, [System.Drawing.Rectangle]$Bar, [int]$Radius, [System.Drawing.Color]$Color) {
+    Fill-Round $G $Bar $Radius $Color
+    if ($Bar.Height -gt $Radius) {
+        $brush = New-Object System.Drawing.SolidBrush($Color)
+        $G.FillRectangle($brush, $Bar.X, $Bar.Bottom - $Radius, $Bar.Width, $Radius)
+        $brush.Dispose()
+    }
+}
+
+# What a hovered bar or heatmap cell adds on top of the cached tab: its highlight and its value.
+function Draw-StatsOverlay($G, $Overlay) {
+    $P = $script:Palette
+    if ($Overlay.Bar) { Draw-HubBar $G $Overlay.Bar $Overlay.Radius $P.AccentHover }
+    if ($Overlay.Cell) { Stroke-Round $G $Overlay.Cell (Px 3) $P.Text 1.5 }
+    if ($Overlay.Tip -and $Overlay.Readout) {
+        $r = $Overlay.Readout
+        $brush = New-Object System.Drawing.SolidBrush($P.Surface)
+        $G.FillRectangle($brush, $r)
+        $brush.Dispose()
+        Draw-Text $G $Overlay.Tip $script:Fonts.Small $P.Text $r.X $r.Y $r.Width $r.Height 'Right'
+    }
 }
 
 # A horizontal bar with a name and its value, for ranked lists.
 function Draw-HubRankRow($G, $Map, $Hover, [string]$Id, [System.Drawing.Rectangle]$Row, [string]$Name, [string]$Value, [double]$Fraction, [string]$Sub) {
     $P = $script:Palette
     $F = $script:Fonts
-    $hovered = $Hover -eq $Id
-    if ($hovered) { Fill-Round $G $Row (Px 6) $P.SurfaceHover }
     $nameW = [int]($Row.Width * 0.42)
     Draw-Text $G $Name $F.Body $P.Text ($Row.X + (Px 8)) $Row.Y ($nameW - (Px 12)) $(if ($Sub) { (Px 20) } else { $Row.Height })
     if ($Sub) { Draw-Text $G $Sub $F.Small $P.Muted ($Row.X + (Px 8)) ($Row.Y + (Px 18)) ($nameW - (Px 12)) (Px 16) }
     $valueW = Px 92
     $track = New-Rect ($Row.X + $nameW) ($Row.Y + [int]($Row.Height / 2) - (Px 4)) ($Row.Width - $nameW - $valueW - (Px 8)) (Px 8)
     if ($Fraction -gt 0) {
-        Fill-Round $G (New-Rect $track.X $track.Y ([Math]::Max((Px 4), [int]($track.Width * [Math]::Min(1.0, $Fraction)))) $track.Height) (Px 4) $(if ($hovered) { $P.AccentHover } else { $P.Accent })
+        Fill-Round $G (New-Rect $track.X $track.Y ([Math]::Max((Px 4), [int]($track.Width * [Math]::Min(1.0, $Fraction)))) $track.Height) (Px 4) $P.Accent
     }
     Draw-Text $G $Value $F.Small $P.Text ($Row.Right - $valueW) $Row.Y ($valueW - (Px 8)) $Row.Height 'Right'
-    Add-Hit $Map $Id $Row {}
 }
 
 # ---------------------------------------------------------------- section
@@ -290,13 +304,34 @@ function Draw-HubStatsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Wrapped $G $text $F.Body $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 16)) ($card.Width - (Px 32)) (Px 60)
         return
     }
-    $data = if ($hub.StatsRange -eq 'all') { $stats.all } else { $stats.recent }
-    switch ($hub.StatsTab) {
-        'hours'    { Draw-StatsHours $G $Map $Hover $X0 $Inner $data }
-        'projects' { Draw-StatsProjects $G $Map $Hover $X0 $Inner $data }
-        'models'   { Draw-StatsModels $G $Map $Hover $X0 $Inner $data }
-        default    { Draw-StatsSummary $G $Map $Hover $X0 $Inner $data $stats.all }
+    $form = $script:HubDialog
+    $ts = $hub.Cache.ToolStats
+    $signature = '{0}|{1}|{2}|{3}x{4}|{5}|{6}' -f $hub.StatsTab, $hub.StatsRange, $stats.scannedAt, $form.ClientSize.Width, $form.ClientSize.Height,
+        $(if ($ts) { "$($ts.Calls),$($ts.Runs),$($ts.MenuOpens),$($ts.Paired)" } else { '' }), (Get-Date).ToString('yyyyMMddHH')
+    $body = New-Rect $X0 (Px 100) $Inner ($footY - (Px 100) - (Px 4))
+    if ($hub.StatsSignature -ne $signature -or -not $hub.StatsBitmap) {
+        if ($hub.StatsBitmap) { $hub.StatsBitmap.Dispose() }
+        $bitmap = New-Object System.Drawing.Bitmap($form.ClientSize.Width, $form.ClientSize.Height)
+        $bg = [System.Drawing.Graphics]::FromImage($bitmap)
+        $bg.Clear($P.Back)
+        $bg.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $bodyMap = New-HitMap
+        $hub.StatsOverlay = @{}
+        $data = if ($hub.StatsRange -eq 'all') { $stats.all } else { $stats.recent }
+        switch ($hub.StatsTab) {
+            'hours'    { Draw-StatsHours $bg $bodyMap $null $X0 $Inner $data }
+            'projects' { Draw-StatsProjects $bg $bodyMap $null $X0 $Inner $data }
+            'models'   { Draw-StatsModels $bg $bodyMap $null $X0 $Inner $data }
+            default    { Draw-StatsSummary $bg $bodyMap $null $X0 $Inner $data $stats.all }
+        }
+        $bg.Dispose()
+        $hub.StatsBitmap = $bitmap
+        $hub.StatsHits = @($bodyMap.Items)
+        $hub.StatsSignature = $signature
     }
+    $G.DrawImage($hub.StatsBitmap, $body, $body, [System.Drawing.GraphicsUnit]::Pixel)
+    foreach ($hit in $hub.StatsHits) { [void]$Map.Items.Add($hit) }
+    if ($Hover -and $hub.StatsOverlay.ContainsKey($Hover)) { Draw-StatsOverlay $G $hub.StatsOverlay[$Hover] }
 }
 
 function Get-PeakIndex($Values) {
@@ -379,11 +414,11 @@ function Draw-StatsSummary($G, $Map, $Hover, [int]$X0, [int]$Inner, $D, $All) {
         $labels = [string[]]@(for ($i = 0; $i -lt $items.Count; $i++) { if (($items.Count - 1 - $i) % 7 -eq 0) { Format-HubDay $items[$i].day } else { '' } })
         $tips = [string[]]@($items | ForEach-Object { (Format-HubWeekdayDay $_.day) + ': ' + (Format-HubDuration $_.seconds) + ', ' + (Format-HubNumber $_.prompts) + ' prompts' })
     }
-    $tip = Draw-HubBars $G $Map $Hover 'sday' $plot $values $labels $tips
+    $readout = New-Rect ($chart.X + (Px 160)) ($chart.Y + (Px 10)) ($chart.Width - (Px 174)) (Px 18)
+    Draw-HubBars $G $Map 'sday' $plot $values $labels $tips $readout
     Draw-Text $G $title $F.Caps $P.Muted ($chart.X + (Px 14)) ($chart.Y + (Px 10)) (Px 200) (Px 18)
     $max = ($values | Measure-Object -Maximum).Maximum
-    $readout = if ($tip) { $tip } else { (Tx 'm\u00e1x. ') + (Format-HubDuration $max) + (Tx '  \u00b7  pasa el rat\u00f3n por una barra') }
-    Draw-Text $G $readout $F.Small $(if ($tip) { $P.Text } else { $P.Faint }) ($chart.X + (Px 160)) ($chart.Y + (Px 10)) ($chart.Width - (Px 174)) (Px 18) 'Right'
+    Draw-Text $G ((Tx 'm\u00e1x. ') + (Format-HubDuration $max) + (Tx '  \u00b7  pasa el rat\u00f3n por una barra')) $F.Small $P.Faint $readout.X $readout.Y $readout.Width $readout.Height 'Right'
 }
 
 # ---- Horarios: day of week x hour, by hour, and the share of each part of the day
@@ -401,7 +436,8 @@ function Draw-StatsHours($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $cellW = [int](($card.Width - (Px 28) - $labelW - $totalW) / 24)
     $cellH = Px 22
     $gy = $card.Y + (Px 36)
-    $tip = $null
+    # cells and bars read their value out in the hour chart's title line
+    $readout = New-Rect ($X0 + (Px 174)) (Px 360) ($Inner - (Px 188)) (Px 18)
     $weekday = @($D.weekday)
     $dayMax = ($weekday | Measure-Object -Maximum).Maximum
     # (not $d: PowerShell names ignore case, and $D is the data)
@@ -414,10 +450,8 @@ function Draw-StatsHours($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
             $hitId = "heat-$row-$h"
             $fraction = if ($max -gt 0) { $value / $max } else { 0 }
             Fill-Round $G $cell (Px 3) (Get-HubShade $fraction)
-            if ($Hover -eq $hitId) {
-                Stroke-Round $G $cell (Px 3) $P.Text 1.5
-                $tip = (Tx $script:HubWeekdayNames[$row]) + (' {0:00}:00' -f $h) + (Tx '\u2013') + ('{0:00}:00' -f (($h + 1) % 24)) + ': ' + (Format-HubDuration $value) + ' en total'
-            }
+            $script:Hub.StatsOverlay[$hitId] = @{ Cell = $cell; Readout = $readout
+                Tip = (Tx $script:HubWeekdayNames[$row]) + (' {0:00}:00' -f $h) + (Tx '\u2013') + ('{0:00}:00' -f (($h + 1) % 24)) + ': ' + (Format-HubDuration $value) + ' en total' }
             Add-Hit $Map $hitId $cell {}
         }
         # the day's total, as a bar after its row
@@ -445,11 +479,9 @@ function Draw-StatsHours($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $values = [double[]]@($hourly | ForEach-Object { [double]$_ })
     $labels = [string[]]@(for ($h = 0; $h -lt 24; $h++) { if ($h % 3 -eq 0) { '{0:00}' -f $h } else { '' } })
     $tips = [string[]]@(for ($h = 0; $h -lt 24; $h++) { ('{0:00}:00' -f $h) + (Tx '\u2013') + ('{0:00}:00' -f (($h + 1) % 24)) + ': ' + (Format-HubDuration $hourly[$h]) + ', ' + (Format-HubNumber $prompts[$h]) + ' prompts' })
-    $barTip = Draw-HubBars $G $Map $Hover 'shour' (New-Rect ($chart.X + (Px 14)) ($chart.Y + (Px 34)) ($chart.Width - (Px 28)) ($chart.Height - (Px 42))) $values $labels $tips
-    if ($barTip) { $tip = $barTip }
+    Draw-HubBars $G $Map 'shour' (New-Rect ($chart.X + (Px 14)) ($chart.Y + (Px 34)) ($chart.Width - (Px 28)) ($chart.Height - (Px 42))) $values $labels $tips $readout
     Draw-Text $G (Tx 'POR HORA DEL D\u00cdA') $F.Caps $P.Muted ($chart.X + (Px 14)) ($chart.Y + (Px 10)) (Px 200) (Px 18)
-    $readout = if ($tip) { $tip } else { Tx 'Pasa el rat\u00f3n por una celda o una barra' }
-    Draw-Text $G $readout $F.Small $(if ($tip) { $P.Text } else { $P.Faint }) ($chart.X + (Px 160)) ($chart.Y + (Px 10)) ($chart.Width - (Px 174)) (Px 18) 'Right'
+    Draw-Text $G (Tx 'Pasa el rat\u00f3n por una celda o una barra') $F.Small $P.Faint $readout.X $readout.Y $readout.Width $readout.Height 'Right'
 
     # parts of the day
     $bands = @(@('MADRUGADA', 0, 5), @((Tx 'MA\u00d1ANA'), 6, 11), @('TARDE', 12, 18), @('NOCHE', 19, 23))
