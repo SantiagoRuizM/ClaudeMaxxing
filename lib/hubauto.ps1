@@ -8,11 +8,14 @@
 $script:AutoSyncAt = [datetime]::MinValue
 $script:AutoLastResult = $null
 
+# The newest stats: every scan writes $StatsFile; the open window may hold the same result already parsed.
 function Get-AutoState {
     $settings = Get-AutoPlanSettings (Read-JsonFile $AutoPlanFile)
-    $stats = if ($script:Hub -and $script:Hub.Cache.Stats) { $script:Hub.Cache.Stats } else { Read-JsonFile $StatsFile }
+    $stats = Read-JsonFile $StatsFile
+    $cached = if ($script:HubDialog -and $script:Hub) { $script:Hub.Cache.Stats } else { $null }
+    try { if ($cached -and (-not $stats -or [datetime]$cached.scannedAt -ge [datetime]$stats.scannedAt)) { $stats = $cached } } catch { }
     $plan = $null
-    if ($stats -and $stats.recent) { $plan = Get-AutoPlan $stats.recent.hourly ([int]$stats.recent.activeDays) $settings.boundary }
+    if ($stats -and $stats.recent) { $plan = Get-AutoPlan $stats.recent.hourly ([int]$stats.recent.activeDays) $settings.boundary $settings.lastBoundary }
     @{ Settings = $settings; Plan = $plan; Stats = $stats }
 }
 
@@ -29,6 +32,11 @@ function Invoke-AutoSchedule([switch]$Force) {
     $hasAuto = @($script:PendingTasks | Where-Object { $_.Name -like "$AutoTaskPrefix*" }).Count -gt 0
     if (-not $state.Settings.enabled -and -not $hasAuto) { return }
     if ($state.Settings.enabled -and (-not $state.Stats -or (Get-StatsAgeMinutes $state.Stats) -gt 1440)) { Start-HubStatsScan }
+    # Remember the computed boundary in use, so a near tie later does not move it.
+    if ($state.Settings.enabled -and $state.Plan -and $state.Plan.HasData -and -not $state.Plan.Manual -and $state.Settings.lastBoundary -ne $state.Plan.Boundary) {
+        $state.Settings.lastBoundary = $state.Plan.Boundary
+        Save-AutoSettings $state.Settings
+    }
     try {
         Update-ScheduleState
         $script:AutoLastResult = Sync-AutoSessions $state.Plan ([bool]$state.Settings.enabled) $state.Settings.days $script:PendingTasks (Join-Path $TrayRoot 'start-session.ps1') (Get-Date)
