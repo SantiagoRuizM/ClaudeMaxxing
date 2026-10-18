@@ -349,6 +349,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.Add_FormClosed({
         if ($script:Hub.Timer) { $script:Hub.Timer.Stop(); $script:Hub.Timer.Dispose() }
         if ($script:Hub.Logo) { $script:Hub.Logo.Dispose() }
+        if ($script:Hub.StatsBitmap) { $script:Hub.StatsBitmap.Dispose() }
         $script:HubDialog = $null
     })
 
