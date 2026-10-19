@@ -2,7 +2,16 @@
 
 > **Dónde se ejecuta:** el `install.ps1` de la raíz del repo copia esta carpeta a `%LOCALAPPDATA%\ClaudeMaxxing\voice`, y todo corre desde ahí. Los comandos `.\ctl.ps1` y `.\install.ps1` de esta página se lanzan en esa carpeta (`cd "$env:LOCALAPPDATA\ClaudeMaxxing\voice"`). Tus cambios de configuración van en `config.local.json`, que se aplica encima de `config.json` y se conserva al actualizar; `config.json` se reemplaza en cada instalación.
 
-Claude Code te responde en voz alta. Cuando Claude termina un turno, un hook `Stop` toma la respuesta, extrae una línea de resumen marcada con 🔊 y la lee con una voz neuronal en español (edge-tts) o, sin internet, con la voz local de Windows (SAPI).
+Claude Code te responde en voz alta. Cuando Claude termina un turno, un hook `Stop` toma la respuesta, extrae una línea de resumen marcada con 🔊 y la lee con el motor de voz que elijas en **ClaudeMaxxing > Voz**:
+
+| Motor | Cómo suena | Qué necesita |
+|---|---|---|
+| **Edge** (por defecto) | Voces neuronales de Microsoft | Nada: gratis y sin clave (edge-tts, que el instalador mantiene al día) |
+| **ElevenLabs** | La más natural y fluida | Una cuenta gratis en elevenlabs.io: unos 10.000 créditos al mes con el modelo Flash v2.5, unos 100 resúmenes. Pega la clave (`sk_…`) con **Pegar clave ElevenLabs**; usa las voces de tu cuenta, una distinta por sesión y del mismo género que su nombre |
+| **Gemini** | Muy natural, tono cálido y conversacional | Una clave gratis de Google AI Studio (`AIza…`), con límite diario. **Pegar clave Gemini** |
+| **Windows** | La voz local (SAPI) | Nada; funciona sin internet |
+
+Si el motor elegido falla (sin clave, sin créditos, límite del día, sin red), esa frase se lee con Edge, y si Edge también falla, con la voz de Windows. Un motor que se queda sin créditos o rechaza la clave se aparta un rato para no esperar su error en cada frase. La cuenta gratis de ElevenLabs no permite uso comercial.
 
 - **Cada sesión tiene nombre, rol, voz y firma musical propios.** Con el primer prompt, la sesión pasa a llamarse por ejemplo "Valentina · codificadora" (título de la sesión en Claude Code). Cada mensaje empieza con su acorde y sigue con "Soy Valentina, codificadora. Terminé el login."
 - **Firma musical**: un acorde corto, único entre las sesiones activas. El timbre dice el tipo de trabajo (marimba = código, cristal = investigación, piano = redacción…) y el acorde, la nota y el dibujo dicen qué sesión es.
@@ -23,12 +32,12 @@ Claude termina el turno
    └─ hook Stop (async) ─► hooks/speak.ps1 ── "🔊 ..." (o primera frase) → "Soy Valentina, codificadora. ..."
                                ▼
                          play.ps1 (proceso oculto)
-                               ├─ genera el mp3 (edge-tts) y lo guarda en el historial
+                               ├─ genera el audio (ElevenLabs, Gemini o edge-tts) y lo guarda en el historial
                                ├─ prepara la firma de la sesión (WAV sintetizado una vez)
                                ├─ espera turno (mutex compartido entre sesiones)
                                ├─ baja la música (o la hereda ya baja del anterior)
                                ├─ 🎵 acorde de la sesión → la voz entra mientras se apaga
-                               ├─ ffplay 🔊   ·   si edge falla: SAPI (Helena) 🔊
+                               ├─ ffplay 🔊   ·   si ningún motor pudo: SAPI (Helena) 🔊
                                └─ sube la música, salvo que otra voz espere turno
 ```
 
@@ -133,7 +142,9 @@ Para cambiar algo, escríbelo en `config.local.json` con la misma estructura, so
 | Clave | Qué hace |
 |---|---|
 | `enabled` | Interruptor general |
-| `engine` | `edge` (voz neuronal, requiere internet, ~3 s) o `sapi` (Windows, rápida, offline). Si edge falla, cae a SAPI |
+| `engine` | `edge` (voz neuronal gratis, ~3 s), `elevenlabs`, `gemini` o `sapi` (Windows, offline). Si el elegido falla se usa edge, y luego SAPI |
+| `elevenlabs.apiKey`, `elevenlabs.model`, `elevenlabs.voices`, `elevenlabs.voiceSettings` | ElevenLabs: la clave y las voces las guarda ClaudeMaxxing al pegar la clave; modelo `eleven_flash_v2_5` (el más barato y rápido) y ajustes de estabilidad y velocidad |
+| `gemini.apiKey`, `gemini.model`, `gemini.style`, `gemini.voices.f` / `.m` | Gemini TTS: clave, modelo, estilo de lectura (por ejemplo "cálida y conversacional") y voces por género |
 | `marker` | Prefijo de la línea que se lee (🔊). Si lo cambias, cambia también la regla en `templates/claude-md-rule.md` y `CLAUDE.md` |
 | `fallback` | `first-sentence` / `full` / `none`: qué decir si Claude no escribió la línea 🔊 |
 | `maxChars` | Recorta lo que se lee |
