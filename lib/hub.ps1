@@ -136,12 +136,13 @@ function Format-VoiceName([string]$Voice) {
 }
 
 # FreeLLMAPI card: what is installed, the saved settings and the install progress. Exe, port and server
-# are looked up only with -Slow (registry and a socket).
-function Get-HubFreeLlm($Previous, [switch]$Slow) {
+# are looked up only with -Slow (a socket), and the registry only with -Full or while it is installed.
+function Get-HubFreeLlm($Previous, [switch]$Slow, [switch]$Full) {
     $state = @{ Installed = $false; Exe = $null; Port = $FreeLlmDefaultPort; Up = $false }
     if ($Previous) { foreach ($k in 'Installed', 'Exe', 'Port', 'Up') { $state[$k] = $Previous[$k] } }
-    if ($Slow -or -not $Previous) {
-        $state.Exe = Get-FreeLlmExe
+    if ($Slow -or $Full -or -not $Previous) {
+        $quick = $Previous -and -not $Full -and -not $Previous.Installed
+        $state.Exe = Get-FreeLlmExe -Quick:$quick
         $state.Installed = [bool]$state.Exe
         $state.Port = Get-FreeLlmPort
         $state.Up = $state.Installed -and (Test-FreeLlmUp $state.Port 150)
@@ -171,7 +172,7 @@ function Update-HubCache([switch]$Full) {
     $c.HotkeysOn = Test-VoiceHotkeys
     $c.ScheduleRows = @(Get-ScheduleRows $script:PendingTasks (Read-JsonFile $CloudFile) (Read-JsonFile $HistoryFile) $now 5)
     $slow = $Full -or ($now - $hub.SlowAt).TotalSeconds -ge 10
-    $c.FreeLlm = Get-HubFreeLlm $c.FreeLlm -Slow:$slow
+    $c.FreeLlm = Get-HubFreeLlm $c.FreeLlm -Slow:$slow -Full:$Full
     if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
