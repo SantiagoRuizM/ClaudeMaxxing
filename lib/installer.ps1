@@ -199,37 +199,32 @@ function Get-LocalVoiceSetting([string]$VoiceDir, [string]$Section, [string]$Key
 function Install-VoiceDependencies([string]$VoiceDir) {
     $notes = New-Object System.Collections.Generic.List[object]
 
-    # edge-tts
-    $edge = Get-LocalVoiceSetting $VoiceDir 'edge' 'exe'
+    # edge-tts, always in our own Python environment and always the latest release: Microsoft changes the
+    # service's token every few months and older versions get 403 (another app's copy on PATH may be stale).
     $venvEdge = Join-Path $VoiceDir 'venv\Scripts\edge-tts.exe'
-    if ($edge -and (Test-Path -LiteralPath $edge)) {
-        $notes.Add((New-Note "edge-tts: $edge"))
-    } elseif ($onPath = Get-Command edge-tts.exe -ErrorAction SilentlyContinue) {
-        $notes.Add((New-Note "edge-tts: $($onPath.Source) (on PATH)"))
-    } else {
-        if (-not (Test-Path -LiteralPath $venvEdge)) {
+    $venvPython = Join-Path $VoiceDir 'venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $venvPython)) {
+        $python = Find-Python
+        if (-not $python -and (Test-Winget)) {
+            Write-Host 'installing Python with winget...'
+            Invoke-Winget 'Python.Python.3.12'
             $python = Find-Python
-            if (-not $python -and (Test-Winget)) {
-                Write-Host 'installing Python with winget...'
-                Invoke-Winget 'Python.Python.3.12'
-                $python = Find-Python
-            }
-            if ($python) {
-                Write-Host 'installing edge-tts in its own Python environment...'
-                $pyArgs = @($python | Select-Object -Skip 1)
-                & $python[0] @pyArgs -m venv (Join-Path $VoiceDir 'venv') 2>&1 | Out-Null
-                $venvPython = Join-Path $VoiceDir 'venv\Scripts\python.exe'
-                if (Test-Path -LiteralPath $venvPython) {
-                    & $venvPython -m pip install --disable-pip-version-check --quiet edge-tts 2>&1 | Out-Null
-                }
-            }
         }
-        if (Test-Path -LiteralPath $venvEdge) {
-            Set-LocalVoiceSetting $VoiceDir 'edge' 'exe' $venvEdge
-            $notes.Add((New-Note "edge-tts: $venvEdge"))
-        } else {
-            $notes.Add((New-Note -Warn 'edge-tts could not be installed (needs Python 3.8+ and internet): the voice uses the Windows voice (SAPI) until you run install.ps1 again.'))
+        if ($python) {
+            Write-Host 'creating the voice Python environment...'
+            $pyArgs = @($python | Select-Object -Skip 1)
+            & $python[0] @pyArgs -m venv (Join-Path $VoiceDir 'venv') 2>&1 | Out-Null
         }
+    }
+    if (Test-Path -LiteralPath $venvPython) {
+        Write-Host 'installing or updating edge-tts...'
+        & $venvPython -m pip install --disable-pip-version-check --quiet --upgrade edge-tts 2>&1 | Out-Null
+    }
+    if (Test-Path -LiteralPath $venvEdge) {
+        Set-LocalVoiceSetting $VoiceDir 'edge' 'exe' $venvEdge
+        $notes.Add((New-Note "edge-tts: $venvEdge"))
+    } else {
+        $notes.Add((New-Note -Warn 'edge-tts could not be installed (needs Python 3.8+ and internet): the voice uses the Windows voice (SAPI) until you run install.ps1 again.'))
     }
 
     # ffplay

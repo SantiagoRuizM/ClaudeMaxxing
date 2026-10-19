@@ -10,7 +10,11 @@ param([Parameter(Mandatory = $true)][string]$JobFile)
 . "$PSScriptRoot\common.ps1"
 
 function New-EdgeAudio($Cfg, [string]$Text, [string]$Voice, [string]$Mp3) {
-    $edge = Find-Exe (Get-Opt $Cfg 'edge.exe' '') 'edge-tts'
+    # La copia propia (install.ps1 la mantiene al dia) antes que otra en el PATH, que puede estar vieja.
+    $own = Join-Path (Split-Path -Parent $PSScriptRoot) 'venv\Scripts\edge-tts.exe'
+    $configured = Get-Opt $Cfg 'edge.exe' ''
+    if (-not $configured -and (Test-Path -LiteralPath $own)) { $configured = $own }
+    $edge = Find-Exe $configured 'edge-tts'
     if (-not $edge) { Write-Log 'edge: no encuentro edge-tts, uso SAPI'; return $false }
     $txt = [IO.Path]::ChangeExtension($Mp3, '.txt')
     [IO.File]::WriteAllText($txt, $Text, $Utf8)
