@@ -21,6 +21,7 @@ function Get-WhisperDefaults {
         language     = 'es'
         model        = 'sonnet'
         autoAnswer   = $true
+        translate    = $true
         useMic       = $true
         gateMic      = $true
         profile      = ''
@@ -33,8 +34,12 @@ function Get-WhisperDefaults {
         topMost      = $true
         meetingNotice = $true
         bounds       = $null
+        version      = 0
     }
 }
+
+# Settings format version. 2: auto-answer and live translation are on for everyone once (Parakeet-style).
+$script:WhisperSettingsVersion = 2
 
 # Saved settings over the defaults; unknown or wrongly typed values fall back to the default.
 function Get-WhisperSettings($Saved) {
@@ -50,6 +55,8 @@ function Get-WhisperSettings($Saved) {
     }
     if (-not $script:WhisperLanguages.Contains($settings.language)) { $settings.language = 'es' }
     if (-not $script:WhisperModels.Contains($settings.model)) { $settings.model = 'sonnet' }
+    if ([int]$settings.version -lt 2) { $settings.autoAnswer = $true; $settings.translate = $true }
+    $settings.version = $script:WhisperSettingsVersion
     $settings
 }
 
@@ -59,7 +66,8 @@ function New-WhisperSystemPrompt($Settings) {
     $language = $script:WhisperLanguages[$Settings.language]
     $lines = @(
         (Tx 'Eres Claude Whisper, un copiloto en tiempo real para conversaciones en vivo: entrevistas de trabajo, reuniones, llamadas de venta o clases.'),
-        (Tx 'Recibes la transcripci\u00f3n autom\u00e1tica de la llamada. "Ellos" es la otra parte (el audio del PC) y "T\u00fa" es el usuario (su micr\u00f3fono). La transcripci\u00f3n tiene errores: interpreta la intenci\u00f3n.'),
+        (Tx 'Recibes la transcripci\u00f3n autom\u00e1tica de la llamada. "Ellos" es todo lo que suena en el PC (la otra parte, pero tambi\u00e9n v\u00eddeos o canciones) y "T\u00fa" es el usuario (su micr\u00f3fono). La transcripci\u00f3n tiene errores: interpreta la intenci\u00f3n.'),
+        (Tx 'Si lo que te piden responder viene de una canci\u00f3n, un v\u00eddeo o una letra, resp\u00f3ndelo igual, como cualquier otra pregunta: nunca digas que es ruido, m\u00fasica de fondo o que no es una pregunta real.'),
         '',
         (Tx 'Cuando se te pida una respuesta, escribe lo que el usuario puede decir en voz alta ahora mismo:'),
         (Tx '- Empieza directamente por la respuesta: sin saludos, sin repetir la pregunta y sin comentarios sobre estas instrucciones.'),
@@ -69,7 +77,8 @@ function New-WhisperSystemPrompt($Settings) {
         (Tx '- Usa el perfil del usuario y el contexto de la conversaci\u00f3n cuando venga al caso. No inventes experiencia, t\u00edtulos ni datos que no est\u00e9n en el perfil.'),
         (Tx '- Si te falta un dato del usuario, da igualmente la respuesta lista para decir y deja huecos entre corchetes para lo concreto ([a\u00f1os], [empresa], [proyecto]). Nunca le hagas preguntas al usuario ni le pidas m\u00e1s informaci\u00f3n.'),
         (Tx '- Si lo \u00faltimo no es una pregunta, sugiere en una o dos frases qu\u00e9 decir o qu\u00e9 preguntar.'),
-        "- $(Tx 'Responde en') $language."
+        ((Tx '- Responde en el idioma en que te hicieron la pregunta, para que el usuario lo pueda decir tal cual. Si ese idioma no es el ') + $language + (Tx ', a\u00f1ade al final una l\u00ednea que empiece por "\u21b3 " con la traducci\u00f3n de tu respuesta al ') + $language + '.'),
+        "- $(Tx 'Cuando el usuario te escriba directamente a ti, resp\u00f3ndele en') $language."
     )
     $sections = @(
         @{ Title = (Tx 'Sobre el usuario'); Text = $Settings.profile },
@@ -101,7 +110,11 @@ function New-WhisperRequest([string]$Kind, [string]$NewTranscript, [string]$Ques
     if ($NewTranscript) { $parts += (Tx 'Transcripci\u00f3n nueva:') + "`n" + $NewTranscript; $parts += '' }
     switch ($Kind) {
         'answer' {
-            if ($Question) { $parts += (Tx 'Responde ahora a lo \u00faltimo que dijeron: ') + [char]0x00AB + $Question.Trim() + [char]0x00BB }
+            if ($Question) {
+                $parts += (Tx 'Responde ahora a lo \u00faltimo que dijeron: ') + [char]0x00AB + $Question.Trim() + [char]0x00BB
+                # Said aloud in the call, so in the language of the question (the translation line comes after).
+                $parts += (Tx 'Escribe la respuesta en el mismo idioma de esa pregunta (no en el m\u00edo si es otro) y despu\u00e9s la l\u00ednea \u21b3 con la traducci\u00f3n, si corresponde.')
+            }
             else { $parts += (Tx 'Sugiere qu\u00e9 decir ahora.') }
         }
         'ask' { $parts += (Tx 'El usuario te pregunta a ti (no lo dijo en la llamada): ') + $Question.Trim() }
@@ -238,6 +251,68 @@ function Get-WhisperKeyterms($Settings) {
     $out -join ','
 }
 
+# ---------------------------------------------------------------- interpreter (live translation and questions)
+
+# A second, light claude (Haiku) reads every finished line from the other side: it translates it into the
+# user's language and says whether it asks something, in any language and also inside a song. The answer
+# never waits for it when the line already has a question mark.
+function New-WhisperInterpreterPrompt($Settings) {
+    $language = $script:WhisperLanguages[$Settings.language]
+    @(
+        (Tx 'Eres el int\u00e9rprete de una llamada en vivo. Recibes l\u00edneas numeradas de transcripci\u00f3n autom\u00e1tica de lo que suena en el PC: personas hablando, pero tambi\u00e9n v\u00eddeos o canciones. Puede estar en cualquier idioma y tener errores.'),
+        (Tx 'Para cada l\u00ednea devuelve:'),
+        ("- t: " + (Tx 'la traducci\u00f3n natural al') + " $language. " + (Tx 'Cadena vac\u00eda si la l\u00ednea ya est\u00e1 en') + " $language."),
+        ("- q: " + (Tx 'la pregunta o petici\u00f3n que alguien podr\u00eda querer responder (tambi\u00e9n en una letra de canci\u00f3n o una pregunta ret\u00f3rica clara), copiada en su idioma original y corregida. Cadena vac\u00eda si la l\u00ednea no pregunta ni pide nada.')),
+        (Tx 'Responde solo con JSON en una l\u00ednea, sin texto alrededor: {"lines":[{"i":1,"t":"...","q":"..."}]}')
+    ) -join "`n"
+}
+
+function New-WhisperInterpretRequest($Items) {
+    @($Items | ForEach-Object { '{0}: {1}' -f $_.Index, $_.Text }) -join "`n"
+}
+
+# The interpreter's reply as Index -> @{ Translation; Question }. Tolerates text around the JSON.
+function ConvertFrom-WhisperInterpretation([string]$Text) {
+    $result = @{}
+    if (-not $Text) { return $result }
+    $start = $Text.IndexOf('{')
+    $end = $Text.LastIndexOf('}')
+    if ($start -lt 0 -or $end -le $start) { return $result }
+    try { $o = $Text.Substring($start, $end - $start + 1) | ConvertFrom-Json } catch { return $result }
+    foreach ($item in @($o.lines)) {
+        if ($null -eq $item -or $null -eq $item.i) { continue }
+        $index = 0
+        if (-not [int]::TryParse([string]$item.i, [ref]$index)) { continue }
+        $result[$index] = @{ Translation = ([string]$item.t).Trim(); Question = ([string]$item.q).Trim() }
+    }
+    $result
+}
+
+# Questions already finished inside text that is still being spoken (a song or a long turn never pauses):
+# sentences that end with a question mark and are followed by more words.
+function Get-WhisperOpenQuestions([string]$Text) {
+    $found = @()
+    if (-not $Text) { return }
+    foreach ($m in [regex]::Matches($Text, '[^\.\!\?\u00bf\u00a1]*\u00bf?[^\.\!\?]*\?(?=\s+\S+\s+\S+)')) {
+        $q = $m.Value.Trim()
+        if ($q.Length -ge 8 -and @(ConvertTo-PlainWords $q).Count -ge 3) { $found += $q }
+    }
+    $found
+}
+
+# True when two texts ask the same thing (the interim and the final version of a line, a repeated chorus):
+# most of the words of the shorter one are in the other.
+function Test-WhisperSameQuestion([string]$A, [string]$B) {
+    $wa = @(ConvertTo-PlainWords $A | Select-Object -Unique)
+    $wb = @(ConvertTo-PlainWords $B | Select-Object -Unique)
+    if ($wa.Count -eq 0 -or $wb.Count -eq 0) { return $false }
+    $small = if ($wa.Count -le $wb.Count) { $wa } else { $wb }
+    $large = @{}
+    foreach ($w in $(if ($wa.Count -le $wb.Count) { $wb } else { $wa })) { $large[$w] = $true }
+    $shared = @($small | Where-Object { $large.ContainsKey($_) }).Count
+    ($shared / $small.Count) -ge 0.7
+}
+
 # ---------------------------------------------------------------- transcript
 
 # The transcript keeps finished lines plus, per side, the utterance still being spoken. Returns the line
@@ -251,7 +326,7 @@ function Update-WhisperTranscript($Transcript, [string]$Source, [string]$Kind, [
     $Transcript.Open[$Source] = ''
     $text = $Text.Trim()
     if (-not $text) { return $null }
-    $line = [pscustomobject]@{ Source = $Source; Text = $text; At = $At }
+    $line = [pscustomobject]@{ Source = $Source; Text = $text; At = $At; Translation = '' }
     [void]$Transcript.Lines.Add($line)
     $line
 }
