@@ -1,5 +1,6 @@
 # Proceso reproductor: lo lanza Start-VoiceJob en segundo plano con una lista de cosas que decir.
-#   1. Prepara el audio de cada item: el mp3 guardado (repeticiones) o uno nuevo con edge-tts.
+#   1. Prepara el audio de cada item: el guardado (repeticiones) o uno nuevo con el motor de voz
+#      configurado (engines.ps1: ElevenLabs, Gemini o edge-tts).
 #      Esto ocurre en paralelo con otras sesiones.
 #   2. Espera su turno en un mutex compartido para no hablar encima de otra sesion.
 #   3. Baja la musica y, por cada item, toca la firma musical de su sesion y la voz (ffplay, o
@@ -8,23 +9,7 @@
 param([Parameter(Mandatory = $true)][string]$JobFile)
 
 . "$PSScriptRoot\common.ps1"
-
-function New-EdgeAudio($Cfg, [string]$Text, [string]$Voice, [string]$Mp3) {
-    # La copia propia (install.ps1 la mantiene al dia) antes que otra en el PATH, que puede estar vieja.
-    $own = Join-Path (Split-Path -Parent $PSScriptRoot) 'venv\Scripts\edge-tts.exe'
-    $configured = Get-Opt $Cfg 'edge.exe' ''
-    if (-not $configured -and (Test-Path -LiteralPath $own)) { $configured = $own }
-    $edge = Find-Exe $configured 'edge-tts'
-    if (-not $edge) { Write-Log 'edge: no encuentro edge-tts, uso SAPI'; return $false }
-    $txt = [IO.Path]::ChangeExtension($Mp3, '.txt')
-    [IO.File]::WriteAllText($txt, $Text, $Utf8)
-    $rate = Get-Opt $Cfg 'edge.rate' '+0%'
-    $null = & $edge --voice $Voice "--rate=$rate" --file $txt --write-media $Mp3 2>&1
-    $ok = $LASTEXITCODE -eq 0 -and (Test-Path $Mp3)
-    Remove-Item $txt -Force -ErrorAction SilentlyContinue
-    if (-not $ok) { Write-Log "edge-tts fallo con $Voice (exit $LASTEXITCODE), uso SAPI" }
-    return $ok
-}
+. "$PSScriptRoot\engines.ps1"
 
 function Invoke-Sapi($Cfg, [string]$Text) {
     Add-Type -AssemblyName System.Speech
@@ -56,17 +41,17 @@ $owned  = $false
 $ducked = $false
 try {
     $ffplay  = Find-Exe (Get-Opt $cfg 'ffplay' '') 'ffplay'
-    $useEdge = (Get-Opt $cfg 'engine' 'edge') -eq 'edge' -and $ffplay
 
     # 1. Preparar audio
     $plan = foreach ($item in @($job.items)) {
         $audio = ''
         if ($ffplay -and $item.audio -and (Test-Path $item.audio)) {
             $audio = $item.audio
-        } elseif ($useEdge) {
-            $mp3 = Join-Path $StateDir ('job-{0}-{1}.mp3' -f $job.key, [guid]::NewGuid().ToString('N'))
-            [void]$temps.Add($mp3)
-            if (New-EdgeAudio $cfg $item.text $item.voice $mp3) { $audio = $mp3 }
+        } elseif ($ffplay) {
+            # ElevenLabs, Gemini o edge segun la config (engines.ps1); '' si ninguno pudo: SAPI.
+            $base = Join-Path $StateDir ('job-{0}-{1}' -f $job.key, [guid]::NewGuid().ToString('N'))
+            $audio = New-SpeechAudio $cfg $item.text $item.voice $base
+            if ($audio) { [void]$temps.Add($audio) } else { Write-Log 'voz: ningun motor genero audio, uso SAPI' }
         }
         if ($job.history) { Add-History $item $audio $cfg }
         $chime = $null

@@ -231,6 +231,33 @@ $j = [IO.File]::ReadAllText($s, $Utf8) | ConvertFrom-Json
 Check 'uninstall deja solo el hook ajeno' (@($j.hooks.Stop).Count -eq 1 -and -not $j.hooks.PSObject.Properties['UserPromptSubmit']) ''
 $md = [IO.File]::ReadAllText($c, $Utf8)
 Check 'uninstall quita la regla' ($md.Trim() -eq '# Mis reglas') $md
+
+'Motores de voz (engines.ps1)'
+. "$PSScriptRoot\..\hooks\engines.ps1"
+$ecfg = [pscustomobject]@{
+    engine = 'elevenlabs'
+    edge = [pscustomobject]@{ voicePool = @('es-CO-SalomeNeural', 'es-CO-GonzaloNeural', 'es-MX-DaliaNeural', 'es-MX-JorgeNeural')
+        voiceGenders = [pscustomobject]@{ 'es-CO-SalomeNeural' = 'f'; 'es-CO-GonzaloNeural' = 'm'; 'es-MX-DaliaNeural' = 'f'; 'es-MX-JorgeNeural' = 'm' } }
+    elevenlabs = [pscustomobject]@{ apiKey = ''; voices = @([pscustomobject]@{ id = 'F1'; gender = 'f' }, [pscustomobject]@{ id = 'F2'; gender = 'f' }, [pscustomobject]@{ id = 'M1'; gender = 'm' }) }
+    gemini = [pscustomobject]@{ voices = [pscustomobject]@{ f = @('Kore', 'Aoede'); m = @('Puck') } }
+}
+$order = @(Get-EngineOrder $ecfg)
+Check 'orden: el elegido y luego edge' (($order -join ',') -eq 'elevenlabs,edge') ($order -join ',')
+$ecfg.engine = 'sapi'
+Check 'sapi: ningun motor con audio' (@(Get-EngineOrder $ecfg).Count -eq 0) ''
+$ecfg.engine = 'raro'
+Check 'motor desconocido: edge' ((@(Get-EngineOrder $ecfg) -join ',') -eq 'edge') ''
+Check 'ElevenLabs: voz del mismo genero (mujer)' ((Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural') -eq 'F1') (Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural')
+Check 'ElevenLabs: otra mujer, otra voz' ((Get-ElevenVoiceId $ecfg 'es-MX-DaliaNeural') -eq 'F2') (Get-ElevenVoiceId $ecfg 'es-MX-DaliaNeural')
+Check 'ElevenLabs: hombre' ((Get-ElevenVoiceId $ecfg 'es-MX-JorgeNeural') -eq 'M1') (Get-ElevenVoiceId $ecfg 'es-MX-JorgeNeural')
+Check 'Gemini: voz por genero' ((Get-GeminiVoiceName $ecfg 'es-CO-GonzaloNeural') -eq 'Puck') (Get-GeminiVoiceName $ecfg 'es-CO-GonzaloNeural')
+$resp = [pscustomobject]@{ steps = @([pscustomobject]@{ type = 'model_output'; content = @([pscustomobject]@{ type = 'text'; text = 'x' }, [pscustomobject]@{ type = 'audio'; data = 'QUJD' }) }) }
+Check 'Gemini: audio de la respuesta' ((Get-GeminiAudioData $resp) -eq 'QUJD') ''
+Check 'ElevenLabs sin clave: no genera nada' (-not (New-ElevenAudio $ecfg 'hola' 'es-CO-SalomeNeural' (Join-Path $env:TEMP 'x.mp3'))) ''
+Check 'motor sin apartar' (-not (Test-EngineSnoozed 'elevenlabs')) ''
+Set-EngineSnooze 'elevenlabs' 10 'prueba'
+Check 'motor apartado tras quedarse sin creditos' (Test-EngineSnoozed 'elevenlabs') ''
+
 Remove-Item $tmp -Recurse -Force
 Remove-Item $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue
 $env:TEMP = $realTemp

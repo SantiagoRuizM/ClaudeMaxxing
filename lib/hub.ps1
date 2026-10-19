@@ -180,6 +180,7 @@ function Update-HubCache([switch]$Full) {
         $c.MenuInstalled = [bool](Get-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue)
         $c.Screens = [System.Windows.Forms.Screen]::AllScreens.Count
         $c.VoiceInstalled = Test-Path -LiteralPath (Join-Path $TrayRoot 'voice\hooks\speak.ps1')
+        try { $c.VoiceEngine = Get-VoiceEngineState } catch { $c.VoiceEngine = $null }
         $c.Auto = Get-HubAutoView
     }
 }
@@ -375,6 +376,41 @@ function Set-HubVoiceSessionMuted([int]$Index) {
     if ($session.Muted) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
     else { [IO.File]::WriteAllText($file, '') }
     $session.Muted = -not $session.Muted
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+# Voz: the engine that reads the summaries, and the keys of ElevenLabs and Gemini (lib\voiceengine.ps1).
+function Set-HubVoiceEngine([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $keys = @($script:VoiceEngines.Keys)
+    $current = if ($script:Hub.Cache.VoiceEngine) { $script:Hub.Cache.VoiceEngine.Engine } else { 'edge' }
+    $next = $keys[([array]::IndexOf($keys, $current) + $Delta + $keys.Count) % $keys.Count]
+    try { Set-VoiceEngine $next } catch { Set-HubMessage ('No se pudo guardar: ' + $_.Exception.Message); return }
+    $state = Get-VoiceEngineState
+    $script:Hub.Cache.VoiceEngine = $state
+    if ($next -eq 'elevenlabs' -and -not $state.ElevenKey) { Set-HubMessage (Tx 'Pega tu clave de ElevenLabs: hasta entonces se usa Edge.') }
+    elseif ($next -eq 'gemini' -and -not $state.GeminiKey) { Set-HubMessage (Tx 'Pega tu clave de Gemini: hasta entonces se usa Edge.') }
+    else { Set-HubMessage ('Motor de voz: ' + $script:VoiceEngines[$next]) }
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+function Set-HubVoiceKey([string]$Engine) {
+    if ($script:Hub.Preview) { return }
+    $key = ''
+    try { $key = ([System.Windows.Forms.Clipboard]::GetText()).Trim() } catch { }
+    Set-HubMessage 'Comprobando la clave...'
+    if ($script:HubDialog) { $script:HubDialog.Refresh() }
+    $result = Save-VoiceKey $Engine $key
+    Set-HubMessage $(if ($result.Ok) { [string][char]0x2713 + ' ' + $result.Message } else { $result.Message })
+    $script:Hub.Cache.VoiceEngine = Get-VoiceEngineState
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+function Update-HubVoiceCredits {
+    if ($script:Hub.Preview) { return }
+    $credits = Update-ElevenCredits
+    Set-HubMessage $(if ($credits) { 'ElevenLabs: quedan ' + (Format-ElevenCredits $credits) } else { (Tx 'No se pudieron leer los cr\u00e9ditos de ElevenLabs.') })
+    $script:Hub.Cache.VoiceEngine = Get-VoiceEngineState
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
@@ -1387,7 +1423,38 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $x += $bw + (Px 8)
     }
 
-    $y = Px 236
+    # engine card
+    $ecard = New-Rect $X0 (Px 232) $Inner (Px 112)
+    Draw-HubCard $G $ecard
+    $state = $c.VoiceEngine
+    $engine = if ($state) { $state.Engine } else { 'edge' }
+    Draw-HubPicker $G $Map $Hover 'voice-engine' (New-Rect ($ecard.X + (Px 6)) ($ecard.Y + (Px 8)) ($ecard.Width - (Px 12)) (Px 32)) 'Motor de voz' $script:VoiceEngines[$engine] 'Set-HubVoiceEngine'
+    $detail = switch ($engine) {
+        'elevenlabs' {
+            if (-not $state.ElevenKey) { Tx 'La m\u00e1s natural. Crea una cuenta gratis en elevenlabs.io (unos 10.000 cr\u00e9ditos al mes, unos 100 res\u00famenes) y pega aqu\u00ed tu clave. Sin clave se usa Edge.' }
+            else { $credits = Format-ElevenCredits $state.Credits; (Tx 'Voces de tu cuenta, una distinta por sesi\u00f3n. ') + $(if ($credits) { 'Quedan ' + $credits + '.' } else { '' }) + (Tx ' Sin cr\u00e9ditos, pasa sola a Edge.') }
+        }
+        'gemini' {
+            if (-not $state.GeminiKey) { Tx 'Muy natural. Pide una clave gratis en aistudio.google.com (capa gratuita con l\u00edmite diario) y p\u00e9gala aqu\u00ed. Sin clave se usa Edge.' }
+            else { Tx 'Voces de Google con tono c\u00e1lido y conversacional. Si llega al l\u00edmite gratis del d\u00eda, pasa sola a Edge.' }
+        }
+        'sapi' { Tx 'La voz de Windows: sin internet, pero la menos natural.' }
+        default { Tx 'Voces neuronales de Microsoft, gratis y sin clave. ElevenLabs y Gemini suenan m\u00e1s naturales.' }
+    }
+    Draw-Wrapped $G $detail $F.Small $P.Muted ($ecard.X + (Px 16)) ($ecard.Y + (Px 44)) ($ecard.Width - (Px 32)) (Px 34)
+    $x = $ecard.X + (Px 16)
+    $buttons = @(
+        @{ Id = 'voice-key-eleven'; Label = $(if ($state -and $state.ElevenKey) { 'Cambiar clave ElevenLabs' } else { 'Pegar clave ElevenLabs' }); Action = { Set-HubVoiceKey 'elevenlabs' }; Accent = ($engine -eq 'elevenlabs' -and -not ($state -and $state.ElevenKey)) },
+        @{ Id = 'voice-key-gemini'; Label = $(if ($state -and $state.GeminiKey) { 'Cambiar clave Gemini' } else { 'Pegar clave Gemini' }); Action = { Set-HubVoiceKey 'gemini' }; Accent = ($engine -eq 'gemini' -and -not ($state -and $state.GeminiKey)) }
+    )
+    if ($state -and $state.ElevenKey) { $buttons += @{ Id = 'voice-credits'; Label = (Tx 'Ver cr\u00e9ditos'); Action = { Update-HubVoiceCredits }; Accent = $false } }
+    foreach ($button in $buttons) {
+        $bw = Get-PillWidth $button.Label
+        Draw-PillButton $G $Map $Hover $button.Id (New-Rect $x ($ecard.Bottom - (Px 32)) $bw (Px 24)) $button.Label $button.Action -Accent:$button.Accent
+        $x += $bw + (Px 8)
+    }
+
+    $y = Px 358
     Draw-HubCaption $G 'SESIONES RECIENTES' $X0 $y $Inner (Tx '\u00daltimas 12 horas  \u00b7  /voz dentro de una sesi\u00f3n para cambiar la suya')
     $y += Px 22
     $sessions = @($c.VoiceSessions)
@@ -1397,7 +1464,7 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Text $G (Tx 'Ninguna sesi\u00f3n ha hablado en las \u00faltimas horas.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
     }
     $now = Get-Date
-    for ($i = 0; $i -lt [Math]::Min(7, $sessions.Count); $i++) {
+    for ($i = 0; $i -lt [Math]::Min(4, $sessions.Count); $i++) {
         $session = $sessions[$i]
         $row = New-Rect $X0 $y $Inner (Px 44)
         Fill-Round $G $row (Px 8) $P.Surface
@@ -1439,6 +1506,7 @@ function Set-HubPreview {
     )
     $c.MenuInstalled = $true
     $c.Screens = 2
+    $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true
     $c.VoiceMuted = $false
