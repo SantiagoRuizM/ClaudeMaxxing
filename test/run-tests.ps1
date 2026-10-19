@@ -538,11 +538,24 @@ Add-Type -AssemblyName System.Windows.Forms
 $ws = Get-WhisperSettings $null
 Assert-Equal 'es' $ws.language 'whisper: default language'
 Assert-Equal $true $ws.autoAnswer 'whisper: auto answer on by default'
-$ws = Get-WhisperSettings ([pscustomobject]@{ language = 'xx'; model = 'opus'; autoAnswer = $false; profile = 5 })
+$ws = Get-WhisperSettings ([pscustomobject]@{ language = 'xx'; model = 'opus'; autoAnswer = $false; profile = 5; version = 2 })
 Assert-Equal 'es' $ws.language 'whisper: unknown language falls back'
 Assert-Equal 'opus' $ws.model 'whisper: saved model kept'
 Assert-Equal $false $ws.autoAnswer 'whisper: saved bool kept'
 Assert-Equal '5' $ws.profile 'whisper: text settings are strings'
+$ws = Get-WhisperSettings ([pscustomobject]@{ autoAnswer = $false; translate = $false })
+Assert-Equal $true ($ws.autoAnswer -and $ws.translate) 'whisper: settings from before version 2 get auto-answer and translation on once'
+Assert-Equal 2 $ws.version 'whisper: settings version saved'
+$open = @(Get-WhisperOpenQuestions "I've been walking all night. Tell me baby, what is the capital of France? Or is it just a game")
+Assert-Equal 'Tell me baby, what is the capital of France?' ($open -join '|') 'whisper: a finished question inside text still being sung'
+Assert-Equal 0 @(Get-WhisperOpenQuestions 'what is the capital of France?').Count 'whisper: a question at the very end waits for the final line'
+Assert-Equal $true (Test-WhisperSameQuestion 'Tell me baby, what is the capital of France?' 'what is the capital of France') 'whisper: interim and final versions are the same question'
+Assert-Equal $false (Test-WhisperSameQuestion 'What is your name?' 'Where do you live now?') 'whisper: different questions'
+$interp = ConvertFrom-WhisperInterpretation 'ok {"lines":[{"i":3,"t":"Hola","q":""},{"i":4,"t":"","q":"Pourquoi?"}]} trailing'
+Assert-Equal 'Hola|Pourquoi?' ($interp[3].Translation + '|' + $interp[4].Question) 'whisper: interpreter JSON parsed despite text around it'
+Assert-Equal 0 (ConvertFrom-WhisperInterpretation 'no json here').Count 'whisper: interpreter garbage ignored'
+Assert-Equal "1: hello`n2: bonjour" (New-WhisperInterpretRequest @(@{ Index = 1; Text = 'hello' }, @{ Index = 2; Text = 'bonjour' })) 'whisper: interpreter request numbers the lines'
+Assert-Equal $true ((New-WhisperSystemPrompt (Get-WhisperSettings $null)).Contains((Tx 'canci\u00f3n'))) 'whisper: prompt says songs are real input'
 
 Assert-Equal $true (Test-WhisperQuestion (Tx '\u00bfCu\u00e1l es tu experiencia con Kubernetes?')) 'question: question mark'
 Assert-Equal $true (Test-WhisperQuestion (Tx 'Cu\u00e9ntame sobre un proyecto dif\u00edcil.')) 'question: cuentame prompt'

@@ -231,7 +231,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     }
     $languageCombo = New-Combo $script:WhisperLanguages $Settings.language
     $modelCombo = New-Combo $script:WhisperModels $Settings.model
-    $options.Controls.Add((New-Inline 'Idioma'))
+    $options.Controls.Add((New-Inline 'Mi idioma'))
     $options.Controls.Add($languageCombo)
     $options.Controls.Add((New-Inline '   Modelo'))
     $options.Controls.Add($modelCombo)
@@ -239,7 +239,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
 
     $checks = New-Object System.Windows.Forms.FlowLayoutPanel
     $checks.AutoSize = $true; $checks.WrapContents = $true
-    $autoCheck = New-Check (Tx 'Responder solo cuando te hagan una pregunta') $Settings.autoAnswer
+    $autoCheck = New-Check (Tx 'Responder solo cuando detecte una pregunta (cualquier idioma, tambi\u00e9n en canciones)') $Settings.autoAnswer
     $micCheck = New-Check (Tx 'Transcribir tu micr\u00f3fono') $Settings.useMic
     $gateCheck = New-Check (Tx 'Silenciar tu micr\u00f3fono mientras hablan (sin auriculares)') $Settings.gateMic
     $meetingCheck = New-Check (Tx 'Avisar desde la bandeja cuando empiece una llamada (Teams, Zoom...)') $Settings.meetingNotice

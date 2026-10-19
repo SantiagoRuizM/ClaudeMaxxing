@@ -385,6 +385,8 @@ namespace ClaudeWhisper
         public int RotateWords = 60;      // swap the connection at the next pause after this many words...
         public int RotateSeconds = 90;    // ...or after this long
         public int StableMs = 1400;       // or when the transcript stops changing for this long
+        public int MaxLineWords = 45;     // music never pauses: commit a line once it has this many new words
+        public int HardRotateSeconds = 150; // and swap the connection after this long even without a pause
         public bool Trace;                // emit the detector's level for every chunk (troubleshooting)
 
         sealed class Conn
@@ -416,6 +418,8 @@ namespace ClaudeWhisper
         bool inSpeech;
         readonly Stopwatch textClock = Stopwatch.StartNew();
         long textChangedAt;
+        long runStartedAt = -1;           // when this side started its current stretch of continuous text
+        volatile bool fatal;              // the service refused the stream for good (unsupported language)
 
         public SttStream(string source, string language, string keyterms, string credentialsPath, ConcurrentQueue<string> events)
         {
@@ -546,6 +550,7 @@ namespace ClaudeWhisper
             var keepAlive = Stopwatch.StartNew();
             while (running)
             {
+                if (fatal) { Wait(500); continue; }
                 if (active == null || active.Ended.WaitOne(0))
                 {
                     if (active != null) { Retire(active, false); active = null; }
@@ -570,7 +575,9 @@ namespace ClaudeWhisper
                     if (Detect(chunk)) { EndOfUtterance(); continue; }
                 }
                 if (StableText()) EndOfUtterance();
-                if (keepAlive.ElapsedMilliseconds > 8000) { keepAlive.Restart(); Send(active, KeepAlive); }
+                else if (LongLine()) EndOfUtterance();
+                else if (active != null && !active.Closing && active.Age.ElapsedMilliseconds > HardRotateSeconds * 1000L) Rotate(active);
+                if (active != null && keepAlive.ElapsedMilliseconds > 8000) { keepAlive.Restart(); Send(active, KeepAlive); }
             }
             if (active != null) Retire(active, true);
             active = null;
@@ -613,10 +620,31 @@ namespace ClaudeWhisper
             }
         }
 
+        // A line that keeps growing without a pause (lyrics over music): commit it anyway.
+        bool LongLine()
+        {
+            Conn c = active;
+            if (c == null) return false;
+            lock (gate) { return Words(Uncommitted(c)).Length >= MaxLineWords; }
+        }
+
         // Milliseconds since this side's transcript last changed (someone is talking right now when small).
         public long MsSinceText
         {
             get { lock (gate) { return textChangedAt == 0 ? long.MaxValue : textClock.ElapsedMilliseconds - textChangedAt; } }
+        }
+
+        // How long this side has been producing text without a 2 s break (long when music with lyrics plays).
+        public long MsTalking
+        {
+            get
+            {
+                lock (gate)
+                {
+                    if (runStartedAt < 0 || textClock.ElapsedMilliseconds - textChangedAt > 2000) return 0;
+                    return textClock.ElapsedMilliseconds - runStartedAt;
+                }
+            }
         }
 
         void EndOfUtterance()
@@ -627,8 +655,13 @@ namespace ClaudeWhisper
             int words;
             lock (gate) { words = Words(c.Text).Length; }
             if (words < RotateWords && c.Age.ElapsedMilliseconds < RotateSeconds * 1000L) return;
-            // Rotate: the new connection takes the audio from here on; the old one finalizes in the background
-            // and adds any words it still had.
+            Rotate(c);
+        }
+
+        // The new connection takes the audio from here on; the old one finalizes in the background and adds
+        // any words it still had.
+        void Rotate(Conn c)
+        {
             Conn next;
             try { next = Open(); }
             catch { return; }
@@ -683,6 +716,13 @@ namespace ClaudeWhisper
                     var result = c.Ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None).Result;
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
+                        // 1003: "provider does not support the requested language". Reconnecting cannot fix it.
+                        if (running && c.Ws.CloseStatus.HasValue && (int)c.Ws.CloseStatus.Value == 1003)
+                        {
+                            fatal = true;
+                            Emit("error", "language " + c.Ws.CloseStatusDescription);
+                            break;
+                        }
                         if (running && !c.Closing && c.Ws.CloseStatus != WebSocketCloseStatus.NormalClosure)
                             Emit("error", "closed " + (c.Ws.CloseStatus.HasValue ? ((int)c.Ws.CloseStatus.Value).ToString() : "") + " " + c.Ws.CloseStatusDescription);
                         break;
@@ -718,7 +758,12 @@ namespace ClaudeWhisper
                         bool closing;
                         lock (gate)
                         {
-                            if (data != c.Text) textChangedAt = textClock.ElapsedMilliseconds;
+                            if (data != c.Text)
+                            {
+                                long now = textClock.ElapsedMilliseconds;
+                                if (runStartedAt < 0 || now - textChangedAt > 2000) runStartedAt = now;
+                                textChangedAt = now;
+                            }
                             c.Text = data;
                             tail = Uncommitted(c);
                             closing = c.Closing;
@@ -756,6 +801,7 @@ namespace ClaudeWhisper
         volatile bool simulating;
         public string BaseUrl = SttStream.DefaultBaseUrl;
         public int GateMs = 1500;
+        public int MaxGateMs = 6000;   // mute the mic only while the other side's text is a normal turn, not music
         public int PauseMs = 800, RotateWords = 60, RotateSeconds = 90;
         public bool Trace;
 
@@ -833,13 +879,14 @@ namespace ClaudeWhisper
         }
 
         // Gated on the other side's transcript, not on the speaker level: music playing on the PC must not
-        // mute the mic, only someone talking does.
+        // mute the mic, only someone talking does. Lyrics are transcript too, so after MaxGateMs of continuous
+        // text (a song, not a turn in a conversation) the mic opens again; echo lines are dropped later.
         void OnMicChunk(byte[] chunk)
         {
             var s = me;
             if (s == null) return;
             var t = them;
-            if (micGate && t != null && t.MsSinceText < GateMs) s.Push(new byte[chunk.Length]);
+            if (micGate && t != null && t.MsSinceText < GateMs && t.MsTalking < MaxGateMs) s.Push(new byte[chunk.Length]);
             else s.Push(chunk);
         }
 

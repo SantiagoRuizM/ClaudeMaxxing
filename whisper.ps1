@@ -67,6 +67,18 @@ $script:OpenStart = 0
 $script:MicUsers = ''
 $script:Ticks = 0
 $script:StartedAt = Get-Date
+# Interpreter (a Haiku claude): live translation and question detection for every line from the other side.
+$script:Interp = $null
+$script:InterpQueue = New-Object System.Collections.ArrayList    # finished "them" lines waiting for it
+$script:InterpInFlight = $null                                  # the batch it is working on
+$script:InterpText = ''
+$script:InterpSentAt = [datetime]::MinValue
+$script:InterpTurns = 0
+$script:InterpNext = 1
+$script:Asked = New-Object System.Collections.ArrayList          # questions answered on their own (recent)
+$script:AnswerQueue = New-Object System.Collections.ArrayList    # questions waiting for the answer being written
+$script:PendingChecked = 0
+$script:TranscriptFull = $false
 
 function Save-WhisperSettings {
     try { Write-JsonFile $WhisperSettingsFile $script:Settings } catch { }
@@ -162,6 +174,7 @@ function Request-Answer([string]$Question) {
     $title = if ($Question) { $Question } else { Tx 'Sugerencia para ahora' }
     Send-ClaudeTurn 'answer' (New-WhisperRequest 'answer' (Format-WhisperTranscript $unsent) $Question) $title ''
     $script:PendingThem.Clear()
+    $script:PendingChecked = 0
     $script:AnswerDueAt = [datetime]::MaxValue
 }
 
@@ -255,6 +268,7 @@ function Read-ClaudeOutput {
                 }
                 $script:AnswerDirty = $true
                 if ($a.Text) { Add-SessionLog ("### Claude " + [char]0x00B7 + ' ' + $a.Title + "`n`n" + $a.Text.Trim()) }
+                Send-QueuedAnswer
             }
         }
     }
@@ -268,6 +282,127 @@ function Read-ClaudeOutput {
         $script:AnswerDirty = $true
         if ($why -match 'login|auth|401') { $script:Problem = Tx 'Claude Code no tiene la sesi\u00f3n iniciada: abre Claude Code e inicia sesi\u00f3n.' }
     }
+}
+
+# ---------------------------------------------------------------- interpreter
+
+function Start-Interpreter {
+    Stop-Interpreter
+    $exe = Resolve-ClaudeExe
+    if (-not $exe) { return $false }
+    $promptFile = Join-Path $WhisperHome 'interpreter-prompt.txt'
+    [IO.File]::WriteAllText($promptFile, (New-WhisperInterpreterPrompt $script:Settings), (New-Object System.Text.UTF8Encoding($false)))
+    $process = New-Object ClaudeWhisper.ClaudeProcess
+    try {
+        $process.Start($exe, (Get-ClaudeArguments 'haiku' $promptFile), $WhisperHome, [string[]](Get-ClaudeRemovedEnv), [string[]](Get-ClaudeExtraEnv))
+    } catch {
+        Write-WhisperLog "interpreter start failed: $($_.Exception.Message)"
+        return $false
+    }
+    $script:Interp = $process
+    $script:InterpTurns = 0
+    Write-WhisperLog "interpreter started pid=$($process.Pid)"
+    $true
+}
+
+function Stop-Interpreter {
+    if ($script:Interp) { $script:Interp.Kill(); $script:Interp = $null }
+    $script:InterpInFlight = $null
+    $script:InterpText = ''
+}
+
+# One batch at a time: lines that arrive meanwhile go together in the next one. The process is replaced
+# every 25 batches so its history (and the cost of each turn) stays small in a long call.
+function Send-Interpretation {
+    if ($script:InterpInFlight -or $script:InterpQueue.Count -eq 0) { return }
+    if (-not ($script:Settings.translate -or $script:Settings.autoAnswer)) { $script:InterpQueue.Clear(); return }
+    if (-not $script:Interp -or $script:Interp.HasExited -or $script:InterpTurns -ge 25) {
+        if (-not (Start-Interpreter)) { $script:InterpQueue.Clear(); return }
+    }
+    $batch = @()
+    foreach ($line in @($script:InterpQueue | Select-Object -Last 6)) {
+        $batch += @{ Index = $script:InterpNext; Line = $line; Text = $line.Text }
+        $script:InterpNext++
+    }
+    $script:InterpQueue.Clear()
+    $script:InterpInFlight = $batch
+    $script:InterpText = ''
+    $script:InterpSentAt = Get-Date
+    $script:InterpTurns++
+    if (-not $script:Interp.Send((ConvertTo-ClaudeInputLine (New-WhisperInterpretRequest $batch) ''))) { Stop-Interpreter }
+}
+
+function Read-InterpreterOutput {
+    if (-not $script:Interp) { return }
+    $line = $null
+    $count = 0
+    while ($count -lt 400 -and $script:Interp -and $script:Interp.Lines.TryDequeue([ref]$line)) {
+        $count++
+        $ev = ConvertFrom-ClaudeLine $line
+        if (-not $ev) { continue }
+        if ($ev.Kind -eq 'delta') { $script:InterpText += $ev.Text }
+        elseif ($ev.Kind -eq 'result') { Complete-Interpretation }
+    }
+    if ($script:Interp -and $script:Interp.HasExited) {
+        Write-WhisperLog "interpreter exited: $($script:Interp.LastErrors())"
+        Stop-Interpreter
+    } elseif ($script:InterpInFlight -and ((Get-Date) - $script:InterpSentAt).TotalSeconds -gt 25) {
+        Write-WhisperLog 'interpreter timed out'
+        Stop-Interpreter
+    }
+}
+
+function Complete-Interpretation {
+    $batch = $script:InterpInFlight
+    $script:InterpInFlight = $null
+    if (-not $batch) { return }
+    $parsed = ConvertFrom-WhisperInterpretation $script:InterpText
+    if ($parsed.Count -eq 0 -and $env:CLAUDEWHISPER_DEBUG) { Write-WhisperLog ('interpreter said: ' + $script:InterpText) }
+    foreach ($item in $batch) {
+        $r = $parsed[$item.Index]
+        if (-not $r) { continue }
+        $translation = $r.Translation
+        # Same words back means it was already in the user's language.
+        if ($translation -and ((ConvertTo-PlainWords $translation) -join ' ') -ne ((ConvertTo-PlainWords $item.Text) -join ' ')) {
+            $item.Line.Translation = $translation
+            $script:TranscriptFull = $true
+            Add-SessionLog ([string][char]0x21B3 + ' ' + $translation)
+        }
+        if ($r.Question -and $script:Settings.autoAnswer) { Request-AutoAnswer $r.Question }
+    }
+}
+
+# ---------------------------------------------------------------- answering on its own
+
+function Test-AnswerBusy {
+    foreach ($turn in $script:Turns) { if ($turn.Answer -and $turn.Answer.State -in 'waiting', 'streaming') { return $true } }
+    $false
+}
+
+# A question heard (in a final line, in text still being spoken, or found by the interpreter). The same
+# question is answered once; while an answer is being written the new one waits its turn (newest two kept),
+# so a song full of questions does not cut every answer off.
+function Request-AutoAnswer([string]$Question) {
+    $q = ([string]$Question).Trim()
+    # A word or two is a fragment of a cut line ("slow."), not something to answer.
+    if ($q.Length -lt 8 -or @(ConvertTo-PlainWords $q).Count -lt 3) { return }
+    foreach ($done in $script:Asked) { if (Test-WhisperSameQuestion $done $q) { return } }
+    [void]$script:Asked.Add($q)
+    while ($script:Asked.Count -gt 40) { $script:Asked.RemoveAt(0) }
+    if ($q.Length -gt 500) { $q = $q.Substring($q.Length - 500) }
+    if (Test-AnswerBusy) {
+        [void]$script:AnswerQueue.Add($q)
+        while ($script:AnswerQueue.Count -gt 2) { $script:AnswerQueue.RemoveAt(0) }
+        return
+    }
+    Request-Answer $q
+}
+
+function Send-QueuedAnswer {
+    if ($script:AnswerQueue.Count -eq 0 -or (Test-AnswerBusy)) { return }
+    $q = $script:AnswerQueue[0]
+    $script:AnswerQueue.RemoveAt(0)
+    Request-Answer $q
 }
 
 # ---------------------------------------------------------------- listening
@@ -308,6 +443,7 @@ function Read-EngineEvents {
             'interim' {
                 [void](Update-WhisperTranscript $script:Transcript $source 'interim' $text $now)
                 if ($source -eq 'them' -and $script:PendingThem.Count -gt 0) { $script:AnswerDueAt = $now.AddMilliseconds(1200) }
+                if ($source -eq 'them' -and $script:Settings.autoAnswer) { foreach ($q in (Get-WhisperOpenQuestions $text)) { Request-AutoAnswer $q } }
                 $script:TranscriptDirty = $true
             }
             'final' {
@@ -323,12 +459,16 @@ function Read-EngineEvents {
                 if ($source -eq 'them') {
                     [void]$script:PendingThem.Add($line.Text)
                     $script:AnswerDueAt = $now.AddMilliseconds(700)
+                    if ($script:Settings.translate -or $script:Settings.autoAnswer) { [void]$script:InterpQueue.Add($line) }
                 }
             }
             'status' { $script:StreamState[$source] = $text; if ($text -eq 'open' -and $script:Problem -like '*sesi*') { $script:Problem = '' } }
             'error' {
                 Write-WhisperLog "$source error: $text"
-                if ($text -eq 'auth') {
+                if ($text -like 'language*') {
+                    $script:StreamState[$source] = 'error'
+                    $script:Problem = Tx 'El servicio de transcripci\u00f3n no acepta ese idioma: elige otro en Contexto.'
+                } elseif ($text -eq 'auth') {
                     $script:StreamState[$source] = 'auth'
                     Request-LoginRefresh 'speech service refused the login'
                 } else { $script:StreamState[$source] = 'error' }
@@ -344,13 +484,12 @@ function Read-EngineEvents {
 function Test-AutoAnswer {
     if ((Get-Date) -lt $script:AnswerDueAt) { return }
     $script:AnswerDueAt = [datetime]::MaxValue
-    $said = ($script:PendingThem -join ' ').Trim()
+    $fresh = @($script:PendingThem | Select-Object -Skip $script:PendingChecked)
+    $script:PendingChecked = $script:PendingThem.Count
+    $said = ($fresh -join ' ').Trim()
     if (-not $said) { return }
-    if ($script:Settings.autoAnswer -and (Test-WhisperQuestion $said)) {
-        $question = Get-WhisperQuestionText @($script:PendingThem)
-        if ($question.Length -gt 500) { $question = $question.Substring($question.Length - 500) }
-        Request-Answer $question
-    }
+    # Lines without a question mark in other languages are left to the interpreter.
+    if ($script:Settings.autoAnswer -and (Test-WhisperQuestion $said)) { Request-AutoAnswer (Get-WhisperQuestionText $fresh) }
 }
 
 # ---------------------------------------------------------------- window
@@ -442,14 +581,30 @@ $script:ListenButton = New-WhisperButton 'Escuchar' $P $true
 $script:AnswerButton = New-WhisperButton 'Responder' $P
 $script:ScreenButton = New-WhisperButton 'Pantalla' $P
 $script:ContextButton = New-WhisperButton 'Contexto' $P
+$script:AutoButton = New-WhisperButton 'Auto' $P
+$script:TranslateButton = New-WhisperButton 'Traducir' $P
 $script:MoreButton = New-WhisperButton ([string][char]0x22EF) $P
 foreach ($b in $script:ListenButton, $script:AnswerButton, $script:ScreenButton, $script:ContextButton, $script:MoreButton) { $buttons.Controls.Add($b) }
 [void]$header.Controls.Add($buttons, 0, 1)
+# Second row: the two switches that decide what happens on its own.
+$toggles = New-Object System.Windows.Forms.FlowLayoutPanel
+$toggles.Dock = 'Fill'
+$toggles.AutoSize = $true
+$toggles.WrapContents = $true
+$toggles.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, (Px 4))
+foreach ($b in $script:AutoButton, $script:TranslateButton) {
+    $b.Font = $script:Fonts.Small
+    $b.Margin = New-Object System.Windows.Forms.Padding((Px 2), 0, (Px 4), 0)
+    $toggles.Controls.Add($b)
+}
+[void]$header.Controls.Add($toggles, 0, 2)
 
 $tips = New-Object System.Windows.Forms.ToolTip
 $tips.SetToolTip($script:AnswerButton, (Tx 'Que Claude responda ahora a lo \u00faltimo que dijeron'))
 $tips.SetToolTip($script:ScreenButton, (Tx 'Claude mira tu pantalla (por ejemplo un ejercicio de programaci\u00f3n) y lo resuelve'))
 $tips.SetToolTip($script:ContextButton, (Tx 'Tu perfil, la conversaci\u00f3n, el idioma y el modelo'))
+$tips.SetToolTip($script:AutoButton, (Tx 'Responder solo cuando detecte una pregunta, en cualquier idioma (tambi\u00e9n en una canci\u00f3n)'))
+$tips.SetToolTip($script:TranslateButton, (Tx 'Traducir en vivo a tu idioma lo que suena en el PC'))
 
 $more = New-Object System.Windows.Forms.ContextMenuStrip
 $script:TopMostItem = New-Object System.Windows.Forms.ToolStripMenuItem('Siempre visible')
@@ -542,6 +697,11 @@ $Form.Controls.Add($header)
 
 function Update-Controls {
     $script:ListenButton.Text = if ($script:Listening) { 'Pausar' } else { 'Escuchar' }
+    $check = [string][char]0x2713 + ' '
+    $script:AutoButton.Text = $(if ($script:Settings.autoAnswer) { $check } else { '' }) + 'Responder solo a las preguntas'
+    $script:TranslateButton.Text = $(if ($script:Settings.translate) { $check } else { '' }) + 'Traducir en vivo'
+    Set-WhisperButtonStyle $script:AutoButton $P ([bool]$script:Settings.autoAnswer)
+    Set-WhisperButtonStyle $script:TranslateButton $P ([bool]$script:Settings.translate)
     Set-WhisperButtonStyle $script:ListenButton $P (-not $script:Listening)
     $model = $script:WhisperModels[$script:Settings.model] -replace ' \(.*\)$', ''
     $auto = if ($script:Settings.autoAnswer) { Tx 'responde a las preguntas' } else { 'responde con el atajo' }
@@ -567,6 +727,13 @@ function Render-Transcript {
     $lines = $script:Transcript.Lines
     Suspend-Redraw $box
     try {
+        # A translation arrived for a line already shown: draw everything again (the newest 300 lines).
+        if ($script:TranscriptFull) {
+            $script:TranscriptFull = $false
+            $box.Clear()
+            $script:OpenStart = 0
+            $script:RenderedLines = [Math]::Max(0, $lines.Count - 300)
+        }
         if ($script:OpenStart -lt $box.TextLength) {
             $box.SelectionStart = $script:OpenStart
             $box.SelectionLength = $box.TextLength - $script:OpenStart
@@ -578,6 +745,7 @@ function Render-Transcript {
             if ($box.TextLength -gt 0) { Add-RichText $box "`n" $WF.Line $P.Text }
             Add-RichText $box ((Format-WhisperSpeaker $line.Source) + '  ') $WF.LineStrong $color
             Add-RichText $box $line.Text $WF.Line $P.Text
+            if ($line.Translation) { Add-RichText $box ("`n" + [char]0x21B3 + ' ' + $line.Translation) $WF.Line $P.Muted }
         }
         $script:RenderedLines = $lines.Count
         $script:OpenStart = $box.TextLength
@@ -635,6 +803,11 @@ function Render-Answer {
 
 function Reset-Conversation {
     Stop-Claude
+    Stop-Interpreter
+    $script:InterpQueue.Clear()
+    $script:Asked.Clear()
+    $script:AnswerQueue.Clear()
+    $script:PendingChecked = 0
     $script:Answers.Clear()
     $script:AnswerIndex = -1
     $script:Transcript = New-WhisperTranscript
@@ -653,6 +826,8 @@ function Reset-Conversation {
 
 $script:ListenButton.Add_Click({ if ($script:Listening) { Stop-Listening } else { Start-Listening } })
 $script:AnswerButton.Add_Click({ Request-AnswerNow })
+$script:AutoButton.Add_Click({ $script:Settings.autoAnswer = -not [bool]$script:Settings.autoAnswer; Save-WhisperSettings; Update-Controls })
+$script:TranslateButton.Add_Click({ $script:Settings.translate = -not [bool]$script:Settings.translate; Save-WhisperSettings; Update-Controls })
 $script:ScreenButton.Add_Click({ Request-Screen })
 $script:PrevButton.Add_Click({ if ($script:AnswerIndex -gt 0) { $script:AnswerIndex--; $script:AnswerDirty = $true } })
 $script:NextButton.Add_Click({ if ($script:AnswerIndex -lt $script:Answers.Count - 1) { $script:AnswerIndex++; $script:AnswerDirty = $true } })
@@ -667,6 +842,7 @@ $script:ContextButton.Add_Click({
     # sent again with the next question).
     $script:Transcript.Sent = [Math]::Max(0, $script:Transcript.Lines.Count - 40)
     [void](Start-Claude)
+    Stop-Interpreter
     if ($restartEngine) { Stop-Listening; Start-Listening }
     Update-Controls
 })
@@ -722,6 +898,9 @@ $script:Timer.Add_Tick({
         while ($script:Hotkeys.Pressed.TryDequeue([ref]$id)) { if ($script:HotkeyActions.ContainsKey($id)) { & $script:HotkeyActions[$id] } }
     }
     if ($script:ShowEvent -and $script:ShowEvent.WaitOne(0)) { Show-WhisperWindow }
+    Read-InterpreterOutput
+    Send-Interpretation
+    if ($script:TranscriptFull) { $script:TranscriptDirty = $true }
     if ($script:TranscriptDirty) { $script:TranscriptDirty = $false; Render-Transcript }
     if ($script:AnswerDirty -and ($script:Ticks % 2 -eq 0)) { $script:AnswerDirty = $false; Render-Answer }
     if ($script:Ticks % 3 -eq 0) { $script:StatusPanel.Invalidate() }
@@ -745,7 +924,7 @@ $Form.Add_FormClosing({
     }
     if ($ReportTo) {
         $report = [ordered]@{
-            transcript = @($script:Transcript.Lines | ForEach-Object { [ordered]@{ source = $_.Source; text = $_.Text } })
+            transcript = @($script:Transcript.Lines | ForEach-Object { [ordered]@{ source = $_.Source; text = $_.Text; translation = $_.Translation } })
             answers    = @($script:Answers | ForEach-Object { [ordered]@{ kind = $_.Kind; title = $_.Title; state = $_.State; text = $_.Text; error = $_.Error } })
             problem    = $script:Problem
             streams    = $script:StreamState
@@ -754,6 +933,7 @@ $Form.Add_FormClosing({
     }
     $script:Engine.Stop()
     Stop-Claude
+    Stop-Interpreter
     if ($script:Hotkeys) { $script:Hotkeys.Dispose() }
 })
 
@@ -766,6 +946,8 @@ if ($Rendering) {
         @('me', (Tx 'Claro, d\u00e9jame pensar un segundo.')),
         @('them', (Tx '\u00bfY qu\u00e9 papel tuviste t\u00fa en el equipo?'))
     )) { [void](Update-WhisperTranscript $script:Transcript $sample[0] 'final' $sample[1] $now) }
+    $sample = Update-WhisperTranscript $script:Transcript 'them' 'final' 'And how would you scale it to ten times the traffic?' $now
+    $sample.Translation = Tx '\u00bfY c\u00f3mo lo escalar\u00edas a diez veces el tr\u00e1fico?'
     $script:Transcript.Open.them = Tx 'Tambi\u00e9n nos interesa saber c\u00f3mo'
     $script:Listening = $true
     $script:StreamState = @{ them = 'open'; me = 'open' }
@@ -813,6 +995,7 @@ try {
 } finally {
     $script:Engine.Stop()
     Stop-Claude
+    Stop-Interpreter
     if ($script:WhisperMutex) {
         Remove-Item -LiteralPath $WhisperPidFile -ErrorAction SilentlyContinue
         $script:WhisperMutex.ReleaseMutex()
