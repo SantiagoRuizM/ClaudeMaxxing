@@ -4,7 +4,7 @@
 # Whisper (settings and call history) and Voz. The longer flows keep their own windows: the schedule dialog,
 # pairing in Otros PCs (pairing is only accepted while that window is open) and the Whisper context dialog.
 # Owner-drawn like the rest of the tray; Paint only reads $script:Hub.Cache, which a timer refreshes.
-# Needs theme.ps1, usage.ps1, schedule.ps1, sessions.ps1, bridgeui.ps1, whisper.ps1 and whisperui.ps1.
+# Needs theme.ps1, usage.ps1, schedule.ps1, sessions.ps1, bridgeui.ps1, whisper.ps1, whisperui.ps1 and freellm.ps1.
 # Keep this file ASCII: non-ASCII text is written as \uXXXX and decoded with Tx.
 
 $script:HubDialog = $null
@@ -86,6 +86,7 @@ function Get-HubCodeSessions {
             Slot = [int]$r.slot; Hwnd = $hwnd; Live = ($hwnd -ne 0 -and [ClaudeTray.Native]::IsWindow([IntPtr]$hwnd))
             Dir = [string]$r.dir; At = $at; Color = [string]$r.color; Name = [string]$r.name
             Role = $(if ($voice) { [string]$voice.role } else { '' }); Voice = $(if ($voice) { [string]$voice.voice } else { '' })
+            Backend = [string]$r.backend
         }
     }
     , @($sessions | Sort-Object @{ Expression = { -not $_.Live } }, Slot)
@@ -134,6 +135,30 @@ function Format-VoiceName([string]$Voice) {
     $Voice
 }
 
+# FreeLLMAPI card: what is installed, the saved settings and the install progress. Exe, port and server
+# are looked up only with -Slow (registry and a socket).
+function Get-HubFreeLlm($Previous, [switch]$Slow) {
+    $state = @{ Installed = $false; Exe = $null; Port = $FreeLlmDefaultPort; Up = $false }
+    if ($Previous) { foreach ($k in 'Installed', 'Exe', 'Port', 'Up') { $state[$k] = $Previous[$k] } }
+    if ($Slow -or -not $Previous) {
+        $state.Exe = Get-FreeLlmExe
+        $state.Installed = [bool]$state.Exe
+        $state.Port = Get-FreeLlmPort
+        $state.Up = $state.Installed -and (Test-FreeLlmUp $state.Port 150)
+    }
+    $settings = Get-FreeLlmSettings
+    $state.Enabled = $settings.Enabled
+    $state.HasKey = Test-FreeLlmKeyFormat $settings.Key
+    $install = Get-FreeLlmInstallStatus
+    $state.Installing = $false
+    if ($install -and $install.state -in 'downloading', 'installing') {
+        # A worker that died leaves its last state behind: after 20 minutes it no longer counts.
+        try { $state.Installing = ((Get-Date) - [datetime]$install.at).TotalMinutes -lt 20 } catch { }
+    }
+    $state.Install = $install
+    $state
+}
+
 function Update-HubCache([switch]$Full) {
     $hub = $script:Hub
     if (-not $hub -or $hub.Preview) { return }
@@ -145,7 +170,9 @@ function Update-HubCache([switch]$Full) {
     $c.VoiceMuted = Test-Path -LiteralPath (Join-Path $VoiceStateDir 'muted')
     $c.HotkeysOn = Test-VoiceHotkeys
     $c.ScheduleRows = @(Get-ScheduleRows $script:PendingTasks (Read-JsonFile $CloudFile) (Read-JsonFile $HistoryFile) $now 5)
-    if ($Full -or ($now - $hub.SlowAt).TotalSeconds -ge 10) {
+    $slow = $Full -or ($now - $hub.SlowAt).TotalSeconds -ge 10
+    $c.FreeLlm = Get-HubFreeLlm $c.FreeLlm -Slow:$slow
+    if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
         $c.VoiceSessions = Get-HubVoiceSessions
@@ -203,6 +230,61 @@ function Show-HubCodeWindow([int]$Index) {
     $hwnd = [IntPtr]$session.Hwnd
     if ([ClaudeTray.Native]::IsIconic($hwnd)) { [void][ClaudeTray.Native]::ShowWindow($hwnd, 9) }
     [void][ClaudeTray.Native]::SetForegroundWindow($hwnd)
+}
+
+function Install-HubFreeLlm {
+    if ($script:Hub.Preview) { return }
+    $worker = Join-Path $TrayRoot 'lib\freellm-install.ps1'
+    # Written first, so it never overwrites the worker's own progress.
+    Write-JsonFile $FreeLlmInstallFile ([ordered]@{ state = 'downloading'; message = (Tx 'Preparando la descarga\u2026'); version = $FreeLlmVersion; at = (Get-Date).ToString('o') })
+    Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $worker) -WindowStyle Hidden
+    Update-HubNow
+}
+
+# The desktop app is single-instance: starting it again brings its window up.
+function Open-HubFreeLlm {
+    if ($script:Hub.Preview) { return }
+    $exe = Get-FreeLlmExe
+    if ($exe) { Start-Process -FilePath $exe } else { Start-Process (Get-FreeLlmBaseUrl (Get-FreeLlmPort)) }
+    Set-HubMessage 'Abriendo FreeLLMAPI...'
+}
+
+# Takes the unified key from the clipboard (copied from the Keys page of FreeLLMAPI) and checks it there.
+function Set-HubFreeLlmKey {
+    if ($script:Hub.Preview) { return }
+    $key = ''
+    try { $key = ([System.Windows.Forms.Clipboard]::GetText()).Trim() } catch { }
+    if (-not (Test-FreeLlmKeyFormat $key)) {
+        Set-HubMessage (Tx 'Copia primero la clave unificada (freellmapi-\u2026) en FreeLLMAPI > Keys.')
+        return
+    }
+    $settings = Get-FreeLlmSettings
+    $check = Test-FreeLlmKey (Get-FreeLlmPort) $key
+    if ($check.Status -eq 'bad-key') { Set-HubMessage (Tx 'FreeLLMAPI no acepta esa clave: c\u00f3piala otra vez de su p\u00e1gina Keys.'); return }
+    try { Save-FreeLlmSettings $settings.Enabled $key } catch { Set-HubMessage ('No se pudo guardar: ' + $_.Exception.Message); return }
+    switch ($check.Status) {
+        'ok'           { Set-HubMessage (Tx ('\u2713 Clave guardada: ' + $check.Models.Count + ' modelos disponibles')) }
+        'no-providers' { Set-HubMessage (Tx 'Clave guardada, pero a\u00fan no hay claves de proveedores en FreeLLMAPI.') }
+        'down'         { Set-HubMessage (Tx 'Clave guardada (FreeLLMAPI no est\u00e1 abierto: no se pudo comprobar).') }
+        default        { Set-HubMessage (Tx 'Clave guardada (no se pudo comprobar).') }
+    }
+    Update-HubCache -Full
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+function Set-HubFreeLlmEnabled([bool]$On) {
+    if ($script:Hub.Preview) { return }
+    $settings = Get-FreeLlmSettings
+    try { Save-FreeLlmSettings $On $settings.Key } catch { Set-HubMessage ('No se pudo guardar: ' + $_.Exception.Message); return }
+    if ($On) {
+        # Warm it up now so the next session does not wait for it.
+        if (-not (Test-FreeLlmUp (Get-FreeLlmPort))) { $exe = Get-FreeLlmExe; if ($exe) { Start-Process -FilePath $exe -WindowStyle Minimized } }
+        Set-HubMessage (Tx 'Las sesiones nuevas usar\u00e1n FreeLLMAPI.')
+    } else {
+        Set-HubMessage (Tx 'Las sesiones nuevas vuelven a tu plan de Claude.')
+    }
+    Update-HubCache -Full
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
 function Stop-HubPeerSessions([string]$PeerId) {
@@ -982,9 +1064,11 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $screensText = if ($screens -eq 1) { '1 pantalla' } else { "$screens pantallas" }
     Draw-Text $G ((Tx 'Cada sesi\u00f3n ocupa media pantalla, con su color, nombre y voz: ') + "$screensText, hasta $slots a la vez.") $F.Small $P.Muted $tx ($card.Y + (Px 56)) ($card.Width - (Px 32)) (Px 18)
 
+    Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 (Px 166) $Inner (Px 84))
+
     $sessions = @($c.CodeSessions)
     $live = @($sessions | Where-Object { $_.Live }).Count
-    $y = Px 172
+    $y = Px 264
     Draw-HubCaption $G 'SESIONES' $X0 $y $Inner "$live de $slots abiertas"
     $y += Px 22
     if (-not $sessions.Count) {
@@ -993,7 +1077,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Text $G (Tx 'Ninguna sesi\u00f3n abierta desde el men\u00fa.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
     }
     $now = Get-Date
-    for ($i = 0; $i -lt [Math]::Min(7, $sessions.Count); $i++) {
+    for ($i = 0; $i -lt [Math]::Min(5, $sessions.Count); $i++) {
         $session = $sessions[$i]
         $row = New-Rect $X0 $y $Inner (Px 50)
         Fill-Round $G $row (Px 8) $P.Surface
@@ -1017,6 +1101,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $side = if ($session.Slot % 2 -eq 0) { 'izquierda' } else { 'derecha' }
         $sub = $session.Dir
         $meta = @("mitad $side de la pantalla $([int][Math]::Floor($session.Slot / 2) + 1)")
+        if ($session.Backend -eq 'freellm') { $meta = @('FreeLLMAPI') + $meta }
         if ($session.At) { $meta += 'desde ' + (Format-DialogDateTime $session.At $now) }
         if ($session.Voice) { $meta += 'voz ' + (Format-VoiceName $session.Voice) }
         Draw-Text $G ($meta -join ('  ' + (Tx '\u00b7') + '  ')) $F.Small $P.Muted $textX ($row.Y + (Px 26)) ($right - $textX) (Px 18)
@@ -1024,6 +1109,62 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $y += Px 56
     }
     Draw-Wrapped $G (Tx 'Al cerrar una ventana su mitad queda libre para la siguiente. Las sesiones de otros PCs se abren desde Otros PCs.') $F.Small $P.Faint $X0 (Px 584) $Inner (Px 34)
+}
+
+# FreeLLMAPI: free models for new sessions when the plan's quota runs out (lib\freellm.ps1).
+function Draw-HubFreeLlmCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    $free = $script:Hub.Cache.FreeLlm
+    Draw-HubCard $G $Card
+    if (-not $free) { return }
+    $tx = $Card.X + (Px 16)
+    $right = $Card.Right - (Px 16)
+    $by = $Card.Y + (Px 14)
+    $view = $script:View
+    $outOfQuota = $view -and $view.HasData -and (($view.Session.Active -and $view.Session.Percent -ge 100) -or ($view.Weekly.Active -and $view.Weekly.Percent -ge 100))
+
+    # buttons (and the switch), right to left
+    $buttons = @()
+    if ($free.Installing) { }
+    elseif (-not $free.Installed) { $buttons += @{ Id = 'free-install'; Label = $(if ($free.Install -and $free.Install.state -eq 'error') { 'Reintentar' } else { 'Instalar' }); Action = { Install-HubFreeLlm }; Accent = $true } }
+    elseif (-not $free.HasKey) {
+        $buttons += @{ Id = 'free-key'; Label = 'Pegar clave'; Action = { Set-HubFreeLlmKey }; Accent = $true }
+        $buttons += @{ Id = 'free-open'; Label = 'Abrir FreeLLMAPI'; Action = { Open-HubFreeLlm }; Accent = $false }
+    } else {
+        Draw-HubSwitch $G $Map 'free-switch' ($right - (Px 36)) ($by + (Px 3)) ([bool]$free.Enabled) ([scriptblock]::Create("Set-HubFreeLlmEnabled `$$(-not $free.Enabled)"))
+        $right -= Px 50
+        $buttons += @{ Id = 'free-key'; Label = 'Cambiar clave'; Action = { Set-HubFreeLlmKey }; Accent = $false }
+        $buttons += @{ Id = 'free-open'; Label = 'Abrir'; Action = { Open-HubFreeLlm }; Accent = $false }
+    }
+    foreach ($button in $buttons) {
+        $bw = Get-PillWidth $button.Label
+        Draw-PillButton $G $Map $Hover $button.Id (New-Rect ($right - $bw) $by $bw (Px 26)) $button.Label $button.Action -Accent:$button.Accent
+        $right -= $bw + (Px 8)
+    }
+    $tw = $right - $tx - (Px 4)
+
+    Draw-Text $G 'Modelos gratis con FreeLLMAPI' $F.BodyStrong $P.Text $tx ($Card.Y + (Px 12)) $tw (Px 22)
+    $line2 = $null; $line2Color = $P.Muted; $line3 = $null; $line3Color = $P.Faint
+    if ($free.Installing) {
+        $line2 = [string]$free.Install.message; $line2Color = $P.Accent
+        $line3 = 'Puedes seguir usando ClaudeMaxxing mientras tanto.'
+    } elseif (-not $free.Installed) {
+        $line2 = (Tx 'Para cuando se acabe la cuota: junta las capas gratis de Groq, Google, Mistral\u2026 en un servidor local.')
+        if ($free.Install -and $free.Install.state -eq 'error') { $line3 = [string]$free.Install.message; $line3Color = $P.Error }
+        else { $line3 = "Instala la app oficial v$FreeLlmVersion (unos 110 MB, sin firma digital). Calidad y velocidad variables." }
+    } elseif (-not $free.HasKey) {
+        $line2 = (Tx '1. Abre FreeLLMAPI, crea tu cuenta y a\u00f1ade claves de proveedores en Keys.')
+        $line3 = (Tx '2. Copia all\u00ed tu clave unificada (freellmapi-\u2026) y pulsa Pegar clave.')
+    } else {
+        if ($free.Enabled) { $line2 = (Tx '\u2713 Las sesiones nuevas usan FreeLLMAPI. Las ya abiertas siguen con tu plan.'); $line2Color = $P.Ok }
+        elseif ($outOfQuota) { $line2 = (Tx 'Se acab\u00f3 tu cuota: act\u00edvalo y abre una sesi\u00f3n nueva para seguir.'); $line2Color = $P.Warn }
+        else { $line2 = (Tx 'Act\u00edvalo cuando se acabe la cuota: las sesiones nuevas usar\u00e1n modelos gratis.') }
+        $server = "Servidor 127.0.0.1:$($free.Port) " + (Tx '\u00b7') + ' ' + $(if ($free.Up) { 'abierto' } else { (Tx 'cerrado (se abre solo al lanzar una sesi\u00f3n)') })
+        $line3 = $server
+    }
+    Draw-Text $G $line2 $F.Small $line2Color $tx ($Card.Y + (Px 42)) ($Card.Width - (Px 32)) (Px 18)
+    if ($line3) { Draw-Text $G $line3 $F.Small $line3Color $tx ($Card.Y + (Px 60)) ($Card.Width - (Px 32)) (Px 18) }
 }
 
 # ---------------------------------------------------------------- Otros PCs
@@ -1292,11 +1433,12 @@ function Set-HubPreview {
     $c.WhisperSettings = Get-WhisperSettings ([pscustomobject]@{ profile = ('x' * 1240); meeting = "Entrevista para Backend Senior en Acme`nObjetivo: pasar a la ronda final"; keyterms = 'Kubernetes, FastAPI, PostgreSQL' })
     $c.CodeSessions = @(
         [pscustomobject]@{ Slot = 0; Hwnd = 0; Live = $true; Dir = 'D:\proyectos\tienda-web'; At = $now.AddMinutes(-95); Color = 'blue'; Name = 'Isabela'; Role = 'codificadora'; Voice = 'es-CO-SalomeNeural' },
-        [pscustomobject]@{ Slot = 1; Hwnd = 0; Live = $true; Dir = 'D:\proyectos\ClaudeMaxxing'; At = $now.AddMinutes(-20); Color = 'orange'; Name = 'Mateo'; Role = 'revisor'; Voice = 'es-MX-JorgeNeural' },
+        [pscustomobject]@{ Slot = 1; Hwnd = 0; Live = $true; Dir = 'D:\proyectos\ClaudeMaxxing'; At = $now.AddMinutes(-20); Color = 'orange'; Name = 'Mateo'; Role = 'revisor'; Voice = 'es-MX-JorgeNeural'; Backend = 'freellm' },
         [pscustomobject]@{ Slot = 2; Hwnd = 0; Live = $false; Dir = 'D:\datos\informe'; At = $now.AddHours(-5); Color = 'green'; Name = 'Camila'; Role = 'analista'; Voice = 'es-PE-CamilaNeural' }
     )
     $c.MenuInstalled = $true
     $c.Screens = 2
+    $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true
     $c.VoiceMuted = $false
     $c.HotkeysOn = $true

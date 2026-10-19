@@ -265,6 +265,30 @@ Assert-Equal '-w new -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude
 Assert-Equal $true ((Format-SessionsFullMessage 4 2).Contains('(2 pantallas)')) 'full message names the monitors'
 Assert-Equal $true ((Format-SessionsFullMessage 2 1).Contains('(1 pantalla)')) 'full message, one monitor'
 
+# --- FreeLLMAPI (lib\freellm.ps1): command-line environment for one session, key format, port
+. (Join-Path $TrayRoot 'lib\freellm.ps1')
+$freeKey = 'freellmapi-' + ('ab12' * 12)
+Assert-Equal $true (Test-FreeLlmKeyFormat $freeKey) 'freellm: dashboard key format accepted'
+Assert-Equal $false (Test-FreeLlmKeyFormat 'sk-ant-123456789012345678901234') 'freellm: other keys rejected'
+Assert-Equal $false (Test-FreeLlmKeyFormat ($freeKey + '" & calc')) 'freellm: key with cmd metacharacters rejected'
+Assert-Equal $false (Test-FreeLlmKeyFormat '') 'freellm: empty key rejected'
+$freeEnv = Format-FreeLlmEnv 'http://127.0.0.1:31415' $freeKey
+Assert-Equal ('set ANTHROPIC_BASE_URL=http://127.0.0.1:31415&& set ANTHROPIC_AUTH_TOKEN=' + $freeKey + '&& set ANTHROPIC_API_KEY=&& set CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1&& ') $freeEnv 'freellm: env prefix for cmd.exe (no quotes, no space before &&)'
+Assert-Equal '' (Format-FreeLlmEnv 'http://127.0.0.1:31415 & calc' $freeKey) 'freellm: no env for a url with cmd metacharacters'
+Assert-Equal '' (Format-FreeLlmEnv 'http://127.0.0.1:31415' 'nope') 'freellm: no env without a usable key'
+Assert-Equal '' (Format-FreeLlmEnv '' $freeKey) 'freellm: no env without a url'
+Assert-Equal $false ($freeEnv.Contains(';')) 'freellm: env has no ";" (wt.exe would split the command there)'
+Assert-Equal ('-w new -d "D:\x" cmd /k ' + $freeEnv + 'claude "/color red"') (Format-WtArguments 'D:\x' ($freeEnv + (Format-ClaudeCommand 'claude' '' '' 'red')) $odd[0]) 'freellm: env goes before claude inside cmd /k'
+$freeCfg = Join-Path ([IO.Path]::GetTempPath()) ('cmx-freellm-test-{0}.json' -f [guid]::NewGuid().ToString('N'))
+try {
+    Assert-Equal 31415 (Get-FreeLlmPort $freeCfg) 'freellm: default port without config'
+    [IO.File]::WriteAllText($freeCfg, '{"port":31417,"lanAccess":false}')
+    Assert-Equal 31417 (Get-FreeLlmPort $freeCfg) 'freellm: port from the desktop config'
+    [IO.File]::WriteAllText($freeCfg, '{"port":"x"}')
+    Assert-Equal 31415 (Get-FreeLlmPort $freeCfg) 'freellm: bad port falls back to the default'
+} finally { Remove-Item -LiteralPath $freeCfg -Force -ErrorAction SilentlyContinue }
+Assert-Equal 'http://127.0.0.1:31415' (Get-FreeLlmBaseUrl 31415) 'freellm: base url is the server root'
+
 # --- Otros PCs (bridge): config text, pairing, gate
 . (Join-Path $TrayRoot 'lib\bridge.ps1')
 . (Join-Path $TrayRoot 'lib\bridgenet.ps1')

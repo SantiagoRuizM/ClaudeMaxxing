@@ -5,6 +5,8 @@
 # Each session gets its slot's color (tab and Claude Code prompt box) and, from the voice part, a name
 # and a voice picked before Claude Code starts; the voice plugin (voice\plugin) loads for that session
 # only and completes the title with the role on the first prompt.
+# With FreeLLMAPI switched on in the ClaudeMaxxing window (lib\freellm.ps1), the session talks to it instead
+# of the Claude plan; if it cannot be reached, the session opens on the plan and says why.
 # -Run and -StatePath are for testing: run another command, keep a separate session list.
 param([string]$Dir, [string]$Run = 'claude', [string]$StatePath)
 
@@ -12,6 +14,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
 . (Join-Path $TrayRoot 'lib\winapi.ps1')
+. (Join-Path $TrayRoot 'lib\freellm.ps1')
 # wt.exe hands its caller's environment to the new window. Started from a Claude Code shell (a test
 # run), that environment turns colors off and changes git prompts; the Explorer menu starts clean.
 if ($env:CLAUDECODE) {
@@ -89,6 +92,14 @@ try {
     $pluginDir = Join-Path $TrayRoot 'voice\plugin'
     if (-not (Test-Path -LiteralPath (Join-Path $pluginDir '.claude-plugin\plugin.json'))) { $pluginDir = '' }
     $command = Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name
+    $backend = 'plan'
+    try {
+        $free = Get-FreeLlmLaunch
+        $freeNotice = $free.Notice
+        if ($free.Prefix) { $command = $free.Prefix + $command; $backend = 'freellm' }
+    } catch {
+        Write-SessionLog "freellm: $($_.Exception.Message)"
+    }
 
     $before = [long[]]@([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses))
     try {
@@ -107,18 +118,20 @@ try {
     # Recorded before placing, so the slot is taken even if placing fails.
     $sessions += [pscustomobject]@{
         slot = $slot; hwnd = [long]$hwnd; dir = $Dir; at = (Get-Date).ToString('o')
-        sessionId = $sessionId; color = $color.Name; name = "$($identity.name)"
+        sessionId = $sessionId; color = $color.Name; name = "$($identity.name)"; backend = $backend
     }
     Write-JsonFile $SessionsFile $sessions
 
     $frame = [ClaudeTrayWin]::Place($hwnd, $rect.X, $rect.Y, $rect.Width, $rect.Height, 12)
     [ClaudeTrayWin]::Activate($hwnd)
-    Write-SessionLog ("slot {0} hwnd {1}: target {2},{3} {4}x{5}, frame {6},{7} {8}x{9}, {10} {11} {12}, {13}" -f $slot, $hwnd,
+    Write-SessionLog ("slot {0} hwnd {1}: target {2},{3} {4}x{5}, frame {6},{7} {8}x{9}, {10} {11} {12}, {13}, {14}" -f $slot, $hwnd,
         $rect.X, $rect.Y, $rect.Width, $rect.Height, $frame[0], $frame[1], ($frame[2] - $frame[0]), ($frame[3] - $frame[1]),
-        $color.Name, $sessionId, $identity.name, $Dir)
+        $color.Name, $sessionId, $identity.name, $Dir, $backend)
 } catch {
     Write-SessionLog "error: $($_.Exception.Message)"
     Show-Notice "No se pudo abrir Claude Code: $($_.Exception.Message)"
 } finally {
     if ($owned) { $mutex.ReleaseMutex() }
 }
+# After releasing the lock: the notice waits for a click.
+if ($freeNotice) { Show-Notice $freeNotice }
