@@ -48,21 +48,20 @@ function Get-FreeLlmPort([string]$ConfigPath = $FreeLlmConfigFile) {
 
 function Get-FreeLlmBaseUrl([int]$Port) { "http://127.0.0.1:$Port" }
 
-# The installed FreeLLMAPI.exe, found through its uninstall entry (per-user install), or $null.
-function Get-FreeLlmExe {
-    foreach ($root in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall') {
-        $entries = @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)
-        foreach ($entry in $entries) {
-            $props = Get-ItemProperty -LiteralPath $entry.PSPath -ErrorAction SilentlyContinue
-            if (-not $props -or "$($props.DisplayName)" -notlike 'FreeLLMAPI*') { continue }
-            $candidates = @()
-            if ($props.InstallLocation) { $candidates += Join-Path ([string]$props.InstallLocation).Trim('"') 'FreeLLMAPI.exe' }
-            if ($props.DisplayIcon) { $candidates += (([string]$props.DisplayIcon) -replace ',\s*\d+$', '').Trim('"') }
-            foreach ($path in $candidates) { if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) { return $path } }
-        }
+# The installed FreeLLMAPI.exe, or $null. The installer is per-user: the usual folder first, then its uninstall
+# entry. -Quick skips the registry (about 60 ms), for the hub's periodic refresh.
+function Get-FreeLlmExe([switch]$Quick) {
+    $usual = Join-Path $env:LOCALAPPDATA 'Programs\freellmapi-desktop\FreeLLMAPI.exe'
+    if (Test-Path -LiteralPath $usual -PathType Leaf) { return $usual }
+    if ($Quick) { return $null }
+    $entries = @(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+        Where-Object { "$($_.DisplayName)" -like 'FreeLLMAPI*' })
+    foreach ($props in $entries) {
+        $candidates = @()
+        if ($props.InstallLocation) { $candidates += Join-Path ([string]$props.InstallLocation).Trim('"') 'FreeLLMAPI.exe' }
+        if ($props.DisplayIcon) { $candidates += (([string]$props.DisplayIcon) -replace ',\s*\d+$', '').Trim('"') }
+        foreach ($path in $candidates) { if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) { return $path } }
     }
-    $fallback = Join-Path $env:LOCALAPPDATA 'Programs\freellmapi-desktop\FreeLLMAPI.exe'
-    if (Test-Path -LiteralPath $fallback -PathType Leaf) { return $fallback }
     $null
 }
 
