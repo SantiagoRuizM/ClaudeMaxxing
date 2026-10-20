@@ -698,7 +698,7 @@ $Form.Controls.Add($header)
 function Update-Controls {
     $script:ListenButton.Text = if ($script:Listening) { 'Pausar' } else { 'Escuchar' }
     $check = [string][char]0x2713 + ' '
-    $script:AutoButton.Text = $(if ($script:Settings.autoAnswer) { $check } else { '' }) + 'Responder solo a las preguntas'
+    $script:AutoButton.Text = $(if ($script:Settings.autoAnswer) { $check } else { '' }) + (Tx 'Responder autom\u00e1ticamente')
     $script:TranslateButton.Text = $(if ($script:Settings.translate) { $check } else { '' }) + 'Traducir en vivo'
     Set-WhisperButtonStyle $script:AutoButton $P ([bool]$script:Settings.autoAnswer)
     Set-WhisperButtonStyle $script:TranslateButton $P ([bool]$script:Settings.translate)

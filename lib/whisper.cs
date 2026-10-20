@@ -420,6 +420,7 @@ namespace ClaudeWhisper
         long textChangedAt;
         long runStartedAt = -1;           // when this side started its current stretch of continuous text
         volatile bool fatal;              // the service refused the stream for good (unsupported language)
+        readonly Stopwatch hardRotateTry = Stopwatch.StartNew(); // a failed hard rotation waits before the next try
 
         public SttStream(string source, string language, string keyterms, string credentialsPath, ConcurrentQueue<string> events)
         {
@@ -576,7 +577,12 @@ namespace ClaudeWhisper
                 }
                 if (StableText()) EndOfUtterance();
                 else if (LongLine()) EndOfUtterance();
-                else if (active != null && !active.Closing && active.Age.ElapsedMilliseconds > HardRotateSeconds * 1000L) Rotate(active);
+                else if (active != null && !active.Closing && active.Age.ElapsedMilliseconds > HardRotateSeconds * 1000L &&
+                         hardRotateTry.ElapsedMilliseconds > 15000)
+                {
+                    hardRotateTry.Restart();
+                    Rotate(active);
+                }
                 if (active != null && keepAlive.ElapsedMilliseconds > 8000) { keepAlive.Restart(); Send(active, KeepAlive); }
             }
             if (active != null) Retire(active, true);
