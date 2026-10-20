@@ -21,6 +21,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\freellm.ps1')
 . (Join-Path $TrayRoot 'lib\voiceengine.ps1')
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
+. (Join-Path $TrayRoot 'lib\forecast.ps1')
 # Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
 # prompts) to everything it starts, including remote sessions on this PC.
 if ($env:CLAUDECODE) {

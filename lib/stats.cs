@@ -6,6 +6,10 @@
 // deleted files are kept, so "all time" keeps growing.
 // Active time: the gaps between consecutive events of a session, when shorter than IdleGap; a lone event
 // counts one minute. Times are local. Keep this file ASCII.
+// Consumption: tokens per hour and model; the API-equivalent cost is computed when summarizing, with the
+// price table Ponytail ships (github.com/DietrichGebert/ponytail, MIT; read from its installed plugin
+// when there is one, see lib\forecast.ps1) or the copy below. A reply without token counts adds the cost
+// Claude Code wrote down for it (costUSD, or the session's cost-state total when nothing else is there).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -47,13 +51,19 @@ namespace ClaudeMaxxing
         public Dictionary<string, int[]> Hours = new Dictionary<string, int[]>();
         // active stretches as unix seconds [start, end], to count wall-clock time across parallel sessions
         public List<long[]> Spans = new List<long[]>();
+        // "yyyy-MM-dd HH|model" -> messages, input, output, cache read, cache write, of which 1-hour cache write
+        public Dictionary<string, long[]> HourModels = new Dictionary<string, long[]>();
+        // "yyyy-MM-dd HH" -> USD Claude Code recorded for replies that have no token counts
+        public Dictionary<string, double> HourCost = new Dictionary<string, double>();
     }
 
     public static class Stats
     {
         public const int IdleGap = 15 * 60;
-        // Bump when FileStats changes: cached summaries of another version are read again.
-        const int FormatVersion = 2;
+        // Bump when FileStats changes: cached summaries of another version are read again while their
+        // transcript exists; those of deleted transcripts are kept as they are (they are the only history).
+        const int FormatVersion = 3;
+        const int OldestVersion = 2;
         const int LoneEvent = 60;
 
         static readonly Regex Kind = new Regex("\"type\":\"(assistant|user)\",\"(?:message|uuid)\"", RegexOptions.Compiled);
@@ -67,8 +77,67 @@ namespace ClaudeMaxxing
             new Regex("\"input_tokens\":(\\d+)", RegexOptions.Compiled),
             new Regex("\"output_tokens\":(\\d+)", RegexOptions.Compiled),
             new Regex("\"cache_read_input_tokens\":(\\d+)", RegexOptions.Compiled),
-            new Regex("\"cache_creation_input_tokens\":(\\d+)", RegexOptions.Compiled)
+            new Regex("\"cache_creation_input_tokens\":(\\d+)", RegexOptions.Compiled),
+            new Regex("\"ephemeral_1h_input_tokens\":(\\d+)", RegexOptions.Compiled)
         };
+        static readonly Regex CostRx = new Regex("\"costUSD\":([0-9.eE+-]+)", RegexOptions.Compiled);
+        static readonly Regex TotalCostRx = new Regex("\"totalCostUSD\":([0-9.eE+-]+)", RegexOptions.Compiled);
+        static readonly Regex StartTimeRx = new Regex("\"startTime\":(\\d{12,})", RegexOptions.Compiled);
+
+        // USD per million tokens: input, 5-minute cache write, 1-hour cache write, cache read, output.
+        // Copied from Ponytail's hooks/ponytail-band-import.js (prices checked 2026-10-17); SetPrices replaces
+        // it with the table of the installed Ponytail.
+        static Dictionary<string, double[]> prices = DefaultPrices();
+        static Dictionary<string, double[]> DefaultPrices()
+        {
+            var opus = new double[] { 5, 6.25, 10, 0.5, 25 };
+            return new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase) {
+                { "claude-fable-5-1", new double[] { 10, 12.5, 20, 0.25, 50 } }, { "claude-fable-5", new double[] { 10, 12.5, 20, 1, 50 } },
+                { "claude-opus-5-5", new double[] { 4, 5, 8, 0.2, 20 } }, { "claude-opus-5", opus }, { "claude-opus-4-8", opus },
+                { "claude-opus-4-7", opus }, { "claude-opus-4-6", opus }, { "claude-opus-4-5", opus },
+                { "claude-sonnet-5-5", new double[] { 2, 2.5, 4, 0.1, 10 } }, { "claude-sonnet-5", new double[] { 2, 2.5, 4, 0.2, 10 } },
+                { "claude-sonnet-4-6", new double[] { 3, 3.75, 6, 0.3, 15 } }, { "claude-sonnet-4-5", new double[] { 3, 3.75, 6, 0.3, 15 } },
+                { "claude-haiku-5-5", new double[] { 0.1, 0.125, 0.2, 0.01, 0.5 } }, { "claude-haiku-4-5", new double[] { 1, 1.25, 2, 0.1, 5 } }
+            };
+        }
+        public static string PriceSource = "integrada";
+
+        // A JSON object { "model": [5 numbers] } (from Ponytail) replaces the built-in table; returns the models read.
+        public static int SetPrices(string json, string source)
+        {
+            try
+            {
+                var raw = NewSerializer().Deserialize<Dictionary<string, object>>(json);
+                var table = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pair in raw)
+                {
+                    var list = pair.Value as System.Collections.ArrayList;
+                    if (list == null || list.Count != 5) continue;
+                    table[pair.Key] = list.Cast<object>().Select(v => Convert.ToDouble(v, CultureInfo.InvariantCulture)).ToArray();
+                }
+                if (table.Count == 0) return 0;
+                prices = table;
+                PriceSource = source;
+                return table.Count;
+            }
+            catch { return 0; }
+        }
+
+        // "claude-opus-5-5[1m]" or "claude-sonnet-4-5-20250929" -> the table's id.
+        static string ModelId(string model)
+        {
+            return Regex.Replace(Regex.Replace(model ?? "", "\\[.*\\]$", ""), "-\\d{8}$", "");
+        }
+
+        // A message group's price, or -1 when the model has no price. u: messages, input, output, read, write, write 1h.
+        public static double Price(string model, long[] u)
+        {
+            double[] p;
+            if (!prices.TryGetValue(ModelId(model), out p)) return -1;
+            long write1h = u.Length > 5 ? u[5] : 0;
+            long write5m = Math.Max(0, u[4] - write1h);
+            return (u[1] * p[0] + write5m * p[1] + write1h * p[2] + u[3] * p[3] + u[2] * p[4]) / 1e6;
+        }
 
         static JavaScriptSerializer NewSerializer()
         {
@@ -94,7 +163,7 @@ namespace ClaudeMaxxing
                 if (File.Exists(cachePath))
                 {
                     var list = serializer.Deserialize<List<FileStats>>(File.ReadAllText(cachePath, Encoding.UTF8));
-                    if (list != null) foreach (var f in list) if (f != null && f.Path != null && f.Version == FormatVersion) cache[f.Path] = f;
+                    if (list != null) foreach (var f in list) if (f != null && f.Path != null && f.Version >= OldestVersion && f.Version <= FormatVersion) cache[f.Path] = f;
                 }
             }
             catch { cache.Clear(); }
@@ -108,7 +177,7 @@ namespace ClaudeMaxxing
                     FileInfo info;
                     try { info = new FileInfo(path); } catch { continue; }
                     FileStats stats;
-                    if (!cache.TryGetValue(path, out stats) || stats.Length != info.Length || stats.Stamp != info.LastWriteTimeUtc.Ticks)
+                    if (!cache.TryGetValue(path, out stats) || stats.Version != FormatVersion || stats.Length != info.Length || stats.Stamp != info.LastWriteTimeUtc.Ticks)
                     {
                         try { stats = ReadFile(path, info); read++; } catch { continue; }
                     }
@@ -135,6 +204,7 @@ namespace ClaudeMaxxing
             result["filesRead"] = read;
             result["all"] = Summarize(files, DateTime.MinValue, now);
             result["recent"] = Summarize(files, now.Date.AddDays(-29), now);
+            result["priceSource"] = PriceSource;
             string json = serializer.Serialize(result);
             try
             {
@@ -165,7 +235,7 @@ namespace ClaudeMaxxing
             return !(head.StartsWith("<local-command") || head.StartsWith("<bash-") || head.StartsWith("Caveat:"));
         }
 
-        class Message { public string Day; public string Model; public long[] Usage = new long[4]; }
+        class Message { public string Day; public string Hour; public string Model; public long[] Usage = new long[5]; public bool HasUsage; public double Cost = -1; }
 
         public static FileStats ReadFile(string path, FileInfo info)
         {
@@ -173,6 +243,8 @@ namespace ClaudeMaxxing
             stats.Subagent = path.Replace('/', '\\').IndexOf("\\subagents\\", StringComparison.OrdinalIgnoreCase) >= 0;
             var events = new List<DateTime>();
             var messages = new Dictionary<string, Message>();
+            double stateCost = 0;
+            DateTime? stateStart = null;
             var projects = new Dictionary<string, int>();
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             using (var reader = new StreamReader(stream, Encoding.UTF8))
@@ -180,6 +252,15 @@ namespace ClaudeMaxxing
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
+                    // The session's running total; only used when no reply has token counts.
+                    if (line.IndexOf("\"type\":\"cost-state\"", StringComparison.Ordinal) >= 0)
+                    {
+                        var total = TotalCostRx.Match(line);
+                        var startTime = StartTimeRx.Match(line);
+                        if (total.Success) double.TryParse(total.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out stateCost);
+                        if (startTime.Success) stateStart = Epoch.AddMilliseconds(long.Parse(startTime.Groups[1].Value)).ToLocalTime();
+                        continue;
+                    }
                     var kind = Kind.Match(line);
                     if (!kind.Success) continue;
                     var stampMatch = StampRx.Match(line);
@@ -214,18 +295,22 @@ namespace ClaudeMaxxing
                     var id = MsgIdRx.Match(line);
                     string key = id.Success ? id.Groups[1].Value : "line" + events.Count;
                     Message message;
-                    if (!messages.TryGetValue(key, out message)) { message = new Message { Day = day }; messages[key] = message; }
+                    if (!messages.TryGetValue(key, out message)) { message = new Message { Day = day, Hour = at.ToString("yyyy-MM-dd HH") }; messages[key] = message; }
                     var model = ModelRx.Match(line);
                     if (model.Success) message.Model = model.Groups[1].Value;
                     int usageAt = line.IndexOf("\"usage\":{", StringComparison.Ordinal);
                     if (usageAt >= 0)
                     {
-                        for (int i = 0; i < 4; i++)
+                        message.HasUsage = true;
+                        for (int i = 0; i < 5; i++)
                         {
                             var m = UsageRx[i].Match(line, usageAt);
                             if (m.Success) message.Usage[i] = long.Parse(m.Groups[1].Value);
                         }
                     }
+                    var cost = CostRx.Match(line);
+                    double costValue;
+                    if (cost.Success && double.TryParse(cost.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out costValue)) message.Cost = costValue;
                 }
             }
 
@@ -239,6 +324,23 @@ namespace ClaudeMaxxing
                 if (!dayStats.Models.TryGetValue(message.Model, out totals)) { totals = new long[5]; dayStats.Models[message.Model] = totals; }
                 totals[0]++;
                 for (int i = 0; i < 4; i++) totals[i + 1] += message.Usage[i];
+                if (message.HasUsage)
+                {
+                    string hourKey = message.Hour + "|" + message.Model;
+                    long[] h;
+                    if (!stats.HourModels.TryGetValue(hourKey, out h)) { h = new long[6]; stats.HourModels[hourKey] = h; }
+                    h[0]++;
+                    for (int i = 0; i < 5; i++) h[i + 1] += message.Usage[i];
+                }
+                else if (message.Cost > 0)
+                {
+                    double c; stats.HourCost.TryGetValue(message.Hour, out c); stats.HourCost[message.Hour] = c + message.Cost;
+                }
+            }
+            if (stats.HourModels.Count == 0 && stats.HourCost.Count == 0 && stateCost > 0)
+            {
+                DateTime at = stateStart ?? (events.Count > 0 ? events.Min() : info.LastWriteTime);
+                stats.HourCost[at.ToString("yyyy-MM-dd HH")] = stateCost;
             }
             if (projects.Count > 0) stats.Project = Unescape(projects.OrderByDescending(p => p.Value).First().Key);
 
@@ -492,7 +594,135 @@ namespace ClaudeMaxxing
             r["tokens"] = new Dictionary<string, object> { { "input", tokenTotals[0] }, { "output", tokenTotals[1] }, { "cacheRead", tokenTotals[2] }, { "cacheWrite", tokenTotals[3] } };
             r["tools"] = tools.OrderByDescending(p => p.Value).Take(10).Select(p => (object)new Dictionary<string, object> { { "name", p.Key }, { "count", p.Value } }).ToList();
             r["toolKinds"] = tools.Count;
+            r["usage"] = SummarizeUsage(files, fromDay, now);
             return r;
+        }
+
+        // Session of a transcript: its file name, or for a subagent the folder of the session it belongs to.
+        static string SessionOf(FileStats f)
+        {
+            string path = f.Path.Replace('/', '\\');
+            int at = path.IndexOf("\\subagents\\", StringComparison.OrdinalIgnoreCase);
+            if (at > 0) return System.IO.Path.GetFileName(path.Substring(0, at));
+            return System.IO.Path.GetFileNameWithoutExtension(path);
+        }
+
+        static double StdDev(List<double> values)
+        {
+            if (values.Count < 2) return 0;
+            double avg = values.Average();
+            return Math.Sqrt(values.Sum(v => (v - avg) * (v - avg)) / values.Count);
+        }
+
+        static Dictionary<string, object> Spread(List<double> values)
+        {
+            var sorted = values.OrderBy(v => v).ToList();
+            double avg = sorted.Count > 0 ? sorted.Average() : 0;
+            return new Dictionary<string, object> {
+                { "count", sorted.Count }, { "avg", avg }, { "median", sorted.Count > 0 ? sorted[sorted.Count / 2] : 0 },
+                { "min", sorted.Count > 0 ? sorted[0] : 0 }, { "max", sorted.Count > 0 ? sorted[sorted.Count - 1] : 0 },
+                { "p90", sorted.Count > 0 ? sorted[Math.Min(sorted.Count - 1, (int)Math.Ceiling(sorted.Count * 0.9) - 1)] : 0 },
+                { "cv", avg > 0 ? StdDev(sorted) / avg : 0 } };
+        }
+
+        // Consumption: by hour of day, by 5-hour window (rebuilt as Claude does: a window starts on the hour of
+        // the first activity after the previous one ended) and by Claude Code session. Subagents count too:
+        // they spend from the same plan.
+        static Dictionary<string, object> SummarizeUsage(List<FileStats> files, string fromDay, DateTime now)
+        {
+            var hours = new SortedDictionary<string, double[]>(StringComparer.Ordinal); // tokens, cost, output, unpriced tokens
+            var sessions = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase); // tokens, cost
+            double directCost = 0;
+            foreach (var f in files)
+            {
+                if (f.HourModels == null) continue;
+                string session = SessionOf(f);
+                foreach (var pair in f.HourModels)
+                {
+                    string hour = pair.Key.Substring(0, 13);
+                    if (string.CompareOrdinal(hour.Substring(0, 10), fromDay) < 0) continue;
+                    var u = pair.Value;
+                    double tokens = u[1] + u[2] + u[3] + u[4];
+                    double price = Price(pair.Key.Substring(14), u);
+                    double[] h;
+                    if (!hours.TryGetValue(hour, out h)) { h = new double[4]; hours[hour] = h; }
+                    h[0] += tokens; h[2] += u[2];
+                    if (price >= 0) h[1] += price; else h[3] += tokens;
+                    double[] s;
+                    if (!sessions.TryGetValue(session, out s)) { s = new double[2]; sessions[session] = s; }
+                    s[0] += tokens; if (price > 0) s[1] += price;
+                }
+                foreach (var pair in f.HourCost)
+                {
+                    if (string.CompareOrdinal(pair.Key.Substring(0, 10), fromDay) < 0) continue;
+                    double[] h;
+                    if (!hours.TryGetValue(pair.Key, out h)) { h = new double[4]; hours[pair.Key] = h; }
+                    h[1] += pair.Value;
+                    directCost += pair.Value;
+                    double[] s;
+                    if (!sessions.TryGetValue(session, out s)) { s = new double[2]; sessions[session] = s; }
+                    s[1] += pair.Value;
+                }
+            }
+
+            var hourlyTokens = new double[24];
+            var hourlyCost = new double[24];
+            var hourDays = new int[24];
+            var days = new HashSet<string>();
+            foreach (var pair in hours)
+            {
+                int hod = int.Parse(pair.Key.Substring(11, 2));
+                hourlyTokens[hod] += pair.Value[0];
+                hourlyCost[hod] += pair.Value[1];
+                hourDays[hod]++;
+                days.Add(pair.Key.Substring(0, 10));
+            }
+
+            // 5-hour windows
+            var windows = new List<double[]>(); // start (unix), tokens, cost, output, active hours
+            DateTime windowEnd = DateTime.MinValue;
+            foreach (var pair in hours)
+            {
+                DateTime at = DateTime.ParseExact(pair.Key, "yyyy-MM-dd HH", CultureInfo.InvariantCulture);
+                if (at >= windowEnd)
+                {
+                    windows.Add(new double[] { Unix(at), 0, 0, 0, 0 });
+                    windowEnd = at.AddHours(5);
+                }
+                var w = windows[windows.Count - 1];
+                w[1] += pair.Value[0]; w[2] += pair.Value[1]; w[3] += pair.Value[2]; w[4]++;
+            }
+            // The window still open now is not finished: it stays out of the averages.
+            var closed = windows.Where(w => Local((long)w[0]).AddHours(5) <= now).ToList();
+            var byStart = new double[24];
+            var byStartCount = new int[24];
+            foreach (var w in closed) { int hod = Local((long)w[0]).Hour; byStart[hod] += w[2]; byStartCount[hod]++; }
+
+            var u2 = new Dictionary<string, object>();
+            u2["hours"] = hours.Count;
+            u2["days"] = days.Count;
+            u2["tokens"] = hours.Values.Sum(h => h[0]);
+            u2["cost"] = hours.Values.Sum(h => h[1]);
+            u2["outputTokens"] = hours.Values.Sum(h => h[2]);
+            u2["unpricedTokens"] = hours.Values.Sum(h => h[3]);
+            u2["directCost"] = directCost;
+            u2["hourlyTokens"] = hourlyTokens;
+            u2["hourlyCost"] = hourlyCost;
+            u2["hourlyDays"] = hourDays;
+            u2["windowCost"] = Spread(closed.Select(w => w[2]).ToList());
+            u2["windowTokens"] = Spread(closed.Select(w => w[1]).ToList());
+            u2["windowsByStartHour"] = Enumerable.Range(0, 24).Select(i => byStartCount[i] > 0 ? byStart[i] / byStartCount[i] : 0).ToArray();
+            u2["windowsByStartHourCount"] = byStartCount;
+            u2["windows"] = windows.Skip(Math.Max(0, windows.Count - 30)).Select(w => (object)new Dictionary<string, object> {
+                { "start", Local((long)w[0]).ToString("s") }, { "tokens", w[1] }, { "cost", w[2] }, { "output", w[3] }, { "activeHours", w[4] } }).ToList();
+            var sessionList = sessions.Values.Where(v => v[0] > 0 || v[1] > 0).ToList();
+            u2["sessionCost"] = Spread(sessionList.Select(v => v[1]).ToList());
+            u2["sessionTokens"] = Spread(sessionList.Select(v => v[0]).ToList());
+            // The last two days hour by hour, so the window that is open now can be measured against the plan.
+            string recentFrom = now.AddHours(-48).ToString("yyyy-MM-dd HH");
+            u2["recentHours"] = hours.Where(p => string.CompareOrdinal(p.Key, recentFrom) >= 0)
+                .ToDictionary(p => p.Key, p => (object)new double[] { p.Value[0], p.Value[1] });
+            return u2;
         }
 
         static int Median(List<int> values)
