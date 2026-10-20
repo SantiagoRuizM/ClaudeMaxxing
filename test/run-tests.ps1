@@ -302,6 +302,29 @@ try {
     Assert-Equal $true (Get-ContextModeState $cmHome).Enabled 'context-mode: enabled'
 } finally { Remove-Item -LiteralPath $cmHome -Recurse -Force -ErrorAction SilentlyContinue }
 
+# --- Consumo (lib\forecast.ps1, prices in lib\stats.cs)
+. (Join-Path $TrayRoot 'lib\forecast.ps1')
+$js = "const OPUS = [5, 6.25, 10, 0.5, 25];`nconst PRICES = {`n  'claude-opus-5-5': [4, 5, 8, 0.2, 20],`n  'claude-opus-4-8': OPUS,`n  'bad': [1, 2],`n};"
+$pt = ConvertFrom-PonytailPrices $js
+Assert-Equal 'claude-opus-5-5=4,5,8,0.2,20|claude-opus-4-8=5,6.25,10,0.5,25' (@($pt.Keys | ForEach-Object { $_ + '=' + (($pt[$_] | ForEach-Object { $_.ToString([Globalization.CultureInfo]::InvariantCulture) }) -join ',') }) -join '|') 'forecast: Ponytail price rows, named arrays resolved, bad rows skipped'
+$fNow = Get-Date -Year 2026 -Month 10 -Day 20 -Hour 10 -Minute 30 -Second 0 -Millisecond 0
+$fUsage = [pscustomobject]@{
+    days = 10; tokens = 1000000; cost = 100
+    hourlyCost = [double[]]@(0,0,0,0,0,0,0,0,0,0,20,20,20,0,0,0,0,0,0,0,0,0,0,0)
+    windowCost = [pscustomobject]@{ avg = 10 }
+    recentHours = [pscustomobject]@{ '2026-10-20 08' = @(100000, 4); '2026-10-20 09' = @(50000, 2); '2026-10-20 10' = @(50000, 2); '2026-10-19 20' = @(10, 1) }
+}
+$fc = Get-UsageForecast $fUsage $null $fNow
+Assert-Equal '2026-10-20 08:00|8' ('{0}|{1}' -f $fc.Start.ToString('yyyy-MM-dd HH:mm'), $fc.Cost) 'forecast: open window rebuilt from the first hour after the last one ended, spent so far'
+Assert-Equal 5 $fc.TypicalRest 'forecast: the rest of the window (10:30 to 13:00) at your usual pace for those hours'
+Assert-Equal $true ($fc.ProjectedCost -gt $fc.Cost -and $null -eq $fc.ProjectedPercent) 'forecast: projected above what is spent; no plan, no percent'
+$fc = Get-UsageForecast $fUsage ([pscustomobject]@{ Active = $true; Percent = 40; ResetsAt = $fNow.AddHours(2.5) }) $fNow
+Assert-Equal '0.2|20' ('{0}|{1}' -f $fc.CostPerPercent.ToString([Globalization.CultureInfo]::InvariantCulture), $fc.Capacity) 'forecast: calibrated with the plan (cost so far / percent)'
+$fc = Get-UsageForecast $fUsage ([pscustomobject]@{ Active = $true; Percent = 95; ResetsAt = $fNow.AddHours(2.5) }) $fNow
+Assert-Equal $true ($fc.ProjectedPercent -ge 100 -and $fc.LimitAt -gt $fNow -and $fc.LimitAt -lt $fc.End) 'forecast: the hour the limit would be reached'
+Assert-Equal $null (Get-UsageForecast $fUsage $null $fNow.AddHours(8)) 'forecast: no open window'
+Assert-Equal 'muy parecidas|variables|muy variables' ((Format-UsageSpread 0.1), (Format-UsageSpread 0.7), (Format-UsageSpread 1.5) -join '|') 'forecast: spread in words'
+
 # --- Otros PCs (bridge): config text, pairing, gate
 . (Join-Path $TrayRoot 'lib\bridge.ps1')
 . (Join-Path $TrayRoot 'lib\bridgenet.ps1')
@@ -748,6 +771,10 @@ try {
     Assert-Equal 'demo|2' ('{0}|{1}' -f $all.projects[0].name, $all.projects[0].sessions) 'stats: project from the working folder'
     Assert-Equal 460 (($all.hourly | Measure-Object -Sum).Sum) 'stats: hours of the day add up to the wall-clock time'
     Assert-Equal 2 $result.recent.prompts 'stats: the last 30 days include today'
+    $tk = $all.tokens
+    Assert-Equal ([double]($tk.input + $tk.output + $tk.cacheRead + $tk.cacheWrite)) ([double]$all.usage.tokens) 'stats: consumption counts every token of every reply once, subagents included'
+    Assert-Equal $true ([double]$all.usage.cost -gt 0) 'stats: consumption has an API-equivalent cost'
+    Assert-Equal 1 @($all.usage.windows).Count 'stats: replies close together make one 5-hour window'
     Assert-Equal $true (Test-Path -LiteralPath $outPath) 'stats: result written'
     $again = [ClaudeMaxxing.Stats]::Scan((Join-Path $statsDir 'projects'), $cachePath, $outPath) | ConvertFrom-Json
     Assert-Equal '0|2' ('{0}|{1}' -f $again.filesRead, $again.all.prompts) 'stats: unchanged transcripts come from the cache'
