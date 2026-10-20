@@ -289,6 +289,19 @@ try {
 } finally { Remove-Item -LiteralPath $freeCfg -Force -ErrorAction SilentlyContinue }
 Assert-Equal 'http://127.0.0.1:31415' (Get-FreeLlmBaseUrl 31415) 'freellm: base url is the server root'
 
+# --- Ahorro de tokens (lib\maxx.ps1): context-mode state from Claude Code's own files
+. (Join-Path $TrayRoot 'lib\maxx.ps1')
+$cmHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-cm-test-{0}' -f [guid]::NewGuid().ToString('N'))
+try {
+    New-Item -ItemType Directory -Force (Join-Path $cmHome 'plugins') | Out-Null
+    Assert-Equal 'False False' ('{0} {1}' -f (Get-ContextModeState $cmHome).Installed, (Get-ContextModeState $cmHome).Enabled) 'context-mode: nothing installed'
+    [IO.File]::WriteAllText((Join-Path $cmHome 'plugins\installed_plugins.json'), '{"version":2,"plugins":{"context-mode@context-mode":[{"scope":"user"}]}}')
+    [IO.File]::WriteAllText((Join-Path $cmHome 'settings.json'), '{"enabledPlugins":{"context-mode@context-mode":false}}')
+    Assert-Equal 'True False' ('{0} {1}' -f (Get-ContextModeState $cmHome).Installed, (Get-ContextModeState $cmHome).Enabled) 'context-mode: installed but disabled'
+    [IO.File]::WriteAllText((Join-Path $cmHome 'settings.json'), '{"enabledPlugins":{"context-mode@context-mode":true}}')
+    Assert-Equal $true (Get-ContextModeState $cmHome).Enabled 'context-mode: enabled'
+} finally { Remove-Item -LiteralPath $cmHome -Recurse -Force -ErrorAction SilentlyContinue }
+
 # --- Otros PCs (bridge): config text, pairing, gate
 . (Join-Path $TrayRoot 'lib\bridge.ps1')
 . (Join-Path $TrayRoot 'lib\bridgenet.ps1')

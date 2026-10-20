@@ -148,6 +148,10 @@ The **Semana** tab of the same dialog (also **Plan semanal...** in the tray menu
 
 Nothing global changes. `~/.claude/settings.json`, the scheduled warm-up, sessions already open and sessions on Otros PCs keep using your plan. Quality and speed vary with whatever free model the router picks, and some providers' free tiers may use your prompts for training. Their conversations are saved like any other, so they count in Estadísticas. The key is kept in `~/.claude/usage-tray/freellm.json`.
 
+### Ahorro de tokens: context-mode
+
+The **Ahorro de contexto (context-mode)** switch in ClaudeMaxxing > Claude Code installs or turns on [context-mode](https://github.com/mksglu/context-mode) (Elastic License 2.0) as a Claude Code plugin, from its own marketplace through `claude plugin`. It keeps big tool outputs (logs, web pages, JSON) out of the context window and keeps the session's memory across compactions, so the plan's quota lasts longer. It applies to new sessions; turning the switch off disables the plugin. Its optional statusline is not installed, because the statusline is what feeds the usage tray. Its code is never copied into this repo.
+
 ### Otros PCs: terminals between your PCs
 
 For two (or more) PCs on the same network that both run ClaudeMaxxing. Typical use: Claude Code on this PC needs a file or a command result from the other one, or you want a second Claude Code working there.

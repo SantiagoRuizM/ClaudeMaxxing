@@ -173,6 +173,7 @@ function Update-HubCache([switch]$Full) {
     $c.ScheduleRows = @(Get-ScheduleRows $script:PendingTasks (Read-JsonFile $CloudFile) (Read-JsonFile $HistoryFile) $now 5)
     $slow = $Full -or ($now - $hub.SlowAt).TotalSeconds -ge 10
     $c.FreeLlm = Get-HubFreeLlm $c.FreeLlm -Slow:$slow -Full:$Full
+    try { $c.ContextMode = Get-ContextModeState; $c.MaxxStatus = Get-MaxxStatus } catch { }
     if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
@@ -287,6 +288,16 @@ function Set-HubFreeLlmEnabled([bool]$On) {
     }
     Update-HubCache -Full
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+# Ahorro de tokens (lib\maxx.ps1): context-mode on or off for new sessions, in the background.
+function Set-HubContextMode([bool]$On) {
+    if ($script:Hub.Preview) { return }
+    $status = $script:Hub.Cache.MaxxStatus
+    if ($status -and $status.state -eq 'running') { return }
+    Start-MaxxJob $(if ($On) { 'contextmode-on' } else { 'contextmode-off' })
+    Set-HubMessage $(if ($On) { 'Activando context-mode...' } else { 'Desactivando context-mode...' })
+    Update-HubNow
 }
 
 function Stop-HubPeerSessions([string]$PeerId) {
@@ -1103,9 +1114,21 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 
     Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 (Px 166) $Inner (Px 84))
 
+    # Ahorro de tokens: context-mode
+    $mcard = New-Rect $X0 (Px 260) $Inner (Px 56)
+    Draw-HubCard $G $mcard
+    $cm = $c.ContextMode
+    $job = $c.MaxxStatus
+    $busy = $job -and $job.state -eq 'running'
+    $sub = if ($busy) { Tx 'Aplicando el cambio con claude plugin\u2026' }
+        elseif ($job -and $job.state -eq 'error' -and $job.action -like 'contextmode*') { [string]$job.message }
+        elseif ($cm -and $cm.Enabled) { Tx '\u2713 Salidas grandes fuera del contexto y memoria al compactar, en las sesiones nuevas.' }
+        else { Tx 'Guarda fuera del contexto las salidas grandes (logs, p\u00e1ginas, JSON) y recuerda la sesi\u00f3n al compactar: la cuota dura m\u00e1s.' }
+    Draw-HubToggleRow $G $Map $Hover 'maxx-cm' (New-Rect ($mcard.X + (Px 6)) ($mcard.Y + (Px 7)) ($mcard.Width - (Px 12)) (Px 42)) 'Ahorro de contexto (context-mode)' $sub ([bool]($cm -and $cm.Enabled)) ([scriptblock]::Create("Set-HubContextMode `$$(-not ($cm -and $cm.Enabled))")) (-not $busy)
+
     $sessions = @($c.CodeSessions)
     $live = @($sessions | Where-Object { $_.Live }).Count
-    $y = Px 264
+    $y = Px 330
     Draw-HubCaption $G 'SESIONES' $X0 $y $Inner "$live de $slots abiertas"
     $y += Px 22
     if (-not $sessions.Count) {
@@ -1114,7 +1137,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Text $G (Tx 'Ninguna sesi\u00f3n abierta desde el men\u00fa.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
     }
     $now = Get-Date
-    for ($i = 0; $i -lt [Math]::Min(5, $sessions.Count); $i++) {
+    for ($i = 0; $i -lt [Math]::Min(4, $sessions.Count); $i++) {
         $session = $sessions[$i]
         $row = New-Rect $X0 $y $Inner (Px 50)
         Fill-Round $G $row (Px 8) $P.Surface
@@ -1506,6 +1529,8 @@ function Set-HubPreview {
     )
     $c.MenuInstalled = $true
     $c.Screens = 2
+    $c.ContextMode = [pscustomobject]@{ Installed = $true; Enabled = $true }
+    $c.MaxxStatus = $null
     $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true
