@@ -461,18 +461,19 @@ function Draw-StatsUsage($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
             $projColor = $null
         }
         $tiles = @(
-            @('ESTA VENTANA (5 H)', (Format-Usd $fc.Cost), $nowSub, $null),
+            @((Tx 'ESTA SESI\u00d3N (5 H)'), (Format-Usd $fc.Cost), $nowSub, $null),
             @((Tx 'PREVISI\u00d3N AL CIERRE'), $projValue, $projSub, $projColor)
         )
     } else {
+        $next = Get-NextWindowEstimate $u $now
         $tiles = @(
-            @('ESTA VENTANA (5 H)', 'Cerrada', 'Ninguna ventana abierta ahora', $null),
-            @((Tx 'PREVISI\u00d3N'), (Format-Usd $win.avg), 'si empiezas una ahora (tu media)', $null)
+            @((Tx 'ESTA SESI\u00d3N (5 H)'), 'Sin empezar', (Tx 'ninguna sesi\u00f3n abierta'), $null),
+            @((Tx 'SI EMPIEZAS AHORA'), (Format-Usd $next.Cost), $next.Basis, $null)
         )
     }
-    $tiles += , @('VENTANA MEDIA', (Format-Usd $win.avg), ('mediana ' + (Format-Usd $win.median)), $null)
+    $tiles += , @((Tx 'SESI\u00d3N MEDIA'), (Format-Usd $win.avg), ('mediana ' + (Format-Usd $win.median)), $null)
     $spread = Format-UsageSpread ([double]$win.cv)
-    $tiles += , @((Tx '\u00bfGASTAN LO MISMO?'), ($spread.Substring(0, 1).ToUpper() + $spread.Substring(1)), ((Tx '\u00b1') + [int][Math]::Round(100 * [double]$win.cv) + (Tx ' %  \u00b7  ') + (Format-HubNumber $win.count) + ' ventanas'), $null)
+    $tiles += , @((Tx '\u00bfGASTAN LO MISMO?'), ($spread.Substring(0, 1).ToUpper() + $spread.Substring(1)), ((Tx '\u00b1') + [int][Math]::Round(100 * [double]$win.cv) + (Tx ' %  \u00b7  ') + (Format-HubNumber $win.count) + (Tx ' sesiones')), $null)
     for ($i = 0; $i -lt 4; $i++) {
         Draw-HubStat $G (New-Rect ($X0 + $i * ($w + $gap)) (Px 104) $w (Px 74)) $tiles[$i][0] $tiles[$i][1] $tiles[$i][2] $tiles[$i][3]
     }
@@ -501,7 +502,7 @@ function Draw-StatsUsage($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $labels = [string[]]@(for ($i = 0; $i -lt $items.Count; $i++) { if (($items.Count - 1 - $i) % 4 -eq 0) { Format-HubDay ([datetime]$items[$i].start).ToString('yyyy-MM-dd') } else { '' } })
     $tips = [string[]]@($items | ForEach-Object { $s = [datetime]$_.start; (Format-HubWeekdayDay $s.ToString('yyyy-MM-dd')) + ' ' + (Format-Clock $s) + ': ' + (Format-Usd $_.cost) + ', ' + (Format-HubTokens $_.tokens) + ' tokens' })
     Draw-HubBars $G $Map 'uwin' (New-Rect ($chart.X + (Px 14)) ($chart.Y + (Px 34)) ($chart.Width - (Px 28)) ($chart.Height - (Px 42))) $values $labels $tips $readout2
-    Draw-Text $G (Tx '\u00daLTIMAS VENTANAS DE 5 H') $F.Caps $P.Muted ($chart.X + (Px 14)) ($chart.Y + (Px 10)) (Px 240) (Px 18)
+    Draw-Text $G (Tx '\u00daLTIMAS SESIONES DE 5 H') $F.Caps $P.Muted ($chart.X + (Px 14)) ($chart.Y + (Px 10)) (Px 240) (Px 18)
     Draw-Text $G ((Tx 'm\u00e1x. ') + (Format-Usd $win.max) + (Tx '  \u00b7  m\u00edn. ') + (Format-Usd $win.min) + (Tx '  \u00b7  9 de cada 10 bajo ') + (Format-Usd $win.p90)) $F.Small $P.Faint $readout2.X $readout2.Y $readout2.Width $readout2.Height 'Right'
 
     # sessions, calibration and method
@@ -509,8 +510,8 @@ function Draw-StatsUsage($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     Draw-HubCard $G $card
     $sc = $u.sessionCost
     $lines = @((Tx 'Por conversaci\u00f3n: media ') + (Format-Usd $sc.avg) + ', mediana ' + (Format-Usd $sc.median) + (Tx ' \u00b7 ') + (Format-HubNumber $sc.count) + ' conversaciones, ' + (Format-UsageSpread ([double]$sc.cv)) + '.')
-    $tokensLine = if ($fc) { 'Esta ventana: ' + (Format-HubTokens $fc.Tokens) + ' tokens, cierre previsto ~' + (Format-HubTokens $fc.ProjectedTokens) + '. ' } else { 'Ventana media: ' + (Format-HubTokens $u.windowTokens.avg) + ' tokens. ' }
-    if ($fc -and $fc.Capacity) { $lines += $tokensLine + 'Tu ventana completa ' + (Tx '\u2248 ') + (Format-Usd $fc.Capacity) + ' de API (con tu ' + [int]$fc.Percent + ' %).' }
+    $tokensLine = if ($fc) { (Tx 'Esta sesi\u00f3n: ') + (Format-HubTokens $fc.Tokens) + ' tokens, cierre previsto ~' + (Format-HubTokens $fc.ProjectedTokens) + '. ' } else { (Tx 'Sesi\u00f3n media: ') + (Format-HubTokens $u.windowTokens.avg) + ' tokens. ' }
+    if ($fc -and $fc.Capacity) { $lines += $tokensLine + (Tx 'Tu sesi\u00f3n completa \u2248 ') + (Format-Usd $fc.Capacity) + ' de API (con tu ' + [int]$fc.Percent + ' %).' }
     else { $lines += $tokensLine + (Tx 'Con el % de tu plan se calibra al l\u00edmite real.') }
     $source = if ($script:Hub.Cache.Stats.priceSource) { [string]$script:Hub.Cache.Stats.priceSource } else { 'integrada' }
     $method = 'Coste API equivalente con los precios de ' + $source + (Tx '; tokens con cach\u00e9.')

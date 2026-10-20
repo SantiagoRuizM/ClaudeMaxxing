@@ -641,6 +641,8 @@ namespace ClaudeMaxxing
                 {
                     string hour = pair.Key.Substring(0, 13);
                     if (string.CompareOrdinal(hour.Substring(0, 10), fromDay) < 0) continue;
+                    // Only Claude models spend from the plan (FreeLLMAPI sessions record other models).
+                    if (!pair.Key.Substring(14).StartsWith("claude-", StringComparison.OrdinalIgnoreCase)) continue;
                     var u = pair.Value;
                     double tokens = u[1] + u[2] + u[3] + u[4];
                     double price = Price(pair.Key.Substring(14), u);

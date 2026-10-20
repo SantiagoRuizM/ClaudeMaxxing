@@ -120,6 +120,8 @@ function Get-UsageForecast($Usage, $Session, [datetime]$Now) {
         if ($hourly.Count -eq 24) { $typical += [double]$hourly[$t.Hour] / $days * ($next - $t).TotalHours }
         $t = $next
     }
+    # In the first hour $lastHour covers only the time since the window opened: make it a rate per hour.
+    $lastHour = $lastHour / [Math]::Max([Math]::Min(1.0, $elapsed), 1.0 / 12)
     # Early in the window the last hour says little; after an hour it weighs half.
     $weight = 0.5 * [Math]::Min(1.0, $elapsed)
     $projected = $sofar.Cost + $weight * $lastHour * $remaining + (1 - $weight) * $typical
@@ -146,6 +148,17 @@ function Get-UsageForecast($Usage, $Session, [datetime]$Now) {
         }
     }
     [pscustomobject]$forecast
+}
+
+# With no window open: what one started now would spend. The average of the windows that started at this
+# hour when there are at least 3 of them, otherwise the average of all. @{ Cost; Basis }.
+function Get-NextWindowEstimate($Usage, [datetime]$Now) {
+    $byHour = @($Usage.windowsByStartHour)
+    $counts = @($Usage.windowsByStartHourCount)
+    if ($byHour.Count -eq 24 -and $counts.Count -eq 24 -and [int]$counts[$Now.Hour] -ge 3) {
+        return @{ Cost = [double]$byHour[$Now.Hour]; Basis = ('media de ' + [int]$counts[$Now.Hour] + ' que empezaron a esta hora') }
+    }
+    @{ Cost = $(if ($Usage.windowCost) { [double]$Usage.windowCost.avg } else { 0 }); Basis = 'tu media' }
 }
 
 # How alike the windows (or sessions) are, from their coefficient of variation.

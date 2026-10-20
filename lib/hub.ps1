@@ -205,6 +205,10 @@ function Set-HubMessage([string]$Text) {
 function Update-HubNow {
     try { Update-HubCache } catch { }
     try { Complete-HubStatsScan } catch { }
+    # Estadisticas > Consumo follows the open session: an incremental scan (about a second) every 2 minutes.
+    $hub = $script:Hub
+    if ($hub -and -not $hub.Preview -and $hub.Section -eq 'stats' -and $hub.StatsTab -eq 'usage' -and $hub.Cache.Stats -and
+        (Get-StatsAgeMinutes $hub.Cache.Stats) -ge 2) { Start-HubStatsScan }
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
