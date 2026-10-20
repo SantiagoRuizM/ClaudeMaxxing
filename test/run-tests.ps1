@@ -788,6 +788,27 @@ try {
     Remove-Item -LiteralPath $statsDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- stats: replies without token counts count with the cost Claude Code recorded
+$costDir = Join-Path $env:TEMP ('cmx-stats-cost-' + [guid]::NewGuid().ToString('N'))
+try {
+    $costProject = Join-Path $costDir 'projects\C--work-cost'
+    New-Item -ItemType Directory -Force -Path $costProject | Out-Null
+    $c0 = (Get-Date).Date.AddDays(-2).AddHours(10)
+    $reply = '{"parentUuid":"x","isSidechain":false,"message":{"model":"claude-opus-5-5","id":"msg_c1","type":"message","role":"assistant","content":[]},"costUSD":0.5,"type":"assistant","uuid":"c1","timestamp":"' + $c0.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') + '","cwd":"C:\work\cost","sessionId":"c"}'
+    $state = '{"type":"cost-state","sessionId":"d","totalCostUSD":1.25,"startTime":' + [DateTimeOffset]::new($c0.AddHours(1)).ToUnixTimeMilliseconds() + '}'
+    [IO.File]::WriteAllLines((Join-Path $costProject 'c.jsonl'), [string[]]@($reply))
+    [IO.File]::WriteAllLines((Join-Path $costProject 'd.jsonl'), [string[]]@($state))
+    $costResult = [ClaudeMaxxing.Stats]::Scan((Join-Path $costDir 'projects'), (Join-Path $costDir 'cache.json'), (Join-Path $costDir 'stats.json')) | ConvertFrom-Json
+    $cu = $costResult.recent.usage
+    Assert-Equal '1.75|0' ('{0}|{1}' -f ([double]$cu.directCost).ToString([Globalization.CultureInfo]::InvariantCulture), [double]$cu.tokens) 'stats: a reply with only costUSD and a session with only cost-state count with their recorded cost'
+    Assert-Equal '1|1.75' ('{0}|{1}' -f $cu.windowCost.count, ([double]$cu.windowCost.avg).ToString([Globalization.CultureInfo]::InvariantCulture)) 'stats: recorded costs land in their hours and their 5-hour window'
+    Assert-Equal '0.5|1.25' ('{0}|{1}' -f ([double]$cu.hourlyCost[10]).ToString([Globalization.CultureInfo]::InvariantCulture), ([double]$cu.hourlyCost[11]).ToString([Globalization.CultureInfo]::InvariantCulture)) 'stats: recorded costs by hour of the day'
+} catch {
+    Assert-Equal '' $_.Exception.Message 'stats: recorded costs'
+} finally {
+    Remove-Item -LiteralPath $costDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {
     $tokens = $null; $errors = $null
