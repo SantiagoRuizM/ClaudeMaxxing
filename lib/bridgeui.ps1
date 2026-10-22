@@ -1019,7 +1019,8 @@ function Show-ApprovalForm([string]$RenderPath) {
     $form.BackColor = $P.Back
     $form.TopMost = $true
     $form.KeyPreview = $true
-    $form.ClientSize = New-Object System.Drawing.Size((Px $W), (Px 342))
+    $first = Get-ApprovalRequest
+    $form.ClientSize = New-Object System.Drawing.Size((Px $W), $(if ($first) { (Get-ApprovalLayout $first).Height } else { Px 342 }))
     if ($script:Notify -and $script:Notify.Icon) { $form.Icon = $script:Notify.Icon }
     Enable-DoubleBuffer $form
     $form.Tag = New-HitMap
@@ -1028,6 +1029,13 @@ function Show-ApprovalForm([string]$RenderPath) {
     $script:ApprovalLogo = New-TintedLogo $P.Accent (Px 22)
     $form.Add_HandleCreated({ param($sender, $e) Set-RoundedWindow $sender $script:Palette.Border })
     $form.Add_Paint({ param($sender, $e) try { Draw-ApprovalForm $sender $e.Graphics } catch { } })
+    # Esc rejects (the safe answer, so it needs no arming); Enter does nothing, so no key press can allow.
+    $form.Add_KeyDown({
+        param($sender, $e)
+        if ($e.KeyCode -ne 'Escape') { return }
+        $request = Get-ApprovalRequest
+        if ($request) { Send-BridgeAnswer $request.Id 'deny'; Update-BridgeRequests }
+    })
     $form.Add_MouseDown({
         param($sender, $e)
         if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left -or $e.Y -gt (Px 56) -or (Find-Hit $sender.Tag $e.Location)) { return }
@@ -1072,6 +1080,22 @@ $script:BridgeMonoFont = New-UiFont 'Consolas' 9
 $BridgeArmMilliseconds = 1500
 $script:ApprovalShown = @{ Id = ''; At = [datetime]::MinValue }
 
+$script:ApprovalTextFlags = [System.Windows.Forms.TextFormatFlags]'WordBreak, NoPadding, NoPrefix, TextBoxControl'
+
+# The command is shown whole: its box, and the window, grow to fit it (Format-CommandPreview caps its length).
+# Shift is how far everything under the box moves from its place for a two-line box (88..164 before).
+function Get-ApprovalLayout($Request) {
+    $view = Get-RequestView $Request
+    $detailW = (Px (420 - 48)) - (Px 24)
+    $detailH = 0
+    if ($view.Detail) {
+        $detailH = [System.Windows.Forms.TextRenderer]::MeasureText($view.Detail, $script:BridgeMonoFont, (New-Object System.Drawing.Size($detailW, 0)), $script:ApprovalTextFlags).Height
+    }
+    $boxH = if ($view.Detail) { [Math]::Max((Px 76), (Px 40) + $detailH) } else { Px 40 }
+    $shift = (Px 106) + $boxH - (Px 164)
+    @{ View = $view; DetailWidth = $detailW; DetailHeight = $detailH; BoxHeight = $boxH; Shift = $shift; Height = (Px 342) + $shift }
+}
+
 function Draw-ApprovalForm($Form, $G) {
     $P = $script:Palette
     $F = $script:Fonts
@@ -1091,25 +1115,32 @@ function Draw-ApprovalForm($Form, $G) {
     if ($script:ApprovalLogo) { $G.DrawImage($script:ApprovalLogo, $left, (Px 19)) }
     Draw-Text $G (Tx 'Conexi\u00f3n entrante') $F.Title $P.Text (Px 56) (Px 14) (Px 300) (Px 32)
 
-    Draw-Text $G $peer.name $F.BodyStrong $P.Text $left (Px 60) $inner (Px 22)
-    Draw-Text $G "$($peer.user) desde $($request.Client)" $F.Small $P.Muted $left (Px 60) $inner (Px 22) 'Right'
+    # Name and "user desde IP" on two lines, so a long PC name never runs into the address.
+    Draw-Text $G $peer.name $F.BodyStrong $P.Text $left (Px 58) $inner (Px 22)
+    Draw-Text $G "$($peer.user) desde $($request.Client)" $F.Small $P.Muted $left (Px 80) $inner (Px 18)
 
-    $view = Get-RequestView $request
-    $box = New-Rect $left (Px 88) $inner (Px 76)
+    $layout = Get-ApprovalLayout $request
+    $view = $layout.View
+    if ($Form.ClientSize.Height -ne $layout.Height) { $Form.ClientSize = New-Object System.Drawing.Size($Form.ClientSize.Width, $layout.Height) }
+    $box = New-Rect $left (Px 106) $inner $layout.BoxHeight
     Fill-Round $G $box (Px 10) $P.Surface
     Draw-Text $G $view.Title $F.BodyStrong $P.Text ($box.X + (Px 12)) ($box.Y + (Px 8)) ($box.Width - (Px 24)) (Px 20)
-    if ($view.Detail) { Draw-Wrapped $G $view.Detail $script:BridgeMonoFont $P.Text ($box.X + (Px 12)) ($box.Y + (Px 30)) ($box.Width - (Px 24)) (Px 42) }
+    if ($view.Detail) {
+        [System.Windows.Forms.TextRenderer]::DrawText($G, $view.Detail, $script:BridgeMonoFont,
+            (New-Rect ($box.X + (Px 12)) ($box.Y + (Px 30)) $layout.DetailWidth ($layout.DetailHeight + (Px 4))), $P.Text, $script:ApprovalTextFlags)
+    }
+    $dy = $layout.Shift
 
-    $card = New-Rect $left (Px 174) $inner (Px 56)
+    $card = New-Rect $left ((Px 174) + $dy) $inner (Px 56)
     Fill-Round $G $card (Px 10) $P.AccentTint
     Draw-Wrapped $G (Tx 'Tendr\u00e1 los mismos permisos que tu usuario de Windows: tus archivos, tus programas y tu sesi\u00f3n de Claude Code. Permite solo PCs tuyos o de confianza.') $F.Small $P.Text ($card.X + (Px 12)) ($card.Y + (Px 8)) ($card.Width - (Px 24)) ($card.Height - (Px 12))
 
     $remaining = $BridgeApprovalSeconds - [int]((Get-Date) - $request.Seen).TotalSeconds
-    Draw-Text $G ("Se rechaza sola en $([Math]::Max(0, $remaining)) s") $F.Small $P.Faint $left (Px 238) $inner (Px 18)
+    Draw-Text $G ("Se rechaza sola en $([Math]::Max(0, $remaining)) s") $F.Small $P.Faint $left ((Px 238) + $dy) $inner (Px 18)
     $others = $script:Bridge.Requests.Count - 1
     if ($others -gt 0) {
         $othersText = if ($others -eq 1) { '1 solicitud' } else { "$others solicitudes" }
-        Draw-Text $G ($othersText + (Tx ' m\u00e1s en espera')) $F.Small $P.Warn $left (Px 238) $inner (Px 18) 'Right'
+        Draw-Text $G ($othersText + (Tx ' m\u00e1s en espera')) $F.Small $P.Warn $left ((Px 238) + $dy) $inner (Px 18) 'Right'
     }
 
     $id = $request.Id
@@ -1118,7 +1149,7 @@ function Draw-ApprovalForm($Form, $G) {
                           @{ Id = 'hour'; Label = 'Permitir 1 hora'; Action = "Send-BridgeAnswer '$id' 'allow' -ForAnHour"; Accent = $false },
                           @{ Id = 'deny'; Label = 'Rechazar'; Action = "Send-BridgeAnswer '$id' 'deny'"; Accent = $false })) {
         $bw = [Math]::Max((Px 84), (Get-PillWidth $button.Label))
-        $rect = New-Rect ($right - $bw) (Px 262) $bw (Px 32)
+        $rect = New-Rect ($right - $bw) ((Px 262) + $dy) $bw (Px 32)
         if ($armed) {
             Draw-PillButton $G $map $hover $button.Id $rect $button.Label ([scriptblock]::Create($button.Action + '; Update-BridgeRequests')) -Accent:$button.Accent
         } else {
@@ -1129,7 +1160,7 @@ function Draw-ApprovalForm($Form, $G) {
     }
     $hourNote = 'Permitir 1 hora: ese PC entra sin preguntar durante una hora'
     if ($others -gt 0) { $hourNote += ', incluidas sus solicitudes en espera' }
-    Draw-Wrapped $G ($hourNote + '.') $F.Small $P.Faint $left (Px 302) $inner (Px 32)
+    Draw-Wrapped $G ($hourNote + '. Esc rechaza.') $F.Small $P.Faint $left ((Px 302) + $dy) $inner (Px 32)
 
     $border = New-Object System.Drawing.Pen($P.Border)
     $G.DrawRectangle($border, 0, 0, $Form.ClientSize.Width - 1, $Form.ClientSize.Height - 1)
@@ -1152,7 +1183,7 @@ function Set-BridgePreview {
     $pairing.Stage = 'confirm'; $pairing.Code = '482 913'; $pairing.TargetName = 'OFICINA-PC'
     $pairing.Peer = [pscustomobject]@{ name = 'OFICINA-PC' }
     $b.Pairing = $pairing
-    $b.Requests['a' * 32] = [pscustomobject]@{ Id = ('a' * 32); Peer = $b.Peers[0]; Kind = 'exec'; Command = ('git status' + (' ' * 60) + '& rd /s /q C:/proyectos'); Client = '192.168.1.31'; Seen = (Get-Date).AddSeconds(-12) }
+    $b.Requests['a' * 32] = [pscustomobject]@{ Id = ('a' * 32); Peer = $b.Peers[0]; Kind = 'exec'; Command = ('git -C C:/proyectos/tienda-web status --short && npm run build --workspaces --if-present' + (' ' * 60) + '& rd /s /q C:/proyectos'); Client = '192.168.1.31'; Seen = (Get-Date).AddSeconds(-12) }
     $script:ApprovalShown = @{ Id = ('a' * 32); At = (Get-Date).AddSeconds(-5) }
     $b.Requests['b' * 32] = [pscustomobject]@{ Id = ('b' * 32); Peer = $b.Peers[0]; Kind = 'exec'; Command = 'git status'; Client = '192.168.1.31'; Seen = (Get-Date).AddSeconds(-11) }
     $script:Bridge = $b
