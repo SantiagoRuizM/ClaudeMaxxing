@@ -1029,5 +1029,34 @@ namespace ClaudeWhisper
         {
             SendMessage(box.Handle, 0x1501, (IntPtr)1, text);
         }
+
+        [StructLayout(LayoutKind.Sequential)] struct ScrollPoint { public int X; public int Y; }
+        [StructLayout(LayoutKind.Sequential)] struct ScrollInfo { public int Size; public uint Mask; public int Min; public int Max; public uint Page; public int Pos; public int TrackPos; }
+        [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref ScrollPoint lParam);
+        [DllImport("user32.dll")] static extern bool GetScrollInfo(IntPtr hWnd, int bar, ref ScrollInfo info);
+
+        // Where a rich text box is scrolled to (EM_GETSCROLLPOS / EM_SETSCROLLPOS), so a rebuild can put it back.
+        public static int GetScrollY(RichTextBox box)
+        {
+            var p = new ScrollPoint();
+            SendMessage(box.Handle, 0x04DD, IntPtr.Zero, ref p);
+            return p.Y;
+        }
+
+        public static void SetScrollY(RichTextBox box, int y)
+        {
+            var p = new ScrollPoint { X = 0, Y = y };
+            SendMessage(box.Handle, 0x04DE, IntPtr.Zero, ref p);
+        }
+
+        // True when the vertical scroll bar is at its end (or there is none): the reader is following new text.
+        public static bool IsAtBottom(Control box)
+        {
+            var info = new ScrollInfo();
+            info.Size = Marshal.SizeOf(typeof(ScrollInfo));
+            info.Mask = 0x17;  // SIF_ALL
+            if (!GetScrollInfo(box.Handle, 1, ref info) || info.Page == 0) return true;
+            return info.Pos + (int)info.Page >= info.Max - 2;
+        }
     }
 }

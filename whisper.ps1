@@ -145,10 +145,12 @@ function Send-ClaudeTurn([string]$Kind, [string]$Text, [string]$Title, [string]$
     }
     $answer = $null
     if ($Kind -ne 'warmup') {
+        # A new answer only takes over when the last one was on screen: an older one being read stays put.
+        $follow = $script:AnswerIndex -ge $script:Answers.Count - 1
         $answer = @{ Kind = $Kind; Title = $Title; Text = ''; State = 'waiting'; At = (Get-Date); Error = '' }
         [void]$script:Answers.Add($answer)
-        while ($script:Answers.Count -gt 50) { $script:Answers.RemoveAt(0) }
-        $script:AnswerIndex = $script:Answers.Count - 1
+        while ($script:Answers.Count -gt 50) { $script:Answers.RemoveAt(0); $script:AnswerIndex-- }
+        $script:AnswerIndex = if ($follow) { $script:Answers.Count - 1 } else { [Math]::Max(0, $script:AnswerIndex) }
         $script:AnswerDirty = $true
     }
     [void]$script:Turns.Add(@{ Kind = $Kind; Answer = $answer })
@@ -228,7 +230,7 @@ function Get-ScreenPng {
 }
 
 function Request-Screen {
-    try { $png = Get-ScreenPng } catch { $script:Problem = Tx 'No pude capturar la pantalla.'; return }
+    try { $png = Get-ScreenPng } catch { Set-WhisperNotice (Tx 'No pude capturar la pantalla.'); return }
     $unsent = Pop-WhisperUnsent $script:Transcript
     Send-ClaudeTurn 'screen' (New-WhisperRequest 'screen' (Format-WhisperTranscript $unsent) '') (Tx 'Lo que hay en tu pantalla') $png
 }
@@ -317,7 +319,11 @@ function Send-Interpretation {
     if ($script:InterpInFlight -or $script:InterpQueue.Count -eq 0) { return }
     if (-not ($script:Settings.translate -or $script:Settings.autoAnswer)) { $script:InterpQueue.Clear(); return }
     if (-not $script:Interp -or $script:Interp.HasExited -or $script:InterpTurns -ge 25) {
-        if (-not (Start-Interpreter)) { $script:InterpQueue.Clear(); return }
+        if (-not (Start-Interpreter)) {
+            $script:InterpQueue.Clear()
+            Set-WhisperNotice (Tx 'No pude traducir ni detectar preguntas: Claude Code no arranc\u00f3.')
+            return
+        }
     }
     $batch = @()
     foreach ($line in @($script:InterpQueue | Select-Object -Last 6)) {
@@ -346,9 +352,11 @@ function Read-InterpreterOutput {
     if ($script:Interp -and $script:Interp.HasExited) {
         Write-WhisperLog "interpreter exited: $($script:Interp.LastErrors())"
         Stop-Interpreter
+        Set-WhisperNotice (Tx 'La traducci\u00f3n se cort\u00f3; sigue con las pr\u00f3ximas l\u00edneas.')
     } elseif ($script:InterpInFlight -and ((Get-Date) - $script:InterpSentAt).TotalSeconds -gt 25) {
         Write-WhisperLog 'interpreter timed out'
         Stop-Interpreter
+        Set-WhisperNotice (Tx 'La traducci\u00f3n tard\u00f3 demasiado; sigue con las pr\u00f3ximas l\u00edneas.')
     }
 }
 
@@ -407,9 +415,21 @@ function Send-QueuedAnswer {
 
 # ---------------------------------------------------------------- listening
 
+# Short-lived notes (a failed screenshot, a translation that stopped) show in the status line for a few
+# seconds; $script:Problem is for what stays wrong until it is fixed.
+function Set-WhisperNotice([string]$Text) {
+    $script:Notice = $Text
+    $script:NoticeAt = Get-Date
+    Write-WhisperLog "notice: $Text"
+    if ($script:StatusPanel) { $script:StatusPanel.Invalidate() }
+}
+
 function Start-Listening {
     if ($script:Listening) { return }
     $script:Problem = ''
+    # While this mutex exists the voice hooks stay quiet (voice\hooks\common.ps1, Test-Muted): a session
+    # reading its summary aloud would turn the call down and be transcribed as the other side.
+    if (-not $script:ListenMutex) { $script:ListenMutex = New-Object System.Threading.Mutex($false, 'Local\ClaudeWhisperListening') }
     if (-not $script:Claude) { [void](Start-Claude) }
     $credentials = $CredsFile
     if (-not (Test-Path -LiteralPath $credentials)) { $script:Problem = Tx 'Claude Code no tiene la sesi\u00f3n iniciada: abre Claude Code e inicia sesi\u00f3n.' }
@@ -425,9 +445,16 @@ function Stop-Listening {
     if (-not $script:Listening) { return }
     $script:Engine.Stop()
     $script:Listening = $false
+    if ($script:ListenMutex) { $script:ListenMutex.Dispose(); $script:ListenMutex = $null }
     $script:StreamState = @{ them = ''; me = '' }
     Read-EngineEvents
     Update-Controls
+}
+
+# Text arriving on a stream proves it works again: clear what an earlier error left on screen.
+function Set-StreamWorking([string]$Source) {
+    if ($script:StreamState[$Source] -in 'error', 'closed', 'device', 'connecting', '') { $script:StreamState[$Source] = 'open' }
+    if ($script:Problem -like '*sesi*') { $script:Problem = '' }
 }
 
 function Read-EngineEvents {
@@ -441,12 +468,14 @@ function Read-EngineEvents {
         $source = $parts[0]; $kind = $parts[1]; $text = $parts[2]
         switch ($kind) {
             'interim' {
+                Set-StreamWorking $source
                 [void](Update-WhisperTranscript $script:Transcript $source 'interim' $text $now)
                 if ($source -eq 'them' -and $script:PendingThem.Count -gt 0) { $script:AnswerDueAt = $now.AddMilliseconds(1200) }
                 if ($source -eq 'them' -and $script:Settings.autoAnswer) { foreach ($q in (Get-WhisperOpenQuestions $text)) { Request-AutoAnswer $q } }
                 $script:TranscriptDirty = $true
             }
             'final' {
+                Set-StreamWorking $source
                 if ($source -eq 'me') {
                     $recent = @($script:Transcript.Lines | Where-Object { $_.Source -eq 'them' -and ($now - $_.At).TotalSeconds -lt 15 } | ForEach-Object { $_.Text })
                     if ($script:Transcript.Open.them) { $recent += $script:Transcript.Open.them }
@@ -475,6 +504,7 @@ function Read-EngineEvents {
             }
             'device' {
                 if ($text -like 'device-error*') { $script:StreamState[$source] = 'device'; Write-WhisperLog "$source $text" }
+                elseif ($text -like 'device-ok*' -and $script:StreamState[$source] -eq 'device') { $script:StreamState[$source] = 'open' }
             }
         }
     }
@@ -535,13 +565,15 @@ Enable-DoubleBuffer $StatusPanel
 
 function Get-StatusLine {
     if ($script:Problem) { return @{ Text = $script:Problem; Color = $P.Error } }
+    if ($script:Notice -and ((Get-Date) - $script:NoticeAt).TotalSeconds -lt 8) { return @{ Text = $script:Notice; Color = $P.Warn } }
     if (-not $script:Listening) { return @{ Text = (Tx 'En pausa'); Color = $P.Faint } }
     $states = @($script:StreamState.them)
     if ($script:Settings.useMic -and -not $Testing) { $states += $script:StreamState.me }
     if ($states -contains 'auth') { return @{ Text = (Tx 'Inicia sesi\u00f3n en Claude Code para transcribir'); Color = $P.Error } }
-    if ($states -contains 'device') { return @{ Text = (Tx 'No puedo abrir el audio (altavoces o micr\u00f3fono)'); Color = $P.Error } }
-    if ($states -contains 'error' -or $states -contains 'closed') { return @{ Text = (Tx 'Reconectando la transcripci\u00f3n...'); Color = $P.Warn } }
-    if ($states -contains 'connecting' -or $states -contains '') { return @{ Text = 'Conectando...'; Color = $P.Warn } }
+    if ($script:StreamState.them -eq 'device') { return @{ Text = (Tx 'No puedo abrir los altavoces'); Color = $P.Error } }
+    if ($states -contains 'device') { return @{ Text = (Tx 'No puedo abrir el micr\u00f3fono'); Color = $P.Error } }
+    if ($states -contains 'error' -or $states -contains 'closed') { return @{ Text = (Tx 'Reconectando la transcripci\u00f3n\u2026'); Color = $P.Warn } }
+    if ($states -contains 'connecting' -or $states -contains '') { return @{ Text = (Tx 'Conectando\u2026'); Color = $P.Warn } }
     @{ Text = 'Escuchando'; Color = $P.Ok }
 }
 
@@ -556,10 +588,14 @@ $StatusPanel.Add_Paint({
     $g.FillEllipse($brush, 0, [int](($sender.Height - $dot) / 2), $dot, $dot)
     $brush.Dispose()
     $meterW = Px 54
-    $metersW = 2 * ($meterW + (Px 44))
+    $meters = @(, @('Ellos', $script:Engine.SystemLevel, $P.Accent))
+    if ($script:Settings.useMic) { $meters += , @((Tx 'T\u00fa'), $script:Engine.MicLevel, $P.Ok) }
+    $metersW = $meters.Count * ($meterW + (Px 44))
     Draw-Text $g $status.Text $script:Fonts.BodyStrong $P.Text ($dot + (Px 8)) 0 ($w - $metersW - $dot - (Px 12)) $sender.Height
+    # The line can be cut with an ellipsis: the whole text is in the tooltip.
+    if ($status.Text -ne $script:StatusTip -and $script:Tips) { $script:StatusTip = $status.Text; $script:Tips.SetToolTip($sender, $status.Text) }
     $x = $w - $metersW
-    foreach ($m in @(@('Ellos', $script:Engine.SystemLevel, $P.Accent), @((Tx 'T\u00fa'), $script:Engine.MicLevel, $P.Ok))) {
+    foreach ($m in $meters) {
         Draw-Text $g $m[0] $script:Fonts.Small $P.Muted $x 0 (Px 40) $sender.Height 'Right'
         $track = New-Rect ($x + (Px 44)) ([int]($sender.Height / 2) - (Px 3)) $meterW (Px 6)
         Fill-Round $g $track (Px 3) $P.Track
@@ -582,10 +618,14 @@ $script:AnswerButton = New-WhisperButton 'Responder' $P
 $script:ScreenButton = New-WhisperButton 'Pantalla' $P
 $script:ContextButton = New-WhisperButton 'Contexto' $P
 $script:ClearButton = New-WhisperButton 'Limpiar' $P
-$script:AutoButton = New-WhisperButton 'Auto' $P
-$script:TranslateButton = New-WhisperButton 'Traducir' $P
+$script:AutoButton = New-WhisperSwitch (Tx 'Responder autom\u00e1ticamente') $P
+$script:TranslateButton = New-WhisperSwitch 'Traducir en vivo' $P
 $script:MoreButton = New-WhisperButton ([string][char]0x22EF) $P
-foreach ($b in $script:ListenButton, $script:AnswerButton, $script:ScreenButton, $script:ContextButton, $script:MoreButton) { $buttons.Controls.Add($b) }
+# Narrow side padding so the five buttons fit one row at the default width.
+foreach ($b in $script:ListenButton, $script:AnswerButton, $script:ScreenButton, $script:ContextButton, $script:MoreButton) {
+    $b.Padding = New-Object System.Windows.Forms.Padding((Px 1), (Px 1), (Px 1), (Px 1))
+    $buttons.Controls.Add($b)
+}
 [void]$header.Controls.Add($buttons, 0, 1)
 # Second row: the two switches that decide what happens on its own, and Limpiar.
 $toggles = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -595,15 +635,18 @@ $toggles.WrapContents = $true
 $toggles.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, (Px 4))
 foreach ($b in $script:AutoButton, $script:TranslateButton, $script:ClearButton) {
     $b.Font = $script:Fonts.Small
-    $b.Margin = New-Object System.Windows.Forms.Padding((Px 2), 0, (Px 4), 0)
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, (Px 2), (Px 8), (Px 2))
     $toggles.Controls.Add($b)
 }
+$script:ClearButton.Padding = New-Object System.Windows.Forms.Padding(0)
 [void]$header.Controls.Add($toggles, 0, 2)
 
 $tips = New-Object System.Windows.Forms.ToolTip
+$script:Tips = $tips
 $tips.SetToolTip($script:AnswerButton, (Tx 'Que Claude responda ahora a lo \u00faltimo que dijeron'))
 $tips.SetToolTip($script:ScreenButton, (Tx 'Claude mira tu pantalla (por ejemplo un ejercicio de programaci\u00f3n) y lo resuelve'))
-$tips.SetToolTip($script:ClearButton, (Tx 'Borra la conversaci\u00f3n y las respuestas, Claude olvida lo anterior y vuelve a escuchar'))
+$tips.SetToolTip($script:ClearButton, (Tx 'Borra la transcripci\u00f3n y las respuestas y Claude olvida lo anterior (pide confirmaci\u00f3n)'))
+$tips.SetToolTip($script:MoreButton, (Tx 'M\u00e1s opciones: siempre visible, historial, cerrar'))
 $tips.SetToolTip($script:ContextButton, (Tx 'Tu perfil, la conversaci\u00f3n, el idioma y el modelo'))
 $tips.SetToolTip($script:AutoButton, (Tx 'Responder solo cuando detecte una pregunta, en cualquier idioma (tambi\u00e9n en una canci\u00f3n)'))
 $tips.SetToolTip($script:TranslateButton, (Tx 'Traducir en vivo a tu idioma lo que suena en el PC'))
@@ -660,6 +703,8 @@ foreach ($b in $script:PrevButton, $script:NextButton) {
     $b.Margin = New-Object System.Windows.Forms.Padding((Px 2), (Px 1), 0, (Px 1))
     $b.MinimumSize = New-Object System.Drawing.Size((Px 30), (Px 26))
 }
+$tips.SetToolTip($script:PrevButton, 'Respuesta anterior')
+$tips.SetToolTip($script:NextButton, 'Respuesta siguiente')
 $answerHead.Controls.Add($answerCaption, 0, 0)
 $answerHead.Controls.Add($script:AnswerNav, 1, 0)
 $answerHead.Controls.Add($script:PrevButton, 2, 0)
@@ -698,22 +743,20 @@ $Form.Controls.Add($header)
 
 function Update-Controls {
     $script:ListenButton.Text = if ($script:Listening) { 'Pausar' } else { 'Escuchar' }
-    $check = [string][char]0x2713 + ' '
-    $script:AutoButton.Text = $(if ($script:Settings.autoAnswer) { $check } else { '' }) + (Tx 'Responder autom\u00e1ticamente')
-    $script:TranslateButton.Text = $(if ($script:Settings.translate) { $check } else { '' }) + 'Traducir en vivo'
-    Set-WhisperButtonStyle $script:AutoButton $P ([bool]$script:Settings.autoAnswer)
-    Set-WhisperButtonStyle $script:TranslateButton $P ([bool]$script:Settings.translate)
+    $script:AutoButton.Checked = [bool]$script:Settings.autoAnswer
+    $script:TranslateButton.Checked = [bool]$script:Settings.translate
     Set-WhisperButtonStyle $script:ListenButton $P (-not $script:Listening)
     $model = $script:WhisperModels[$script:Settings.model] -replace ' \(.*\)$', ''
-    $auto = if ($script:Settings.autoAnswer) { Tx 'responde a las preguntas' } else { 'responde con el atajo' }
-    $text = "$model $([char]0x00B7) $auto"
+    $auto = if ($script:Settings.autoAnswer) { Tx 'responde solo a preguntas' } else { 'responde cuando lo pides' }
+    $dot = " $([char]0x00B7) "
+    $text = "$model$dot$auto"
     $keys = @($script:Settings.hotkeyAnswer, $script:Settings.hotkeyScreen, $script:Settings.hotkeyToggle)
     $prefixes = @($keys | ForEach-Object { $_ -replace '\+[^+]+$', '' } | Select-Object -Unique)
     if ($prefixes.Count -eq 1 -and $prefixes[0]) {
         $last = @($keys | ForEach-Object { ($_ -split '\+')[-1] })
-        $text += "`n" + ('{0} + {1} responder, {2} pantalla, {3} ocultar' -f $prefixes[0], $last[0], $last[1], $last[2])
+        $text += "`n" + ('{0}+{1} responder{4}{2} pantalla{4}{3} mostrar u ocultar' -f $prefixes[0], $last[0], $last[1], $last[2], $dot)
     } else {
-        $text += "`n" + ('{0} responder, {1} pantalla, {2} ocultar' -f $keys[0], $keys[1], $keys[2])
+        $text += "`n" + ('{0} responder{3}{1} pantalla{3}{2} mostrar u ocultar' -f $keys[0], $keys[1], $keys[2], $dot)
     }
     if ($script:HotkeyProblem) { $text += "`n" + $script:HotkeyProblem }
     if ($script:MicUsers) { $text += "`n" + (Tx 'Micr\u00f3fono en uso por: ') + $script:MicUsers }
@@ -726,6 +769,11 @@ function Update-Controls {
 function Render-Transcript {
     $box = $script:TranscriptBox
     $lines = $script:Transcript.Lines
+    # Follow new lines only while the reader is at the end with nothing selected; otherwise the rebuild
+    # (every partial line, up to every 60 ms) would yank the view and drop the selection.
+    $selStart = $box.SelectionStart; $selLength = $box.SelectionLength
+    $follow = $selLength -eq 0 -and [ClaudeWhisper.Ui]::IsAtBottom($box)
+    $scrollY = [ClaudeWhisper.Ui]::GetScrollY($box)
     Suspend-Redraw $box
     try {
         # A translation arrived for a line already shown: draw everything again (the newest 300 lines).
@@ -762,18 +810,30 @@ function Render-Transcript {
             Add-RichText $box $hint $WF.Line $P.Faint
             $script:OpenStart = 0
         }
-        $box.SelectionStart = $box.TextLength
-        $box.SelectionLength = 0
-        $box.ScrollToCaret()
+        if ($follow) {
+            $box.SelectionStart = $box.TextLength
+            $box.SelectionLength = 0
+            $box.ScrollToCaret()
+        } else {
+            $box.SelectionStart = [Math]::Min($selStart, $box.TextLength)
+            $box.SelectionLength = [Math]::Max(0, [Math]::Min($selLength, $box.TextLength - $box.SelectionStart))
+            [ClaudeWhisper.Ui]::SetScrollY($box, $scrollY)
+        }
     } finally { Resume-Redraw $box }
 }
 
 function Render-Answer {
     $box = $script:AnswerBox
+    # The same answer drawn again (it is still streaming): keep where the reader is and what they selected.
+    $same = $script:AnswerIndex -ge 0 -and $script:AnswerIndex -lt $script:Answers.Count -and
+        [object]::ReferenceEquals($script:Answers[$script:AnswerIndex], $script:AnswerShown)
+    $selStart = $box.SelectionStart; $selLength = $box.SelectionLength
+    $scrollY = [ClaudeWhisper.Ui]::GetScrollY($box)
     Suspend-Redraw $box
     try {
         $box.Clear()
         $count = $script:Answers.Count
+        $script:AnswerShown = $null
         $script:PrevButton.Enabled = $script:AnswerIndex -gt 0
         $script:NextButton.Enabled = $script:AnswerIndex -lt $count - 1
         if ($count -eq 0) {
@@ -783,6 +843,7 @@ function Render-Answer {
             return
         }
         $a = $script:Answers[$script:AnswerIndex]
+        $script:AnswerShown = $a
         $script:AnswerNav.Text = '{0}/{1}  {2}' -f ($script:AnswerIndex + 1), $count, $a.At.ToString('HH:mm')
         $title = [string]$a.Title
         if ($title.Length -gt 220) { $title = [string][char]0x2026 + $title.Substring($title.Length - 220) }
@@ -796,13 +857,20 @@ function Render-Answer {
             default { '' }
         }
         if ($note) { Add-RichText $box ("`n" + $note.TrimStart("`n")) $WF.Line $(if ($a.State -eq 'error') { $P.Error } else { $P.Faint }) }
-        $box.SelectionStart = 0
-        $box.SelectionLength = 0
-        $box.ScrollToCaret()
+        if ($same) {
+            $box.SelectionStart = [Math]::Min($selStart, $box.TextLength)
+            $box.SelectionLength = [Math]::Max(0, [Math]::Min($selLength, $box.TextLength - $box.SelectionStart))
+            [ClaudeWhisper.Ui]::SetScrollY($box, $scrollY)
+        } else {
+            $box.SelectionStart = 0
+            $box.SelectionLength = 0
+            $box.ScrollToCaret()
+        }
     } finally { Resume-Redraw $box }
 }
 
 function Reset-Conversation {
+    $wasListening = $script:Listening
     Stop-Listening
     Stop-Claude
     Stop-Interpreter
@@ -822,22 +890,38 @@ function Reset-Conversation {
     $script:TranscriptDirty = $true
     $script:AnswerDirty = $true
     [void](Start-Claude)
-    Start-Listening
+    if ($wasListening) { Start-Listening }
+}
+
+# What the user asks for (button, hotkey or the ask box) goes on screen even when an older answer was open,
+# and a hotkey pressed with the window hidden shows it without taking the focus from the call.
+function Invoke-UserRequest([scriptblock]$Request) {
+    if (-not $script:Form.Visible) { $script:Form.Show() }
+    if ($script:Form.WindowState -eq 'Minimized') { $script:Form.WindowState = 'Normal' }
+    $script:AnswerIndex = $script:Answers.Count - 1
+    & $Request
 }
 
 # ---- actions
 
 $script:ListenButton.Add_Click({ if ($script:Listening) { Stop-Listening } else { Start-Listening } })
-$script:AnswerButton.Add_Click({ Request-AnswerNow })
-$script:AutoButton.Add_Click({ $script:Settings.autoAnswer = -not [bool]$script:Settings.autoAnswer; Save-WhisperSettings; Update-Controls })
-$script:TranslateButton.Add_Click({ $script:Settings.translate = -not [bool]$script:Settings.translate; Save-WhisperSettings; Update-Controls })
-$script:ScreenButton.Add_Click({ Request-Screen })
-$script:ClearButton.Add_Click({ Reset-Conversation })
+$script:AnswerButton.Add_Click({ Invoke-UserRequest { Request-AnswerNow } })
+$script:AutoButton.Add_Click({ $script:Settings.autoAnswer = $script:AutoButton.Checked; Save-WhisperSettings; Update-Controls })
+$script:TranslateButton.Add_Click({ $script:Settings.translate = $script:TranslateButton.Checked; Save-WhisperSettings; Update-Controls })
+$script:ScreenButton.Add_Click({ Invoke-UserRequest { Request-Screen } })
+$script:ClearButton.Add_Click({
+    $answer = [System.Windows.Forms.MessageBox]::Show($script:Form,
+        (Tx '\u00bfBorrar la transcripci\u00f3n y las respuestas? Claude olvida lo anterior de esta llamada. Lo ya guardado en el historial se queda.'),
+        'Claude Whisper', 'YesNo', 'Question', 'Button2')
+    if ($answer -eq 'Yes') { Reset-Conversation }
+})
 $script:PrevButton.Add_Click({ if ($script:AnswerIndex -gt 0) { $script:AnswerIndex--; $script:AnswerDirty = $true } })
 $script:NextButton.Add_Click({ if ($script:AnswerIndex -lt $script:Answers.Count - 1) { $script:AnswerIndex++; $script:AnswerDirty = $true } })
 $script:ContextButton.Add_Click({
     $updated = Show-WhisperContextDialog $script:Settings $script:Palette $script:Form
     if (-not $updated) { return }
+    # Restarting Claude cuts an answer being written and loses its cache: only when something changed.
+    if (($updated | ConvertTo-Json -Compress) -eq ($script:Settings | ConvertTo-Json -Compress)) { return }
     $restartEngine = $script:Listening -and ($updated.language -ne $script:Settings.language -or $updated.useMic -ne $script:Settings.useMic -or
         $updated.gateMic -ne $script:Settings.gateMic -or $updated.keyterms -ne $script:Settings.keyterms -or $updated.profile -ne $script:Settings.profile)
     $script:Settings = $updated
@@ -849,6 +933,7 @@ $script:ContextButton.Add_Click({
     Stop-Interpreter
     if ($restartEngine) { Stop-Listening; Start-Listening }
     Update-Controls
+    Set-WhisperNotice 'Contexto guardado'
 })
 $script:AskBox.Add_KeyDown({
     param($sender, $e)
@@ -856,14 +941,19 @@ $script:AskBox.Add_KeyDown({
         $e.SuppressKeyPress = $true
         $text = $script:AskBox.Text
         $script:AskBox.Text = ''
-        Request-Ask $text
+        Invoke-UserRequest { Request-Ask $text }
+        # Claude did not start: keep the question so it is not lost.
+        if (-not $script:Claude -or $script:Claude.HasExited) { $script:AskBox.Text = $text; $script:AskBox.SelectionStart = $text.Length }
+    } elseif ($e.KeyCode -eq 'Escape') {
+        $e.SuppressKeyPress = $true
+        $script:AskBox.Text = ''
     }
 })
 
 # ---- hotkeys
 $script:HotkeyProblem = ''
 $script:Hotkeys = $null
-$script:HotkeyActions = @{ 1 = { Request-AnswerNow }; 2 = { Request-Screen }; 3 = { Switch-WhisperWindow } }
+$script:HotkeyActions = @{ 1 = { Invoke-UserRequest { Request-AnswerNow } }; 2 = { Invoke-UserRequest { Request-Screen } }; 3 = { Switch-WhisperWindow } }
 function Register-WhisperHotkeys {
     $script:Hotkeys = New-Object ClaudeWhisper.Hotkeys
     $failed = @()
@@ -887,6 +977,7 @@ function Show-WhisperWindow {
     $script:Form.Show()
     if ($script:Form.WindowState -eq 'Minimized') { $script:Form.WindowState = 'Normal' }
     $script:Form.Activate()
+    $script:AskBox.Focus()
 }
 
 # ---- timer: drains the native queues and repaints
@@ -936,6 +1027,7 @@ $Form.Add_FormClosing({
         try { Write-JsonFile $ReportTo $report } catch { }
     }
     $script:Engine.Stop()
+    if ($script:ListenMutex) { $script:ListenMutex.Dispose(); $script:ListenMutex = $null }
     Stop-Claude
     Stop-Interpreter
     if ($script:Hotkeys) { $script:Hotkeys.Dispose() }
@@ -991,6 +1083,7 @@ $Form.Add_Shown({
     [void](Start-Claude)
     if ($Testing) { Start-Listening }
     $script:Timer.Start()
+    $script:AskBox.Focus()
 })
 $Form.Add_FormClosed({ [System.Windows.Forms.Application]::Exit() })
 

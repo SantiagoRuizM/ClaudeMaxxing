@@ -79,6 +79,10 @@ Check '/voz todo-on quita el silencio global' (-not (Test-Muted 'bbbb-2222')) ''
 $env:CLAUDEVOICE = 'off'
 Check 'CLAUDEVOICE=off silencia la sesion' (Test-Muted 'bbbb-2222') ''
 Remove-Item Env:\CLAUDEVOICE
+$listening = New-Object System.Threading.Mutex($false, 'Local\ClaudeWhisperListening')
+Check 'Claude Whisper escuchando silencia todas' ((Test-Muted 'bbbb-2222') -and (Test-WhisperListening)) ''
+$listening.Dispose()
+Check 'al dejar de escuchar vuelve la voz' (-not (Test-Muted 'bbbb-2222')) ''
 
 Remove-Item $out -ErrorAction SilentlyContinue
 $env:CLAUDEVOICE_DRYRUN = $out
