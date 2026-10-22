@@ -209,7 +209,7 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
     $modeRect = New-Rect ($stepper.Right + (Px 4)) $box.Y ($box.Right - $stepper.Right - (Px 4)) $box.Height
     if ($plan.Manual) {
         Draw-Text $G 'auto' $F.Small $(if ($Hover -eq 'auto-reset') { $P.AccentHover } else { $P.Accent }) $modeRect.X $modeRect.Y $modeRect.Width $modeRect.Height 'Right'
-        Add-Hit $Map 'auto-reset' $modeRect { Step-AutoBoundary 0 -Reset }
+        Add-Hit $Map 'auto-reset' $modeRect { Step-AutoBoundary 0 -Reset } 'Volver a la hora calculada'
     } else {
         Draw-Text $G 'auto' $F.Small $P.Faint $modeRect.X $modeRect.Y $modeRect.Width $modeRect.Height 'Right'
     }

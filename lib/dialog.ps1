@@ -347,7 +347,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
         $close = New-Rect (Px ($W - 52)) (Px 16) (Px 30) (Px 30)
         if ($hover -eq 'close') { Fill-Round $g $close (Px 6) $P.SurfaceHover }
         Draw-Text $g (Tx '\u00d7') $F.Close $P.Muted $close.X $close.Y $close.Width $close.Height 'Center'
-        Add-Hit $map 'close' $close { $dlg.Close() }
+        Add-Hit $map 'close' $close { $dlg.Close() } 'Cerrar (Esc)'
 
         $divider = New-Object System.Drawing.Pen($P.Border)
         $g.DrawLine($divider, $left, (Px 89), $left + $inner, (Px 89))
@@ -506,7 +506,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
                     $removeId = "remove-$i"
                     if ($hover -eq $removeId) { Fill-Round $g $remove (Px 6) $P.SurfaceHover }
                     Draw-Text $g (Tx '\u00d7') $F.BodyStrong $P.Muted $remove.X $remove.Y $remove.Width $remove.Height 'Center'
-                    Add-Hit $map $removeId $remove ([scriptblock]::Create("if (Remove-SessionTask '$($item.TaskName)') { `$state.Message = (Tx 'Sesi\u00f3n quitada.'); `$state.MessageKind = 'ok' } else { `$state.Message = (Tx 'No se pudo quitar: mira el Programador de tareas.'); `$state.MessageKind = 'error' }; Update-Rows"))
+                    Add-Hit $map $removeId $remove ([scriptblock]::Create("if (Remove-SessionTask '$($item.TaskName)') { `$state.Message = (Tx 'Sesi\u00f3n quitada.'); `$state.MessageKind = 'ok' } else { `$state.Message = (Tx 'No se pudo quitar: mira el Programador de tareas.'); `$state.MessageKind = 'error' }; Update-Rows")) 'Quitar esta sesi\u00f3n agendada'
                     $statusRight = $remove.X - (Px 6)
                 }
                 Draw-Text $g $status $F.Small $statusColor ($row.X + (Px 200)) $row.Y ($statusRight - $row.X - (Px 200)) $row.Height 'Right'

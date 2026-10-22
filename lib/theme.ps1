@@ -30,12 +30,13 @@ function Test-AppsLightTheme {
     } catch { return $false }
 }
 
-# Colors follow claude.ai: warm off-white or warm charcoal, with the clay accent.
+# Colors follow claude.ai: warm off-white or warm charcoal, with the clay accent. Muted and Faint text stay at
+# 4.5:1 or more on the window background (WCAG AA), with Muted a step stronger than Faint.
 function Get-ClaudePalette([bool]$Light) {
     if ($Light) {
         return @{
             Back = New-Rgb 250 249 245; Surface = New-Rgb 240 238 230; SurfaceHover = New-Rgb 232 229 218
-            Border = New-Rgb 222 219 207; Text = New-Rgb 20 20 19; Muted = New-Rgb 107 106 100; Faint = New-Rgb 160 158 150
+            Border = New-Rgb 222 219 207; Text = New-Rgb 20 20 19; Muted = New-Rgb 90 89 84; Faint = New-Rgb 117 115 107
             Accent = New-Rgb 217 119 87; AccentHover = New-Rgb 198 97 63; AccentText = New-Rgb 255 255 255
             AccentTint = New-Rgb 247 229 220; Track = New-Rgb 228 225 214
             low = New-Rgb 106 150 90; medium = New-Rgb 201 145 50; high = New-Rgb 196 72 54
@@ -44,7 +45,7 @@ function Get-ClaudePalette([bool]$Light) {
     }
     @{
         Back = New-Rgb 38 38 36; Surface = New-Rgb 48 48 46; SurfaceHover = New-Rgb 58 58 55
-        Border = New-Rgb 66 65 61; Text = New-Rgb 250 249 245; Muted = New-Rgb 166 163 154; Faint = New-Rgb 117 115 108
+        Border = New-Rgb 66 65 61; Text = New-Rgb 250 249 245; Muted = New-Rgb 166 163 154; Faint = New-Rgb 142 140 133
         Accent = New-Rgb 217 119 87; AccentHover = New-Rgb 229 136 105; AccentText = New-Rgb 255 255 255
         AccentTint = New-Rgb 70 52 44; Track = New-Rgb 62 62 58
         low = New-Rgb 132 176 112; medium = New-Rgb 226 171 78; high = New-Rgb 226 101 80
@@ -169,12 +170,39 @@ function Enable-DoubleBuffer($Control) {
 
 # ---------------------------------------------------------------- hit map
 # Owner-drawn forms register clickable rectangles while painting; mouse handlers look them up.
-# The map lives in the form's Tag so handlers need no closures.
+# The map lives in the form's Tag so handlers need no closures. $Tip is shown while the mouse is over it
+# (icon-only buttons such as the refresh arrow or a close cross). An area with no action only has a tip.
+# Keyboard: Tab / Shift+Tab move a focus ring through the areas with an action, in drawing order, and
+# Enter or Space runs it. Forms with a text box keep Tab for it, so this only works on fully drawn forms.
 
-function New-HitMap { @{ Items = New-Object System.Collections.ArrayList; Hover = $null } }
+function New-HitMap { @{ Items = New-Object System.Collections.ArrayList; Hover = $null; Focus = $null; Tip = $null; TipId = $null } }
 
-function Add-Hit($Map, [string]$Id, [System.Drawing.Rectangle]$Rect, [scriptblock]$Action) {
-    [void]$Map.Items.Add(@{ Id = $Id; Rect = $Rect; Action = $Action })
+function Add-Hit($Map, [string]$Id, [System.Drawing.Rectangle]$Rect, [scriptblock]$Action, [string]$Tip) {
+    [void]$Map.Items.Add(@{ Id = $Id; Rect = $Rect; Action = $Action; Tip = $Tip })
+}
+
+function Test-HitAction($Item) { [bool]($Item.Action -and $Item.Action.ToString().Trim()) }
+
+# The ring around the area that has the keyboard focus; Register-HitMap draws it after the form's own Paint.
+function Draw-HitFocus($G, $Map) {
+    if (-not $Map.Focus) { return }
+    $item = @($Map.Items | Where-Object { $_.Id -eq $Map.Focus }) | Select-Object -First 1
+    if (-not $item) { $Map.Focus = $null; return }
+    $r = $item.Rect
+    $G.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    Stroke-Round $G (New-Rect ($r.X - (Px 2)) ($r.Y - (Px 2)) ($r.Width + (Px 4)) ($r.Height + (Px 4))) (Px 8) $script:Palette.Accent 2
+}
+
+function Move-HitFocus($Form, [int]$Step) {
+    $map = $Form.Tag
+    $items = @($map.Items | Where-Object { Test-HitAction $_ })
+    if (-not $items.Count) { return }
+    $index = -1
+    for ($i = 0; $i -lt $items.Count; $i++) { if ($items[$i].Id -eq $map.Focus) { $index = $i; break } }
+    $index = if ($index -lt 0) { if ($Step -gt 0) { 0 } else { $items.Count - 1 } } else { ($index + $Step + $items.Count) % $items.Count }
+    $map.Focus = $items[$index].Id
+    $map.Hover = $map.Focus
+    $Form.Invalidate()
 }
 
 function Find-Hit($Map, [System.Drawing.Point]$Point) {
@@ -185,23 +213,47 @@ function Find-Hit($Map, [System.Drawing.Point]$Point) {
 }
 
 function Register-HitMap([System.Windows.Forms.Form]$Form) {
+    $Form.Tag.Tip = New-Object System.Windows.Forms.ToolTip
+    $Form.KeyPreview = $true
     $Form.Add_MouseMove({
         param($sender, $e)
-        $hit = Find-Hit $sender.Tag $e.Location
+        $map = $sender.Tag
+        $hit = Find-Hit $map $e.Location
         $id = if ($hit) { $hit.Id } else { $null }
-        $sender.Cursor = if ($hit) { [System.Windows.Forms.Cursors]::Hand } else { [System.Windows.Forms.Cursors]::Default }
-        if ($sender.Tag.Hover -ne $id) { $sender.Tag.Hover = $id; $sender.Invalidate() }
+        $sender.Cursor = if ($hit -and (Test-HitAction $hit)) { [System.Windows.Forms.Cursors]::Hand } else { [System.Windows.Forms.Cursors]::Default }
+        if ($map.Focus) { $map.Focus = $null; $sender.Invalidate() }
+        if ($map.Hover -ne $id) { $map.Hover = $id; $sender.Invalidate() }
+        $tip = if ($hit) { $hit.Tip } else { $null }
+        if ($map.TipId -ne $id) {
+            $map.TipId = $id
+            if ($tip) { $map.Tip.Show($tip, $sender, $e.X + (Px 12), $e.Y + (Px 18), 4000) } else { $map.Tip.Hide($sender) }
+        }
     })
     $Form.Add_MouseLeave({
         param($sender, $e)
+        $sender.Tag.TipId = $null
+        $sender.Tag.Tip.Hide($sender)
         if ($sender.Tag.Hover) { $sender.Tag.Hover = $null; $sender.Invalidate() }
     })
     $Form.Add_MouseClick({
         param($sender, $e)
         if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
         $hit = Find-Hit $sender.Tag $e.Location
-        if ($hit) { & $hit.Action }
+        if ($hit -and (Test-HitAction $hit)) { & $hit.Action }
     })
+    # Tab only reaches KeyDown on a form without focusable controls (a text box keeps it).
+    $Form.Add_PreviewKeyDown({ param($sender, $e) if ($e.KeyCode -eq 'Tab') { $e.IsInputKey = $true } })
+    $Form.Add_KeyDown({
+        param($sender, $e)
+        if ($sender.ActiveControl -or $sender.Tag.NoKeys) { return }
+        if ($e.KeyCode -eq 'Tab') { Move-HitFocus $sender $(if ($e.Shift) { -1 } else { 1 }); $e.Handled = $true; return }
+        if ($sender.Tag.Focus -and ($e.KeyCode -eq 'Enter' -or $e.KeyCode -eq 'Space')) {
+            $item = @($sender.Tag.Items | Where-Object { $_.Id -eq $sender.Tag.Focus }) | Select-Object -First 1
+            if ($item -and (Test-HitAction $item)) { $e.Handled = $true; $e.SuppressKeyPress = $true; & $item.Action }
+        }
+    })
+    # Added once the window exists, so it runs after the form's own Paint handler and the ring is on top.
+    $Form.Add_HandleCreated({ param($sender, $e) $sender.Add_Paint({ param($s, $pe) try { Draw-HitFocus $pe.Graphics $s.Tag } catch { } }) })
 }
 
 # Yes/No before something that cannot be undone; No is the default button. $Owner keeps it on top of that window.
