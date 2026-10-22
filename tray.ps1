@@ -4,7 +4,7 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, usage, stats, code, pcs, whisper, voice; stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, usage, stats, code, pcs, whisper, voice; stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
     [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home')
 
@@ -47,6 +47,8 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\hub.ps1')
 . (Join-Path $TrayRoot 'lib\hubstats.ps1')
 . (Join-Path $TrayRoot 'lib\hubauto.ps1')
+. (Join-Path $TrayRoot 'lib\judge.ps1')
+. (Join-Path $TrayRoot 'lib\hubplan.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
@@ -332,6 +334,7 @@ $Notify.Visible = -not $Rendering
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
+[void]$menu.Items.Add((Tx 'Planear sesi\u00f3n del d\u00eda...'), $null, { Show-HubDialog 'plan' })
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
 [void]$menu.Items.Add('Actualizar datos', $null, { Start-UsageRefresh })
 [void]$menu.Items.Add((Tx 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })

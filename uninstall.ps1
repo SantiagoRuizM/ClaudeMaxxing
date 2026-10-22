@@ -2,7 +2,8 @@
 # "Abrir con Claude Code" Explorer entry (package, certificate and launcher), Otros PCs (its SSH server, firewall
 # rules and ~/.ssh/config block; the rules go in the same UAC prompt as the menu certificate), scheduled sessions,
 # the statusline block, the voice hooks if they were installed for every session, the Settings > Apps entry and
-# the install folder. Usage data (~/.claude/usage-tray) and voice state (%TEMP%\claude-voice) are kept unless
+# the install folder. Usage data (~/.claude/usage-tray), voice state (%TEMP%\claude-voice) and Claude Judge's trials
+# (%LOCALAPPDATA%\ClaudeJudge) are kept unless
 # -RemoveData. -KeepMenu leaves the Explorer entry, which then opens plain Windows Terminal.
 # Runs from the repo or from the install folder (Settings > Apps uses the installed copy).
 param([string]$InstallDir, [switch]$KeepMenu, [switch]$RemoveData)
@@ -12,6 +13,7 @@ $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Here 'lib\schedule.ps1')
 . (Join-Path $Here 'lib\statusline.ps1')
 . (Join-Path $Here 'lib\installer.ps1')
+. (Join-Path $Here 'lib\judge.ps1')
 . (Join-Path $Here 'lib\bridge.ps1')
 . (Join-Path $Here 'lib\bridgeinstall.ps1')
 if (-not $InstallDir) { $InstallDir = $DefaultInstallDir }
@@ -67,12 +69,12 @@ if ($statusline) { Write-Host "statusline: $(Uninstall-StatuslineBlock $statusli
 if (Test-Path -LiteralPath $UninstallKey) { Remove-Item -LiteralPath $UninstallKey -Recurse; Write-Host 'Settings > Apps entry removed' }
 
 if ($RemoveData) {
-    foreach ($dir in $TrayHome, (Join-Path $env:TEMP 'claude-voice')) {
+    foreach ($dir in $TrayHome, (Join-Path $env:TEMP 'claude-voice'), $JudgeHome) {
         Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "removed $dir"
     }
 } else {
-    Write-Host "data kept in $TrayHome and $(Join-Path $env:TEMP 'claude-voice') (-RemoveData deletes them)"
+    Write-Host "data kept in $TrayHome, $(Join-Path $env:TEMP 'claude-voice') and $JudgeHome (-RemoveData deletes them)"
 }
 
 # The install folder last. When this script runs from inside it, a detached cmd deletes it once we exit.
