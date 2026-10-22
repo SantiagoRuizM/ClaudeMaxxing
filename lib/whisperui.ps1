@@ -41,6 +41,36 @@ function Set-WhisperButtonStyle($Button, $Palette, [bool]$Accent) {
     }
 }
 
+# On/off switch drawn like the ClaudeMaxxing window's (Draw-HubSwitch), on a CheckBox so it keeps the keyboard
+# (Tab, Space) and reads as a check box to screen readers.
+function New-WhisperSwitch([string]$Text, $Palette) {
+    $c = New-Object System.Windows.Forms.CheckBox
+    $c.Text = $Text
+    $c.AutoSize = $false
+    $c.UseMnemonic = $false
+    $c.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $c.Font = $script:Fonts.Small
+    $c.Add_FontChanged({ $this.Size = New-Object System.Drawing.Size(((Measure-TextWidth $this.Text $this.Font) + (Px 34)), (Px 26)) })
+    $c.Size = New-Object System.Drawing.Size(((Measure-TextWidth $Text $c.Font) + (Px 34)), (Px 26))
+    Enable-DoubleBuffer $c
+    $c.Add_Paint({
+        param($sender, $e)
+        $P = $script:Palette
+        $g = $e.Graphics
+        $g.Clear($sender.Parent.BackColor)
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $track = New-Rect 0 ([int](($sender.Height - (Px 18)) / 2)) (Px 32) (Px 18)
+        Fill-Round $g $track (Px 9) $(if ($sender.Checked) { $P.Accent } else { $P.Track })
+        $knobX = if ($sender.Checked) { $track.Right - (Px 16) } else { $track.X + (Px 2) }
+        $brush = New-Object System.Drawing.SolidBrush($(if ($sender.Checked) { $P.AccentText } else { $P.Muted }))
+        $g.FillEllipse($brush, $knobX, $track.Y + (Px 2), (Px 14), (Px 14))
+        $brush.Dispose()
+        Draw-Text $g $sender.Text $sender.Font $P.Text ($track.Right + (Px 8)) 0 ($sender.Width - $track.Right - (Px 8)) $sender.Height
+        if ($sender.Focused) { Stroke-Round $g (New-Rect 0 0 ($sender.Width - 1) ($sender.Height - 1)) (Px 6) $P.Muted }
+    })
+    $c
+}
+
 function New-WhisperTextView($Palette, $Font) {
     $box = New-Object System.Windows.Forms.RichTextBox
     $box.ReadOnly = $true
@@ -131,7 +161,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     $F = $script:Fonts
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = 'Claude Whisper ' + [char]0x00B7 + ' Contexto'
-    $dlg.StartPosition = 'CenterScreen'
+    $dlg.StartPosition = 'CenterParent'
     $dlg.FormBorderStyle = 'Sizable'
     $dlg.MinimizeBox = $false
     $dlg.MaximizeBox = $false
@@ -140,8 +170,10 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     $dlg.BackColor = $P.Back
     $dlg.ForeColor = $P.Text
     $dlg.Font = $F.Body
-    $dlg.ClientSize = New-Object System.Drawing.Size((Px 560), (Px 640))
-    $dlg.MinimumSize = New-Object System.Drawing.Size((Px 460), (Px 520))
+    # Never taller than the screen it opens on (at 150 % the full height would push Guardar off a laptop screen).
+    $workArea = [System.Windows.Forms.Screen]::FromControl($(if ($Owner) { $Owner } else { $dlg })).WorkingArea
+    $dlg.ClientSize = New-Object System.Drawing.Size((Px 560), [Math]::Min((Px 640), $workArea.Height - (Px 60)))
+    $dlg.MinimumSize = New-Object System.Drawing.Size((Px 460), [Math]::Min((Px 520), $workArea.Height - (Px 40)))
     $dlg.Add_HandleCreated({ Set-WhisperTitleBar $this $script:Palette $script:LightTheme })
 
     $layout = New-Object System.Windows.Forms.TableLayoutPanel
@@ -231,7 +263,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     }
     $languageCombo = New-Combo $script:WhisperLanguages $Settings.language
     $modelCombo = New-Combo $script:WhisperModels $Settings.model
-    $options.Controls.Add((New-Inline 'Mi idioma'))
+    $options.Controls.Add((New-Inline 'Idioma'))
     $options.Controls.Add($languageCombo)
     $options.Controls.Add((New-Inline '   Modelo'))
     $options.Controls.Add($modelCombo)
@@ -239,10 +271,14 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
 
     $checks = New-Object System.Windows.Forms.FlowLayoutPanel
     $checks.AutoSize = $true; $checks.WrapContents = $true
-    $autoCheck = New-Check (Tx 'Responder solo cuando detecte una pregunta (cualquier idioma, tambi\u00e9n en canciones)') $Settings.autoAnswer
-    $micCheck = New-Check (Tx 'Transcribir tu micr\u00f3fono') $Settings.useMic
-    $gateCheck = New-Check (Tx 'Silenciar tu micr\u00f3fono mientras hablan (sin auriculares)') $Settings.gateMic
-    $meetingCheck = New-Check (Tx 'Avisar desde la bandeja cuando empiece una llamada (Teams, Zoom...)') $Settings.meetingNotice
+    $autoCheck = New-Check (Tx 'Responder solo a preguntas (en cualquier idioma, tambi\u00e9n en canciones)') $Settings.autoAnswer
+    $micCheck = New-Check (Tx 'Transcribir mi micr\u00f3fono') $Settings.useMic
+    $gateCheck = New-Check (Tx 'Sin auriculares: silenciar mi micr\u00f3fono mientras hablan (evita el eco)') $Settings.gateMic
+    $meetingCheck = New-Check (Tx 'Avisar al empezar una llamada (Teams, Zoom\u2026)') $Settings.meetingNotice
+    # Muting the mic only matters while it is transcribed.
+    $gateCheck.Enabled = $micCheck.Checked
+    $micCheck.Tag = $gateCheck
+    $micCheck.Add_CheckedChanged({ $this.Tag.Enabled = $this.Checked })
     $checks.Controls.Add($autoCheck); $checks.Controls.Add($micCheck); $checks.Controls.Add($gateCheck); $checks.Controls.Add($meetingCheck)
     Add-Row $checks
 

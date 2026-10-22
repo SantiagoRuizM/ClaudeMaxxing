@@ -98,6 +98,7 @@ Antes de cada mensaje suena un acorde corto (≈1 s) que identifica la sesión; 
 | Todas las sesiones, desde Claude Code | `/voz todo-off` · `/voz todo-on` |
 | Todas las sesiones, desde la terminal | `.\ctl.ps1 mute` · `.\ctl.ps1 unmute` · `.\ctl.ps1 stop` |
 | Una sesión desde que la abres | `$env:CLAUDEVOICE='off'; claude` |
+| Todas, mientras Claude Whisper escucha una llamada | Automático: vuelven a hablar al pausarlo o cerrarlo |
 | Todo, sin desinstalar | `"enabled": false` en `config.local.json` |
 | Solo bajar la música / solo los nombres | `"duck": {"enabled": false}` · `"naming": {"enabled": false}` |
 | Todo, permanente | `.\install.ps1 -Uninstall` · `.\ctl.ps1 hotkeys off` (quita el proceso de atajos y su inicio automático) |
