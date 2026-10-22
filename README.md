@@ -120,7 +120,7 @@ The usage limit is per 5-hour window, and a window starts with the first message
   - the session times;
   - the change hour, which you can move with ‹ › (**auto** goes back to the computed one);
   - whether today's window follows the plan.
-- Tasks scheduled by hand (Agendar sesión, Plan semanal) over the next 2 weeks that would open a window off the plan, and so interrupt the chain, are listed. **Limpiar** removes exactly those, whether the agenda is on or not, and only when you click it. Hand-made tasks within 30 minutes of a planned start fit the chain and are kept.
+- Tasks scheduled by hand (Agendar sesión, Plan semanal) over the next 2 weeks that would open a window off the plan, and so interrupt the chain, are listed. **Limpiar** removes exactly those, whether the agenda is on or not, and only when you click it and confirm. Hand-made tasks within 30 minutes of a planned start fit the chain and are kept.
 - A window only starts when none is running. If you start one at another time, the chain picks up again at the next planned start after it ends.
 
 ### Scheduling a session
@@ -149,7 +149,7 @@ The **Semana** tab of the same dialog (also **Plan semanal...** in the tray menu
 
 [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) is a third-party local server (MIT). It pools the free tiers of many providers (Groq, Google, Mistral, OpenRouter, Cerebras…) behind one endpoint that also speaks Anthropic's Messages API. The **Modelos gratis con FreeLLMAPI** card in ClaudeMaxxing > Claude Code handles it:
 
-1. **Instalar** downloads the official Windows desktop app, a pinned version (`$FreeLlmVersion` in `lib/freellm.ps1`). It checks a fixed SHA-512 and installs per user, with no admin rights. The installer is not code-signed. `install.ps1` never downloads it: only the button does.
+1. **Instalar** asks first, then downloads the official Windows desktop app, a pinned version (`$FreeLlmVersion` in `lib/freellm.ps1`). It checks a fixed SHA-512 and installs per user, with no admin rights. The installer is not code-signed. `install.ps1` never downloads it: only the button does.
 2. In FreeLLMAPI's own window, create the dashboard account and add provider keys on **Keys** (you sign up with each provider yourself). Then copy the unified key (`freellmapi-…`) and press **Pegar clave**. ClaudeMaxxing reads it from the clipboard and checks it against `/v1/models`.
 3. The switch makes **new** sessions from the Explorer menu or **Nueva sesión** talk to FreeLLMAPI. `open-session.ps1` sets `ANTHROPIC_BASE_URL` (`http://127.0.0.1:<port>`, read from `%APPDATA%\FreeLLMAPI\config.json`), `ANTHROPIC_AUTH_TOKEN` (the unified key) and an empty `ANTHROPIC_API_KEY` for that window only. If FreeLLMAPI is closed, it starts it first. If it cannot be reached, the session opens on your plan and says so.
 
@@ -179,7 +179,7 @@ For two (or more) PCs on the same network that both run ClaudeMaxxing. Typical u
   - The gate asks the tray before running anything, and lets nobody in when the tray is not running, not even a PC allowed for an hour.
   - The dialog shows one request at a time; **Permitir** and **Rechazar** apply only to that request.
   - Commands are shown in full: line breaks and invisible characters are made visible, and space padding that could push the dangerous part out of view is collapsed. Only the exact command `claude` is labelled "Claude Code".
-  - The buttons stay off for 1.5 seconds after a request appears, so a click meant for another window can't allow it. With no answer, the connection is refused after 60 seconds.
+  - The buttons stay off for 1.5 seconds after a request appears, so a click meant for another window can't allow it. Keys can't allow it either: Tab and Enter do nothing in that dialog, and Esc rejects. With no answer, the connection is refused after 60 seconds.
   - **Permitir 1 hora** is capped at an hour, and the gate refuses longer grants.
 - **Tampering.** `authorized_keys` and the gate's settings are compared every 5 seconds with what the tray writes. A key or setting added from outside (for example by a session that was allowed) is put back and reported.
 - **Network.**

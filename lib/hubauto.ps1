@@ -105,7 +105,7 @@ function Remove-AutoConflicts {
     Update-ScheduleState
     Invoke-AutoSchedule -Force
     $failed = $conflicts.Count - $count
-    if ($failed -gt 0) { Set-HubMessage "No se pudieron quitar $failed de $($conflicts.Count): mira el Programador de tareas." -Error }
+    if ($failed -gt 0) { Set-HubMessage "No se pudieron quitar $failed de $($conflicts.Count): mira el Programador de tareas." -Failed }
     else { Set-HubMessage ((Tx '\u2713 ') + $(if ($count -eq 1) { 'Limpiada 1 agendada a mano' } else { "Limpiadas $count agendadas a mano" })) }
     Update-HubAuto
     Update-HubNow
