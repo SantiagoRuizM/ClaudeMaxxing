@@ -122,15 +122,6 @@ function Test-VoiceHotkeys {
     [bool](Get-Process -Id $hotkeyPid -ErrorAction SilentlyContinue)
 }
 
-# How old the usage data is, in Spanish (the popup's Format-Age is in English).
-function Format-HubAge($AgeMinutes) {
-    if ($null -eq $AgeMinutes) { return 'Sin datos' }
-    $minutes = [int][Math]::Floor($AgeMinutes)
-    if ($minutes -lt 1) { return 'Actualizado ahora' }
-    if ($minutes -lt 60) { return "Actualizado hace $minutes min" }
-    'Actualizado hace {0} h' -f [int][Math]::Floor($minutes / 60)
-}
-
 # "es-CO-SalomeNeural" -> "Salome (es-CO)".
 function Format-VoiceName([string]$Voice) {
     if ($Voice -match '^([a-z]{2,3}-[A-Z]{2})-([A-Za-z]+?)Neural$') { return '{0} ({1})' -f $Matches[2], $Matches[1] }
@@ -599,7 +590,7 @@ function Draw-HubUsage($G, [string]$Label, $Window, [int]$X, [int]$Y, [int]$W, [
     $now = Get-Date
     if (-not $active) { $reset = 'Sin empezar' }
     elseif ($Short) { $reset = 'Se renueva en ' + (Format-Remaining ($Window.ResetsAt - $now)) }
-    else { $reset = 'Se renueva ' + (Format-DialogDateTime $Window.ResetsAt $now) + ' (en ' + (Format-Remaining ($Window.ResetsAt - $now)) + ')' }
+    else { $reset = 'Se renueva ' + (Format-ResetText $Window.ResetsAt $now) }
     Draw-Text $G $reset $F.Small $P.Muted $X ($Y + (Px 36)) $W (Px 18)
 }
 
@@ -1022,7 +1013,7 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     # header line: data age and refresh
     if ($script:Refresh) { $age = 'Actualizando...'; $ageColor = $P.Muted }
     elseif ($script:RefreshError -and ($now - $script:RefreshErrorAt).TotalSeconds -lt 30) { $age = $script:RefreshError; $ageColor = $P.Error }
-    else { $age = if ($view) { Format-HubAge $view.AgeMinutes } else { 'Sin datos' }; $ageColor = $P.Muted }
+    else { $age = if ($view) { Format-Age $view.AgeMinutes } else { 'Sin datos' }; $ageColor = $P.Muted }
     $bw = Get-PillWidth 'Actualizar'
     $refresh = New-Rect ($X0 + $Inner - $bw) (Px 70) $bw (Px 24)
     Draw-PillButton $G $Map $Hover 'usage-refresh' $refresh 'Actualizar' { Start-UsageRefresh; Set-HubMessage 'Actualizando el uso...' }
@@ -1054,8 +1045,8 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         if ($reset) {
             Draw-Text $G $reset.Title $F.BodyStrong $P.Text ($row.X + (Px 14)) ($row.Y + (Px 3)) ($row.Width - (Px 120)) (Px 20)
             Draw-Text $G $reset.Detail $F.Small $P.Muted ($row.X + (Px 14)) ($row.Y + (Px 22)) ($row.Width - (Px 120)) (Px 18)
-            $bw = Get-PillWidth 'Usar'
-            Draw-PillButton $G $Map $Hover 'usage-reset' (New-Rect ($row.Right - (Px 12) - $bw) ($row.Y + (Px 10)) $bw (Px 24)) 'Usar' { Start-Process 'https://claude.ai/settings/usage' } -Accent
+            $bw = Get-PillWidth 'Reclamar'
+            Draw-PillButton $G $Map $Hover 'usage-reset' (New-Rect ($row.Right - (Px 12) - $bw) ($row.Y + (Px 10)) $bw (Px 24)) 'Reclamar' { Start-Process 'https://claude.ai/settings/usage' } -Accent
         } else {
             $pct = if ($null -ne $extra.Percent) { "$($extra.Percent)%" } else { 'activado' }
             Draw-Text $G ('Uso extra: ' + $pct) $F.BodyStrong $P.Text ($row.X + (Px 14)) $row.Y (Px 220) $row.Height

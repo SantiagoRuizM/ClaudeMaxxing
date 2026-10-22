@@ -50,25 +50,18 @@ function Format-Remaining([timespan]$Span) {
     return ('{0}m' -f $Span.Minutes)
 }
 
-# "1:59 PM (2h 11m)" when the reset is today, "Oct 11, 2026 7:59 AM (1d 20h)" otherwise.
+# "Hoy \u00b7 1:59 p. m. (en 2h 11m)"; day and clock come from Format-DialogDateTime (lib\schedule.ps1).
 function Format-ResetText([datetime]$ResetsAt, [datetime]$Now) {
-    $remaining = Format-Remaining ($ResetsAt - $Now)
-    if ($ResetsAt.Date -eq $Now.Date) {
-        $when = $ResetsAt.ToString('h:mm tt', $script:EnUs)
-    } else {
-        $when = $ResetsAt.ToString('MMM d, yyyy h:mm tt', $script:EnUs)
-    }
-    "$when ($remaining)"
+    (Format-DialogDateTime $ResetsAt $Now) + ' (en ' + (Format-Remaining ($ResetsAt - $Now)) + ')'
 }
 
+# How old the usage data is.
 function Format-Age($AgeMinutes) {
-    if ($null -eq $AgeMinutes) { return 'No data yet' }
-    if ($AgeMinutes -lt 1) { return 'Updated just now' }
-    'Updated ' + (Format-Remaining ([timespan]::FromMinutes($AgeMinutes))) + ' ago'
-}
-
-function Format-ShortDateTime([datetime]$Value) {
-    $Value.ToString('MMM d h:mm tt', $script:EnUs)
+    if ($null -eq $AgeMinutes) { return 'Sin datos' }
+    $minutes = [int][Math]::Floor($AgeMinutes)
+    if ($minutes -lt 1) { return 'Actualizado ahora' }
+    if ($minutes -lt 60) { return "Actualizado hace $minutes min" }
+    'Actualizado hace {0} h' -f [int][Math]::Floor($minutes / 60)
 }
 
 function Get-UsageLevel([double]$Percent) {
@@ -81,10 +74,10 @@ function Get-UsageLevel([double]$Percent) {
 function Format-TrayTooltip($View, [string]$Plan) {
     $head = 'Claude'
     if ($Plan) { $head = "Claude $Plan" }
-    if (-not $View.HasData) { return "$head - no usage data yet" }
-    $s = if ($View.Session.Active) { "$($View.Session.Percent)%" } else { 'idle' }
+    if (-not $View.HasData) { return "$head - sin datos de uso" }
+    $s = if ($View.Session.Active) { "$($View.Session.Percent)%" } else { 'sin empezar' }
     $w = if ($View.Weekly.Active) { "$($View.Weekly.Percent)%" } else { '-' }
-    $text = "$head - Session $s - Weekly $w"
+    $text = "$head - " + (Tx 'Sesi\u00f3n') + " $s - Semanal $w"
     if ($text.Length -gt 63) { $text = $text.Substring(0, 63) }
     $text
 }
@@ -258,18 +251,18 @@ function Get-ExtrasView($Extras, [datetime]$Now) {
         if ($null -ne $extra.utilization) { $pct = [int][Math]::Max(0, [Math]::Min(100, [Math]::Round([double]$extra.utilization))) }
         $amount = ''
         if ($null -ne $extra.used_minor -and $null -ne $extra.limit_minor) {
-            $amount = (Format-Money $extra.used_minor $extra.currency) + ' of ' + (Format-Money $extra.limit_minor $extra.currency) + ' this month'
+            $amount = (Format-Money $extra.used_minor $extra.currency) + ' de ' + (Format-Money $extra.limit_minor $extra.currency) + ' este mes'
         } elseif ($null -ne $extra.used_minor) {
-            $amount = (Format-Money $extra.used_minor $extra.currency) + ' used this month'
+            $amount = (Format-Money $extra.used_minor $extra.currency) + ' usados este mes'
         }
         $view.ExtraUsage = [pscustomobject]@{ Percent = $pct; AmountText = $amount }
     }
 
     $reset = $Extras.limit_reset
     if ($reset) {
-        $detail = 'Restores a limit to full; claim it on claude.ai'
-        if ($reset.resets_per_week) { $detail = "$($reset.resets_per_week) per week; claim it on claude.ai" }
-        $view.LimitReset = [pscustomobject]@{ Title = 'Limit reset available'; Detail = $detail }
+        $detail = Tx 'Deja un l\u00edmite a cero; recl\u00e1malo en claude.ai'
+        if ($reset.resets_per_week) { $detail = "$($reset.resets_per_week) " + (Tx 'por semana; recl\u00e1malo en claude.ai') }
+        $view.LimitReset = [pscustomobject]@{ Title = (Tx 'Reinicio de l\u00edmite disponible'); Detail = $detail }
     }
     $view
 }

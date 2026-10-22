@@ -66,7 +66,7 @@ function Wait-NewWindow([long[]]$Before, [int]$TimeoutMs) {
 $mutex = New-Object System.Threading.Mutex($false, 'Local\ClaudeTraySessions')
 try { $owned = $mutex.WaitOne(60000) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 try {
-    if (-not $Dir -or -not (Test-Path -LiteralPath $Dir -PathType Container)) { throw "folder not found: $Dir" }
+    if (-not $Dir -or -not (Test-Path -LiteralPath $Dir -PathType Container)) { throw "no existe la carpeta $Dir" }
     Import-WinApi
 
     $areas = @(Get-WorkAreas)

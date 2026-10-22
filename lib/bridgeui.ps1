@@ -631,7 +631,7 @@ function Get-BridgeStatus {
     $P = $script:Palette
     if (-not $b) { return @{ Text = 'Preparando...'; Color = $P.Muted } }
     switch ($b.Problem) {
-        'openssh' { return @{ Text = (Tx 'Falta OpenSSH: vuelve a ejecutar install.ps1.'); Color = $P.Error } }
+        'openssh' { return @{ Text = (Tx 'Falta OpenSSH: reinstala ClaudeMaxxing (install.ps1 desde el repo).'); Color = $P.Error } }
         'error'   { return @{ Text = "No se pudo preparar: $($b.Detail)"; Color = $P.Error } }
     }
     if (-not $b.FirewallOk) { return @{ Text = 'Falta la regla del firewall.'; Color = $P.Warn; Fix = 'Permitir...'; FixAction = { Repair-BridgeFirewall } } }

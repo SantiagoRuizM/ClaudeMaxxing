@@ -79,18 +79,18 @@ function Start-UsageRequest([string]$Token) {
 function Complete-UsageRequest($Pending) {
     try {
         if ($Pending.Task.IsFaulted -or $Pending.Task.IsCanceled) {
-            return @{ Ok = $false; Error = 'No connection' }
+            return @{ Ok = $false; Error = (Tx 'Sin conexi\u00f3n') }
         }
         $response = $Pending.Task.Result
         $status = [int]$response.StatusCode
-        if ($status -eq 401) { return @{ Ok = $false; Error = 'Login expired: open Claude Code' } }
-        if ($status -ne 200) { return @{ Ok = $false; Error = "Usage service error ($status)" } }
+        if ($status -eq 401) { return @{ Ok = $false; Error = (Tx 'Sesi\u00f3n caducada: abre Claude Code') } }
+        if ($status -ne 200) { return @{ Ok = $false; Error = "Error del servicio de uso ($status)" } }
         $json = $response.Content.ReadAsStringAsync().Result
         $nowUnix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
         $snapshot = ConvertFrom-UsageApi $json $nowUnix
         return @{ Ok = $true; Snapshot = $snapshot; Extras = (ConvertFrom-UsageExtras $json $nowUnix) }
     } catch {
-        return @{ Ok = $false; Error = 'Unexpected usage response' }
+        return @{ Ok = $false; Error = 'Respuesta de uso inesperada' }
     } finally {
         $Pending.Client.Dispose()
     }
