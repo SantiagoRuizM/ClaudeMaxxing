@@ -187,4 +187,8 @@ if ($warnings.Count) {
     Write-Host 'Installed.' -ForegroundColor Green
 }
 Write-Host "Everything runs from $InstallDir; this repo is no longer needed (run install.ps1 again from a newer copy to update)."
+if (-not $NoStart) {
+    Write-Host 'Next: find the Claude icon in the notification area (it may be under the ^ arrow with the hidden icons).'
+    Write-Host '  Left-click shows your usage; "Entrar a ClaudeMaxxing" opens the window with every tool.'
+}
 Write-Host 'Menu sessions that were already open keep the previous paths until you close and reopen them.'

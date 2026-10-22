@@ -5,8 +5,9 @@
 # the install folder. Usage data (~/.claude/usage-tray), voice state (%TEMP%\claude-voice) and Claude Judge's trials
 # (%LOCALAPPDATA%\ClaudeJudge) are kept unless
 # -RemoveData. -KeepMenu leaves the Explorer entry, which then opens plain Windows Terminal.
-# Runs from the repo or from the install folder (Settings > Apps uses the installed copy).
-param([string]$InstallDir, [switch]$KeepMenu, [switch]$RemoveData)
+# Runs from the repo or from the install folder (Settings > Apps uses the installed copy, with -Pause so its
+# console window waits for Enter instead of closing before the messages can be read).
+param([string]$InstallDir, [switch]$KeepMenu, [switch]$RemoveData, [switch]$Pause)
 
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Here 'lib\common.ps1')
@@ -91,3 +92,4 @@ if (Test-Path -LiteralPath $InstallDir) {
     }
 }
 Write-Host "$AppName uninstalled."
+if ($Pause) { [void](Read-Host 'Press Enter to close') }

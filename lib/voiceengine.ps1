@@ -44,7 +44,18 @@ function Get-VoiceEngineState([string]$Root = $TrayRoot) {
         ElevenVoices = $(if ($eleven -and $eleven.Value.voices) { @($eleven.Value.voices).Count } else { 0 })
         GeminiKey = [bool]($gemini -and $gemini.Value.apiKey)
         Credits = Read-JsonFile $VoiceCreditsFile
+        Snooze = Get-VoiceEngineSnooze $engine
     }
+}
+
+# A pause the voice hooks put on an engine (voice\hooks\engines.ps1: no credits, a rejected key, too many
+# requests); the summaries use Edge until it ends. @{ Until; Why } or $null.
+function Get-VoiceEngineSnooze([string]$Engine) {
+    $info = Read-JsonFile (Join-Path (Join-Path $env:TEMP 'claude-voice') "engine-off-$Engine.json")
+    if (-not $info -or -not $info.until) { return $null }
+    try { $until = [datetime]$info.until } catch { return $null }
+    if ($until -le (Get-Date)) { return $null }
+    [pscustomobject]@{ Until = $until; Why = [string]$info.why }
 }
 
 function Set-VoiceEngine([string]$Engine, [string]$Root = $TrayRoot) {
@@ -124,7 +135,7 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
         }
     } catch {
         $code = Get-HttpStatus $_
-        $why = if ($code -in 400, 401, 403) { 'el servicio rechaza esa clave' } elseif ($code) { "error HTTP $code" } else { 'sin conexion' }
+        $why = if ($code -in 400, 401, 403) { 'el servicio rechaza esa clave' } elseif ($code) { "error HTTP $code" } else { Tx 'sin conexi\u00f3n' }
         return [pscustomobject]@{ Ok = $false; Message = "No se pudo comprobar la clave: $why." }
     }
     Set-VoiceLocalValue $config '' 'engine' $Engine

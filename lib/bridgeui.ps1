@@ -488,7 +488,7 @@ function Repair-BridgeTampering {
     if (-not $changed.Count) { return }
     Update-BridgeFiles $b.Ctx $b.Gate
     Write-BridgeLog $b.Ctx "restored after an outside change: $($changed -join ', ')"
-    Show-BridgeBalloon ((Tx 'Algo cambi\u00f3 la configuraci\u00f3n de Otros PCs (') + ($changed -join ', ') + (Tx '); se restaur\u00f3.')) 'dialog'
+    Show-BridgeBalloon (Tx 'Otro programa cambi\u00f3 los permisos de Otros PCs y se restauraron. Si no fuiste t\u00fa, revisa en Otros PCs a qu\u00e9 PCs dejas entrar.') 'dialog'
 }
 
 function Set-BridgeAccept([bool]$On) {
