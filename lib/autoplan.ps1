@@ -161,7 +161,7 @@ function Sync-AutoSessions($Plan, [bool]$Enabled, [int]$Days, $Tasks, [string]$S
     if ($Enabled -and $Plan -and $Plan.HasData) { $wanted = Get-AutoSlots $Plan.Starts $Now $Days }
     $changes = Get-AutoChanges $wanted $Tasks $Now
     $added = 0; $removed = 0
-    foreach ($task in $changes.Remove) { Remove-SessionTask $task.Name; $removed++ }
+    foreach ($task in $changes.Remove) { if (Remove-SessionTask $task.Name) { $removed++ } }
     foreach ($at in $changes.Add) { New-SessionTask $at $ScriptPath $AutoTaskPrefix; $added++ }
     @{ Added = $added; Removed = $removed }
 }

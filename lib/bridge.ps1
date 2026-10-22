@@ -498,18 +498,26 @@ function Get-BridgeFirewallScript([string]$SshdPath) {
     ) -join "`n"
 }
 
-# Runs PowerShell commands elevated (one UAC prompt). Returns $true when they ran and succeeded.
-function Invoke-Elevated([string]$Script) {
+# Starts PowerShell commands elevated (one UAC prompt) without waiting: the process, or $null when the
+# prompt was declined. The tray watches the process from a timer, so it never freezes behind the prompt.
+function Start-Elevated([string]$Script) {
     $wrapped = "`$ErrorActionPreference = 'Stop'`ntry {`n$Script`n} catch { exit 1 }`nexit 0"
     $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($wrapped))
     try {
-        $p = Start-Process -FilePath $BridgePowerShell -Verb RunAs -Wait -PassThru -WindowStyle Hidden `
+        Start-Process -FilePath $BridgePowerShell -Verb RunAs -PassThru -WindowStyle Hidden `
             -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
-        return ($p.ExitCode -eq 0)
     } catch {
         # The user declined the UAC prompt.
-        return $false
+        $null
     }
+}
+
+# The same, waiting for it (install and uninstall). Returns $true when the commands ran and succeeded.
+function Invoke-Elevated([string]$Script) {
+    $p = Start-Elevated $Script
+    if (-not $p) { return $false }
+    $p.WaitForExit()
+    $p.ExitCode -eq 0
 }
 
 function Set-BridgeFirewall([string]$SshdPath) {

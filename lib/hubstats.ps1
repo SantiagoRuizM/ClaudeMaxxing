@@ -86,7 +86,14 @@ function Import-StatsNative {
         if (-not (Test-Path -LiteralPath $BinDir)) { New-Item -ItemType Directory -Force -Path $BinDir | Out-Null }
         # Compile to a private name first so a concurrent run never loads a half-written file.
         $tmp = Join-Path $BinDir "ClaudeMaxxingStats-$hash-$PID.dll"
-        Add-Type -TypeDefinition $text -ReferencedAssemblies System.Web.Extensions, System.Core -OutputAssembly $tmp -OutputType Library
+        # A few seconds, once per version: say so in the window if it is open.
+        if ($script:HubDialog -and $script:Hub) {
+            Invoke-HubBusy (Tx 'Preparando las estad\u00edsticas (solo la primera vez)\u2026') {
+                Add-Type -TypeDefinition $text -ReferencedAssemblies System.Web.Extensions, System.Core -OutputAssembly $tmp -OutputType Library
+            }
+        } else {
+            Add-Type -TypeDefinition $text -ReferencedAssemblies System.Web.Extensions, System.Core -OutputAssembly $tmp -OutputType Library
+        }
         try { Move-Item -LiteralPath $tmp -Destination $dll -ErrorAction Stop } catch { Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue }
         Get-ChildItem -LiteralPath $BinDir -Filter 'ClaudeMaxxingStats-*.dll' | Where-Object { $_.FullName -ne $dll } |
             ForEach-Object { Remove-Item -LiteralPath $_.FullName -ErrorAction SilentlyContinue }

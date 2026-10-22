@@ -96,11 +96,16 @@ function Step-AutoBoundary([int]$Delta, [switch]$Reset) {
 function Remove-AutoConflicts {
     $view = $script:Hub.Cache.Auto
     if (-not $view) { return }
+    $conflicts = @($view.Conflicts)
+    $ask = if ($conflicts.Count -eq 1) { Tx '\u00bfQuitar la sesi\u00f3n agendada a mano que corta la cadena?' } else { Tx "\u00bfQuitar las $($conflicts.Count) sesiones agendadas a mano que cortan la cadena?" }
+    if (-not (Confirm-UiAction $ask $script:HubDialog)) { return }
     $count = 0
-    foreach ($task in @($view.Conflicts)) { Remove-SessionTask $task.Name; $count++ }
+    foreach ($task in $conflicts) { if (Remove-SessionTask $task.Name) { $count++ } }
     Update-ScheduleState
     Invoke-AutoSchedule -Force
-    Set-HubMessage ((Tx '\u2713 ') + $(if ($count -eq 1) { 'Limpiada 1 agendada a mano' } else { "Limpiadas $count agendadas a mano" }))
+    $failed = $conflicts.Count - $count
+    if ($failed -gt 0) { Set-HubMessage "No se pudieron quitar $failed de $($conflicts.Count): mira el Programador de tareas." -Error }
+    else { Set-HubMessage ((Tx '\u2713 ') + $(if ($count -eq 1) { 'Limpiada 1 agendada a mano' } else { "Limpiadas $count agendadas a mano" })) }
     Update-HubAuto
     Update-HubNow
 }
