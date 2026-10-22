@@ -190,10 +190,10 @@ function Set-HubSection([string]$Id) {
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
-# Header note after an action. Errors ("No se pudo...", or -Error) are drawn in the error color and stay longer.
-function Set-HubMessage([string]$Text, [switch]$Error) {
+# Header note after an action. Errors ("No se pudo...", or -Failed) are drawn in the error color and stay longer.
+function Set-HubMessage([string]$Text, [switch]$Failed) {
     $script:Hub.Message = $Text
-    $script:Hub.MessageError = $Error -or $Text -like 'No se pud*'
+    $script:Hub.MessageError = $Failed -or $Text -like 'No se pud*'
     $script:Hub.MessageAt = Get-Date
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
