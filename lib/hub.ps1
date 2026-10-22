@@ -364,7 +364,9 @@ function Open-HubWhisper {
 
 function Open-HubCall([int]$Index) {
     $call = @($script:Hub.Cache.Calls)[$Index]
-    if ($call -and (Test-Path -LiteralPath $call.Path)) { Start-Process -FilePath $call.Path }
+    if (-not $call) { return }
+    if (Test-Path -LiteralPath $call.Path) { Start-Process -FilePath $call.Path }
+    else { Set-HubMessage (Tx 'No se pudo abrir: esa llamada ya no est\u00e1 en el historial.') }
 }
 
 function Open-HubCallFolder {
@@ -385,8 +387,10 @@ function Set-HubVoiceMuted([bool]$Muted) {
     if ($script:Hub.Preview) { return }
     $file = Join-Path $VoiceStateDir 'muted'
     if ($Muted) {
-        if (-not (Test-Path -LiteralPath $VoiceStateDir)) { New-Item -ItemType Directory -Force -Path $VoiceStateDir | Out-Null }
-        [IO.File]::WriteAllText($file, '')
+        try {
+            if (-not (Test-Path -LiteralPath $VoiceStateDir)) { New-Item -ItemType Directory -Force -Path $VoiceStateDir | Out-Null }
+            [IO.File]::WriteAllText($file, '')
+        } catch { Set-HubMessage ('No se pudo silenciar la voz: ' + $_.Exception.Message); return }
         Invoke-VoiceCtl 'stop'
     } else {
         Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
@@ -400,7 +404,10 @@ function Set-HubVoiceSessionMuted([int]$Index) {
     if (-not $session) { return }
     $file = Join-Path $VoiceStateDir "muted-$($session.Key)"
     if ($session.Muted) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
-    else { [IO.File]::WriteAllText($file, '') }
+    else {
+        try { [IO.File]::WriteAllText($file, '') }
+        catch { Set-HubMessage ('No se pudo silenciar esa voz: ' + $_.Exception.Message); return }
+    }
     $session.Muted = -not $session.Muted
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
@@ -600,14 +607,17 @@ function Draw-HubUsage($G, [string]$Label, $Window, [int]$X, [int]$Y, [int]$W, [
     $F = $script:Fonts
     $active = $Window -and $Window.Active
     Draw-Text $G $Label $F.Caps $P.Muted $X $Y $W (Px 20)
-    Draw-Text $G $(if ($active) { "$($Window.Percent)%" } else { '0%' }) $F.Number $(if ($active) { $P.Text } else { $P.Faint }) $X ($Y - (Px 4)) $W (Px 26) 'Right'
+    # No snapshot at all is not the same as an idle window: no made-up 0 %.
+    $pct = if ($active) { "$($Window.Percent)%" } elseif ($Window) { '0%' } else { [string][char]0x2013 }
+    Draw-Text $G $pct $F.Number $(if ($active) { $P.Text } else { $P.Faint }) $X ($Y - (Px 4)) $W (Px 26) 'Right'
     $track = New-Rect $X ($Y + (Px 26)) $W (Px 6)
     Fill-Round $G $track (Px 3) $P.Track
     if ($active -and $Window.Percent -gt 0) {
         Fill-Round $G (New-Rect $X $track.Y ([Math]::Max((Px 6), [int]($W * [Math]::Min(100, $Window.Percent) / 100))) $track.Height) (Px 3) $P[(Get-UsageLevel $Window.Percent)]
     }
     $now = Get-Date
-    if (-not $active) { $reset = 'Sin empezar' }
+    if (-not $Window) { $reset = Tx 'Sin datos todav\u00eda' }
+    elseif (-not $active) { $reset = 'Sin empezar' }
     elseif ($Short) { $reset = 'Se renueva en ' + (Format-Remaining ($Window.ResetsAt - $now)) }
     else { $reset = 'Se renueva ' + (Format-ResetText $Window.ResetsAt $now) }
     Draw-Text $G $reset $F.Small $P.Muted $X ($Y + (Px 36)) $W (Px 18)
@@ -992,10 +1002,14 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-HubDot $G $cx ($sy + (Px 6)) (Px 10) (ConvertFrom-Hex (Get-HubSlotHex $session.Color))
         $name = $session.Name
         if ($session.Role) { $name += ' ' + (Tx '\u00b7') + ' ' + $session.Role }
-        Draw-Text $G $name $F.Body $P.Text ($cx + (Px 18)) $sy ($cww - (Px 18)) (Px 22)
-        Draw-Text $G (Split-Path -Leaf $session.Dir) $F.Small $P.Muted ($cx + (Px 18)) $sy ($cww - (Px 18)) (Px 22) 'Right'
+        # The folder keeps its width (up to 40 %) and the name gets the rest, so they never overlap.
+        $folder = Split-Path -Leaf $session.Dir
+        $folderW = [Math]::Min([int](($cww - (Px 18)) * 0.4), (Measure-TextWidth $folder $F.Small))
+        Draw-Text $G $name $F.Body $P.Text ($cx + (Px 18)) $sy ($cww - (Px 26) - $folderW) (Px 22)
+        Draw-Text $G $folder $F.Small $P.Muted ($cx + $cww - $folderW) $sy $folderW (Px 22) 'Right'
         $sy += Px 26
     }
+    if ($sessions.Count -gt 3) { Draw-Text $G (Tx "+$($sessions.Count - 3) m\u00e1s") $F.Small $P.Muted ($cx + (Px 18)) $sy ($cww - (Px 18)) (Px 18) }
     $bw = Get-PillWidth (Tx 'Nueva sesi\u00f3n...')
     Draw-PillButton $G $Map $Hover 'home-code-new' (New-Rect ($ccard.Right - (Px 12) - $bw) ($ccard.Bottom - (Px 36)) $bw (Px 24)) (Tx 'Nueva sesi\u00f3n...') { Open-HubCodeSession } -Accent
     $link = New-Rect $cx ($ccard.Bottom - (Px 34)) (Px 120) (Px 20)
@@ -1008,7 +1022,7 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $vw = $vcard.Width - (Px 8)
     Draw-Text $G 'VOZ' $F.Caps $P.Muted ($vcard.X + (Px 14)) ($vcard.Y + (Px 10)) (Px 100) (Px 18)
     if (-not $c.VoiceInstalled) {
-        Draw-Wrapped $G (Tx 'La voz no est\u00e1 instalada. Vuelve a ejecutar install.ps1.') $F.Small $P.Warn ($vcard.X + (Px 14)) ($vcard.Y + (Px 36)) ($vcard.Width - (Px 28)) (Px 36)
+        Draw-Wrapped $G (Tx 'La voz no est\u00e1 instalada: reinstala ClaudeMaxxing (install.ps1 desde el repo).') $F.Small $P.Warn ($vcard.X + (Px 14)) ($vcard.Y + (Px 36)) ($vcard.Width - (Px 28)) (Px 36)
     } else {
         Draw-HubToggleRow $G $Map $Hover 'home-voice-on' (New-Rect $vx ($vcard.Y + (Px 32)) $vw (Px 40)) 'Voz en las sesiones' 'Lee el resumen de cada respuesta' (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)"))
         Draw-HubToggleRow $G $Map $Hover 'home-voice-keys' (New-Rect $vx ($vcard.Y + (Px 76)) $vw (Px 40)) 'Atajos de teclado' 'Ctrl+Alt+Shift+O repite, P detiene' ([bool]$c.HotkeysOn) ([scriptblock]::Create("Set-HubHotkeys `$$(-not $c.HotkeysOn)"))
@@ -1030,14 +1044,17 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $now = Get-Date
 
     # header line: data age and refresh
-    if ($script:Refresh) { $age = 'Actualizando...'; $ageColor = $P.Muted }
+    if ($script:Refresh) { $age = Tx 'Actualizando\u2026'; $ageColor = $P.Muted }
     elseif ($script:RefreshError -and ($now - $script:RefreshErrorAt).TotalSeconds -lt 30) { $age = $script:RefreshError; $ageColor = $P.Error }
     else { $age = if ($view) { Format-Age $view.AgeMinutes } else { 'Sin datos' }; $ageColor = $P.Muted }
     $bw = Get-PillWidth 'Actualizar'
     $refresh = New-Rect ($X0 + $Inner - $bw) (Px 70) $bw (Px 24)
-    Draw-PillButton $G $Map $Hover 'usage-refresh' $refresh 'Actualizar' { Start-UsageRefresh; Set-HubMessage 'Actualizando el uso...' }
-    Draw-Text $G $age $F.Small $ageColor $X0 (Px 70) ($refresh.X - $X0 - (Px 10)) (Px 24) 'Right'
-    Draw-Text $G (Tx 'L\u00cdMITES DEL PLAN') $F.Caps $P.Muted $X0 (Px 74) (Px 200) (Px 18)
+    Draw-PillButton $G $Map $Hover 'usage-refresh' $refresh 'Actualizar' { Start-UsageRefresh; Set-HubMessage (Tx 'Actualizando el uso\u2026') }
+    $caption = Tx 'L\u00cdMITES DEL PLAN'
+    Draw-Text $G $caption $F.Caps $P.Muted $X0 (Px 74) (Px 200) (Px 18)
+    # The age (or a long refresh error) only gets the space between the caption and the button.
+    $ageX = $X0 + (Measure-TextWidth $caption $F.Caps) + (Px 12)
+    Draw-Text $G $age $F.Small $ageColor $ageX (Px 70) ($refresh.X - $ageX - (Px 10)) (Px 24) 'Right'
 
     $y = Px 102
     $card = New-Rect $X0 $y $Inner (Px 128)
@@ -1075,16 +1092,17 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
 
     # scheduled sessions
-    Draw-HubCaption $G 'AGENDADAS' $X0 $y $Inner (Tx 'Abren la ventana de 5 h antes de que la necesites')
-    $y += Px 22
     $rows = @($c.ScheduleRows)
+    $maxRows = [Math]::Max(1, [int](((Px 572) - ($y + (Px 22))) / (Px 38)))
+    $note = if ($rows.Count -gt $maxRows) { Tx "+$($rows.Count - $maxRows) m\u00e1s en Agendar sesi\u00f3n\u2026" } else { Tx 'Abren la sesi\u00f3n de 5 h antes de que la necesites' }
+    Draw-HubCaption $G 'AGENDADAS' $X0 $y $Inner $note
+    $y += Px 22
     if (-not $rows.Count) {
         $row = New-Rect $X0 $y $Inner (Px 34)
         Fill-Round $G $row (Px 8) $P.Surface
         Draw-Text $G (Tx 'Nada agendado todav\u00eda.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 34)
         $y += Px 38
     }
-    $maxRows = [Math]::Max(1, [int](((Px 572) - $y) / (Px 38)))
     foreach ($item in @($rows | Select-Object -First $maxRows)) {
         $row = New-Rect $X0 $y $Inner (Px 34)
         Fill-Round $G $row (Px 8) $P.Surface
@@ -1152,7 +1170,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $sessions = @($c.CodeSessions)
     $live = @($sessions | Where-Object { $_.Live }).Count
     $y = Px 330
-    Draw-HubCaption $G 'SESIONES' $X0 $y $Inner "$live de $slots abiertas"
+    Draw-HubCaption $G 'SESIONES' $X0 $y $Inner ("$live de $slots abiertas" + $(if ($sessions.Count -gt 4) { (Tx "  \u00b7  +$($sessions.Count - 4) m\u00e1s") } else { '' }))
     $y += Px 22
     if (-not $sessions.Count) {
         $row = New-Rect $X0 $y $Inner (Px 40)
@@ -1180,7 +1198,9 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $name = if ($session.Name) { $session.Name } else { "Ventana $($session.Slot + 1)" }
         if ($session.Role) { $name += ' ' + (Tx '\u00b7') + ' ' + $session.Role }
         $textX = $row.X + (Px 36)
-        Draw-Text $G $name $F.BodyStrong $(if ($session.Live) { $P.Text } else { $P.Muted }) $textX ($row.Y + (Px 6)) ($right - $textX) (Px 20)
+        $folder = Split-Path -Leaf $session.Dir
+        $folderW = [Math]::Min([int](($right - $textX) * 0.4), (Measure-TextWidth $folder $F.Small))
+        Draw-Text $G $name $F.BodyStrong $(if ($session.Live) { $P.Text } else { $P.Muted }) $textX ($row.Y + (Px 6)) ($right - $textX - $folderW - (Px 8)) (Px 20)
         $side = if ($session.Slot % 2 -eq 0) { 'izquierda' } else { 'derecha' }
         $sub = $session.Dir
         $meta = @("mitad $side de la pantalla $([int][Math]::Floor($session.Slot / 2) + 1)")
@@ -1188,7 +1208,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         if ($session.At) { $meta += 'desde ' + (Format-DialogDateTime $session.At $now) }
         if ($session.Voice) { $meta += 'voz ' + (Format-VoiceName $session.Voice) }
         Draw-Text $G ($meta -join ('  ' + (Tx '\u00b7') + '  ')) $F.Small $P.Muted $textX ($row.Y + (Px 26)) ($right - $textX) (Px 18)
-        Draw-Text $G (Split-Path -Leaf $sub) $F.Small $P.Faint ($textX + (Px 240)) ($row.Y + (Px 6)) ($right - $textX - (Px 240)) (Px 20) 'Right'
+        Draw-Text $G $folder $F.Small $P.Faint ($right - $folderW) ($row.Y + (Px 6)) $folderW (Px 20) 'Right'
         $y += Px 56
     }
     Draw-Wrapped $G (Tx 'Al cerrar una ventana su mitad queda libre para la siguiente. Las sesiones de otros PCs se abren desde Otros PCs.') $F.Small $P.Faint $X0 (Px 584) $Inner (Px 34)
@@ -1501,9 +1521,10 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
 
     $y = Px 358
-    Draw-HubCaption $G 'SESIONES RECIENTES' $X0 $y $Inner (Tx '\u00daltimas 12 horas  \u00b7  /voz dentro de una sesi\u00f3n para cambiar la suya')
-    $y += Px 22
     $sessions = @($c.VoiceSessions)
+    $more = if ($sessions.Count -gt 4) { Tx "+$($sessions.Count - 4) m\u00e1s  \u00b7  " } else { '' }
+    Draw-HubCaption $G 'SESIONES RECIENTES' $X0 $y $Inner ($more + (Tx '\u00daltimas 12 horas  \u00b7  /voz dentro de una sesi\u00f3n para cambiar la suya'))
+    $y += Px 22
     if (-not $sessions.Count) {
         $row = New-Rect $X0 $y $Inner (Px 40)
         Fill-Round $G $row (Px 8) $P.Surface

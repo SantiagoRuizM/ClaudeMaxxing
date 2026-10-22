@@ -795,8 +795,8 @@ function Set-BridgeMessage([string]$Text) {
 }
 
 function Copy-BridgeCommand([string]$Text) {
-    try { [System.Windows.Forms.Clipboard]::SetText($Text) } catch { }
-    Set-BridgeMessage ("Copiado: $Text")
+    try { [System.Windows.Forms.Clipboard]::SetText($Text); Set-BridgeMessage ("Copiado: $Text") }
+    catch { Set-BridgeMessage ('No se pudo copiar (otra app usa el portapapeles): ' + $Text) }
 }
 
 function Draw-BridgeDialog($Form, $G) {

@@ -75,8 +75,11 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             'cuthour'   { $settings.CutoffHour = ($settings.CutoffHour + $Delta + 24) % 24 }
         }
         $state.PlanSettings = Get-PlanSettings $settings
-        if (-not $RenderPath) { try { Write-JsonFile $PlanFile $state.PlanSettings } catch { } }
         $state.Message = ''
+        if (-not $RenderPath) {
+            try { Write-JsonFile $PlanFile $state.PlanSettings }
+            catch { $state.Message = 'No se pudo guardar el plan: ' + $_.Exception.Message; $state.MessageKind = 'error' }
+        }
         Update-WeekPlan
         Update-Size
     }
@@ -293,7 +296,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
                 } elseif ($unbookedTicks -contains $slot.Start.Ticks) {
                     [void]$parts.Add(@{ Text = $slot.Start.ToString('H:mm'); Color = $P.Text })
                 } else {
-                    [void]$parts.Add(@{ Text = (Tx '\u2713') + $slot.Start.ToString('H:mm'); Color = $P.Ok })
+                    [void]$parts.Add(@{ Text = (Tx '\u2713 ') + $slot.Start.ToString('H:mm'); Color = $P.Ok })
                 }
             }
             if ($day.Date -eq $weekPlan.Cutoff.Date) {
@@ -385,7 +388,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             } else {
                 Draw-Text $g 'Sin empezar' $F.BodyStrong $P.Text (Px 40) (Py 92) (Px 200) (Px 22)
                 Draw-Text $g 'Empieza con el primer mensaje' $F.Small $P.Muted (Px 40) (Py 92) (Px ($W - 80)) (Px 22) 'Right'
-                Draw-Text $g ('La ventana dura unas 5 h desde el primer mensaje.') $F.Small $P.Faint (Px 40) (Py 112) (Px ($W - 80)) (Px 16)
+                Draw-Text $g (Tx 'La sesi\u00f3n dura unas 5 h desde el primer mensaje.') $F.Small $P.Faint (Px 40) (Py 112) (Px ($W - 80)) (Px 16)
             }
 
             # when
@@ -432,7 +435,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
                 $preview = 'Cae dentro de la sesi' + (Tx '\u00f3') + 'n actual (termina ' + (Format-Clock $view.Session.ResetsAt) + '): no adelanta nada.'
                 $previewColor = $P.Warn
             } else {
-                $preview = 'Nueva ventana aprox. de ' + (Format-Clock $window.Start) + ' a ' + (Format-Clock $window.End)
+                $preview = (Tx 'Nueva sesi\u00f3n aprox. de ') + (Format-Clock $window.Start) + ' a ' + (Format-Clock $window.End)
                 $previewColor = $P.Muted
             }
             Draw-Text $g $preview $F.Small $previewColor $left (Py 246) $inner (Px 20)

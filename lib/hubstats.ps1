@@ -627,7 +627,7 @@ function Draw-StatsProjects($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $w = [int](($Inner - 3 * $gap) / 4)
     $longest = $D.longestSession
     $tiles = @(
-        @((Tx 'SESI\u00d3N MEDIA'), (Format-HubDuration $D.avgSessionSeconds), ('mediana ' + (Format-HubDuration $D.medianSessionSeconds))),
+        @((Tx 'DURACI\u00d3N MEDIA'), (Format-HubDuration $D.avgSessionSeconds), ('mediana ' + (Format-HubDuration $D.medianSessionSeconds))),
         @((Tx 'LA M\u00c1S LARGA'), $(if ($longest) { Format-HubDuration $longest.seconds } else { '-' }), $(if ($longest) { $longest.project } else { '' })),
         @((Tx 'PROMPTS POR SESI\u00d3N'), ([double]$D.avgPromptsPerSession).ToString('0.#', $script:HubCulture), ((Format-HubNumber $D.prompts) + ' en total')),
         @('PROYECTOS', (Format-HubNumber $D.projectCount), ((Format-HubNumber $D.sessions) + ' sesiones'))
