@@ -554,19 +554,26 @@ namespace ClaudeWhisper
                 if (fatal) { Wait(500); continue; }
                 if (active == null || active.Ended.WaitOne(0))
                 {
-                    if (active != null) { Retire(active, false); active = null; }
+                    if (active != null)
+                    {
+                        // The service accepts the socket and then refuses it ("Too many active sessions", close 4029):
+                        // a connection that ends this quickly is a failure too, or the retries never slow down.
+                        failures = active.Age.ElapsedMilliseconds < 5000 ? failures + 1 : 0;
+                        Retire(active, false);
+                        active = null;
+                    }
                     Connected = false;
+                    if (failures > 0) { Wait(Math.Min(30000, 500 + 1500 * failures)); if (!running) break; }
                     try
                     {
                         Emit("status", "connecting");
                         active = Open();
-                        failures = 0;
                         Connected = true;
                         Emit("status", "open");
                     }
                     catch (UnauthorizedAccessException) { Emit("error", "auth"); failures++; }
                     catch (Exception e) { Emit("error", e.Message); failures++; }
-                    if (active == null) { Wait(Math.Min(10000, 500 + 1500 * failures)); continue; }
+                    if (active == null) continue;
                 }
 
                 byte[] chunk;
