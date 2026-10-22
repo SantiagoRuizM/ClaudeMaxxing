@@ -12,7 +12,7 @@ $result = [ordered]@{ at = $startedAt.ToString('o'); ok = $false; exitCode = $nu
 try {
     $config = Read-JsonFile $ConfigFile
     if (-not $config -or -not $config.claudePath -or -not (Test-Path -LiteralPath $config.claudePath)) {
-        throw 'claude not found; run install.ps1 again'
+        throw 'no se encuentra claude: instala Claude Code y reinstala ClaudeMaxxing (install.ps1 desde el repo)'
     }
     if (-not (Test-Path -LiteralPath $RunsDir)) { New-Item -ItemType Directory -Force -Path $RunsDir | Out-Null }
     Push-Location $RunsDir

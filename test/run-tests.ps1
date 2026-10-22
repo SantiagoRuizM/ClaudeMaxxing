@@ -64,17 +64,19 @@ Assert-Equal '45m' (Format-Remaining (New-TimeSpan -Minutes 45)) 'minutes only'
 Assert-Equal '<1m' (Format-Remaining (New-TimeSpan -Seconds 20)) 'under a minute'
 
 $sameDay = Get-Date -Year 2026 -Month 10 -Day 9 -Hour 13 -Minute 59 -Second 0 -Millisecond 0
-Assert-Equal '1:59 PM (2h 11m)' (Format-ResetText $sameDay $now) 'reset text today'
+Assert-Equal ('Hoy ' + (Tx '\u00b7') + ' ' + (Format-Clock $sameDay) + ' (en 2h 11m)') (Format-ResetText $sameDay $now) 'reset text today'
 $otherDay = Get-Date -Year 2026 -Month 10 -Day 11 -Hour 7 -Minute 59 -Second 0 -Millisecond 0
-Assert-Equal 'Oct 11, 2026 7:59 AM (1d 20h)' (Format-ResetText $otherDay $now) 'reset text other day'
+Assert-Equal ((Get-DayLabel $otherDay $now) + ' ' + (Tx '\u00b7') + ' ' + (Format-Clock $otherDay) + ' (en 1d 20h)') (Format-ResetText $otherDay $now) 'reset text other day'
 
 Assert-Equal 'low' (Get-UsageLevel 30) 'level low'
 Assert-Equal 'medium' (Get-UsageLevel 72) 'level medium'
 Assert-Equal 'high' (Get-UsageLevel 86) 'level high'
 
-Assert-Equal 'Claude PRO - Session 72% - Weekly 86%' (Format-TrayTooltip $usage 'PRO') 'tooltip'
+Assert-Equal ('Claude PRO - ' + (Tx 'Sesi\u00f3n') + ' 72% - Semanal 86%') (Format-TrayTooltip $usage 'PRO') 'tooltip'
+Assert-Equal 'Claude PRO - sin datos de uso' (Format-TrayTooltip (Get-UsageView $null $now) 'PRO') 'tooltip without data'
 Assert-Equal $true ((Format-TrayTooltip $usage ('X' * 80)).Length -le 63) 'tooltip stays within 63 chars'
-Assert-Equal 'Updated 3m ago' (Format-Age 3.4) 'age text'
+Assert-Equal 'Actualizado hace 3 min' (Format-Age 3.4) 'age text'
+Assert-Equal 'Actualizado hace 2 h' (Format-Age 150) 'age text in hours'
 Assert-Equal 'Agendar sesi' (Tx 'Agendar sesi\u00f3n').Substring(0, 12) 'Tx decodes escapes'
 Assert-Equal 243 ([int](Tx 'Agendar sesi\u00f3n')[12]) 'Tx produces the accented char'
 
@@ -218,8 +220,8 @@ Assert-Equal '12.40 EUR' (Format-Money 1240 'EUR') 'money other currency'
 $extrasNow = [DateTimeOffset]::FromUnixTimeSeconds(1000).LocalDateTime
 $ev = Get-ExtrasView ($both | ConvertTo-Json -Depth 5 | ConvertFrom-Json) $extrasNow.AddSeconds(-900)
 Assert-Equal 25 $ev.ExtraUsage.Percent 'extra usage percent rounds'
-Assert-Equal '$12.40 of $50.00 this month' $ev.ExtraUsage.AmountText 'extra usage amount text'
-Assert-Equal 'Limit reset available' $ev.LimitReset.Title 'limit reset title'
+Assert-Equal '$12.40 de $50.00 este mes' $ev.ExtraUsage.AmountText 'extra usage amount text'
+Assert-Equal (Tx 'Reinicio de l\u00edmite disponible') $ev.LimitReset.Title 'limit reset title'
 $old = Get-ExtrasView ($both | ConvertTo-Json -Depth 5 | ConvertFrom-Json) $extrasNow.AddHours(13)
 Assert-Equal $null $old.ExtraUsage 'stale extras are hidden'
 Assert-Equal $null (Get-ExtrasView $null $now).LimitReset 'no extras file, nothing shown'

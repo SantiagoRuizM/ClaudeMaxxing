@@ -82,7 +82,7 @@ function Get-CloudScheduleOutcome([string]$Output) {
     $id = [regex]::Matches($Output, 'ROUTINE_ID=(trig_[A-Za-z0-9]+)') | Select-Object -Last 1
     if ($id) { return @{ Status = 'scheduled'; RoutineId = $id.Groups[1].Value } }
     $fail = [regex]::Matches($Output, 'FAILED=(.+)') | Select-Object -Last 1
-    $reason = if ($fail) { $fail.Groups[1].Value.Trim() } else { 'Claude Code did not return a routine id' }
+    $reason = if ($fail) { $fail.Groups[1].Value.Trim() } else { (Tx 'Claude Code no devolvi\u00f3 el id de la rutina') }
     if ($reason.Length -gt 120) { $reason = $reason.Substring(0, 120) }
     @{ Status = 'failed'; Error = $reason }
 }

@@ -94,10 +94,10 @@ function Update-Footer {
     if ($rows.Count -eq 0) { return }
     $row = $rows[0]
     if ($row.State -in 'pending', 'requested', 'creating', 'cloud-ok') {
-        $script:FooterRight = 'Next: ' + (Format-ShortDateTime $row.At)
+        $script:FooterRight = (Tx 'Pr\u00f3xima: ') + (Format-DialogDateTime $row.At (Get-Date))
     } else {
-        $status = switch ($row.State) { 'ok' { 'OK' } 'failed' { 'failed' } default { 'cloud' } }
-        $script:FooterRight = 'Last: ' + (Format-ShortDateTime $row.At) + " $status"
+        $status = switch ($row.State) { 'ok' { 'ok' } 'failed' { (Tx 'fall\u00f3') } default { 'en la nube' } }
+        $script:FooterRight = (Tx '\u00daltima: ') + (Format-DialogDateTime $row.At (Get-Date)) + " $status"
     }
 }
 
@@ -109,14 +109,14 @@ function Start-UsageRefresh {
     $script:RefreshError = ''
     $auth = Get-OAuthToken $CredsFile
     if (-not $auth) {
-        $script:RefreshError = 'Not logged in to Claude Code'
+        $script:RefreshError = Tx 'Inicia sesi\u00f3n en Claude Code'
         $script:RefreshErrorAt = Get-Date
     } else {
         try {
             $script:Refresh = Start-UsageRequest $auth.Token
             $script:RefreshTimer.Start()
         } catch {
-            $script:RefreshError = 'No connection'
+            $script:RefreshError = Tx 'Sin conexi\u00f3n'
             $script:RefreshErrorAt = Get-Date
         }
     }
@@ -200,7 +200,7 @@ function Draw-Window($G, [string]$Label, $Window, [int]$Top, [string]$IdleText) 
 
     $resetText = if ($Window.Active) { Format-ResetText $Window.ResetsAt (Get-Date) } else { $IdleText }
     $resetColor = if ($Window.Active) { $P.Text } else { $P.Muted }
-    Draw-Text $G 'Resets' $F.Small $P.Muted $left (Px ($Top + 40)) $width (Px 22)
+    Draw-Text $G 'Se renueva' $F.Small $P.Muted $left (Px ($Top + 40)) $width (Px 22)
     Draw-Text $G $resetText $F.Body $resetColor $left (Px ($Top + 40)) $width (Px 22) 'Right'
 }
 
@@ -237,18 +237,18 @@ $Popup.Add_Paint({
     Add-Hit $map 'refresh' $refreshBox { Start-UsageRefresh }
 
     if (-not $view -or -not $view.HasData) {
-        Draw-Text $g 'No usage data yet' $F.BodyStrong $P.Text (Px 18) (Px 74) (Px ($PopupWidth - 36)) (Px 24)
-        Draw-Text $g 'Send a message in Claude Code to refresh.' $F.Small $P.Muted (Px 18) (Px 98) (Px ($PopupWidth - 36)) (Px 22)
+        Draw-Text $g (Tx 'Sin datos de uso todav\u00eda') $F.BodyStrong $P.Text (Px 18) (Px 74) (Px ($PopupWidth - 36)) (Px 24)
+        Draw-Text $g (Tx 'Env\u00eda un mensaje en Claude Code o pulsa \u21bb.') $F.Small $P.Muted (Px 18) (Px 98) (Px ($PopupWidth - 36)) (Px 22)
     } else {
-        Draw-Window $g 'SESSION' $view.Session 62 'Not started'
-        Draw-Window $g 'WEEKLY' $view.Weekly 134 'Not started'
+        Draw-Window $g (Tx 'SESI\u00d3N (5 H)') $view.Session 62 'Sin empezar'
+        Draw-Window $g 'SEMANAL' $view.Weekly 134 'Sin empezar'
         $top = 206
         $extra = $script:Extras.ExtraUsage
         if ($extra) {
             $left = Px 18
             $width = Px ($PopupWidth - 36)
-            Draw-Text $g 'EXTRA USAGE' $F.Caps $P.Muted $left (Px $top) $width (Px 22)
-            $pctText = if ($null -ne $extra.Percent) { "$($extra.Percent)%" } else { 'On' }
+            Draw-Text $g 'USO EXTRA' $F.Caps $P.Muted $left (Px $top) $width (Px 22)
+            $pctText = if ($null -ne $extra.Percent) { "$($extra.Percent)%" } else { 'Activado' }
             Draw-Text $g $pctText $F.Number $P.Text $left (Px ($top - 3)) $width (Px 28) 'Right'
             $track = New-Rect $left (Px ($top + 28)) $width (Px 6)
             Fill-Round $g $track (Px 3) $P.Track
@@ -257,7 +257,7 @@ $Popup.Add_Paint({
                 Fill-Round $g (New-Rect $left $track.Y $fillWidth $track.Height) (Px 3) $P.Accent
             }
             if ($extra.AmountText) { Draw-Text $g $extra.AmountText $F.Body $P.Text $left (Px ($top + 40)) $width (Px 22) 'Right' }
-            Draw-Text $g 'Credits' $F.Small $P.Muted $left (Px ($top + 40)) $width (Px 22)
+            Draw-Text $g (Tx 'Cr\u00e9ditos') $F.Small $P.Muted $left (Px ($top + 40)) $width (Px 22)
             $top += $script:ExtraBlockHeight
         }
         $reset = $script:Extras.LimitReset
@@ -265,12 +265,14 @@ $Popup.Add_Paint({
             $card = New-Rect (Px 18) (Px $top) (Px ($PopupWidth - 36)) (Px 50)
             Fill-Round $g $card (Px 10) $P.AccentTint
             Draw-Text $g (Tx '\u21ba') $F.Refresh $P.Accent ($card.X + (Px 10)) $card.Y (Px 22) $card.Height 'Center'
-            Draw-Text $g $reset.Title $F.BodyStrong $P.Text ($card.X + (Px 38)) ($card.Y + (Px 6)) (Px 200) (Px 20)
-            Draw-Text $g $reset.Detail $F.Small $P.Muted ($card.X + (Px 38)) ($card.Y + (Px 25)) (Px 210) (Px 18)
-            $useBox = New-Rect ($card.Right - (Px 64)) ($card.Y + (Px 11)) (Px 54) (Px 28)
+            $useW = (Measure-TextWidth 'Reclamar' $F.Button) + (Px 20)
+            $useBox = New-Rect ($card.Right - (Px 10) - $useW) ($card.Y + (Px 11)) $useW (Px 28)
+            $textW = $useBox.X - $card.X - (Px 46)
+            Draw-Text $g $reset.Title $F.BodyStrong $P.Text ($card.X + (Px 38)) ($card.Y + (Px 6)) $textW (Px 20)
+            Draw-Text $g $reset.Detail $F.Small $P.Muted ($card.X + (Px 38)) ($card.Y + (Px 25)) $textW (Px 18)
             $useColor = if ($map.Hover -eq 'use-reset') { $P.AccentHover } else { $P.Accent }
             Fill-Round $g $useBox (Px 8) $useColor
-            Draw-Text $g 'Use' $F.Button $P.AccentText $useBox.X $useBox.Y $useBox.Width $useBox.Height 'Center'
+            Draw-Text $g 'Reclamar' $F.Button $P.AccentText $useBox.X $useBox.Y $useBox.Width $useBox.Height 'Center'
             Add-Hit $map 'use-reset' $useBox { Start-Process 'https://claude.ai/settings/usage' }
         }
     }
@@ -280,14 +282,17 @@ $Popup.Add_Paint({
     $g.DrawLine($pen, (Px 18), (Px ($bottom - 4)), $w - (Px 18), (Px ($bottom - 4)))
     $ageColor = $P.Muted
     if ($script:Refresh) {
-        $age = 'Updating...'
+        $age = Tx 'Actualizando\u2026'
     } elseif ($script:RefreshError -and ((Get-Date) - $script:RefreshErrorAt).TotalSeconds -lt 30) {
         $age = $script:RefreshError; $ageColor = $P.Error
     } else {
-        $age = if ($view) { Format-Age $view.AgeMinutes } else { 'No data yet' }
+        $age = if ($view) { Format-Age $view.AgeMinutes } else { 'Sin datos' }
     }
-    Draw-Text $g $age $F.Small $ageColor (Px 18) (Px ($bottom + 2)) (Px 190) (Px 24)
-    Draw-Text $g $script:FooterRight $F.Small $P.Muted (Px 18) (Px ($bottom + 2)) (Px ($PopupWidth - 36)) (Px 24) 'Right'
+    # The schedule note keeps its width; the age (or an error) gets what is left, so they never overlap.
+    $footW = Px ($PopupWidth - 36)
+    $rightW = if ($script:FooterRight) { [Math]::Min([int]($footW * 0.6), (Measure-TextWidth $script:FooterRight $F.Small)) } else { 0 }
+    Draw-Text $g $age $F.Small $ageColor (Px 18) (Px ($bottom + 2)) ($footW - $rightW - (Px 8)) (Px 24)
+    Draw-Text $g $script:FooterRight $F.Small $P.Muted ((Px 18) + $footW - $rightW) (Px ($bottom + 2)) $rightW (Px 24) 'Right'
 
     $button = New-Rect (Px 18) (Px ($bottom + 32)) (Px ($PopupWidth - 36)) (Px 36)
     $buttonColor = if ($map.Hover -eq 'hub') { $P.AccentHover } else { $P.Accent }
