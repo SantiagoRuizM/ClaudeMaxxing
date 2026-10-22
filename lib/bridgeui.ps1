@@ -818,7 +818,7 @@ function Draw-BridgeDialog($Form, $G) {
     $close = New-Rect (Px ($W - 52)) (Px 16) (Px 30) (Px 30)
     if ($hover -eq 'close') { Fill-Round $G $close (Px 6) $P.SurfaceHover }
     Draw-Text $G (Tx '\u00d7') $F.Close $P.Muted $close.X $close.Y $close.Width $close.Height 'Center'
-    Add-Hit $map 'close' $close { $script:BridgeDialog.Close() }
+    Add-Hit $map 'close' $close { $script:BridgeDialog.Close() } 'Cerrar (Esc)'
     $pen = New-Object System.Drawing.Pen($P.Border)
     $G.DrawLine($pen, $left, (Px 56), $left + $inner, (Px 56))
     $pen.Dispose()
@@ -887,7 +887,7 @@ function Draw-BridgeDialog($Form, $G) {
             $forget = New-Rect ($right - (Px 22)) ($row.Y + (Px 9)) (Px 22) (Px 22)
             if ($hover -eq "forget-$($peer.id)") { Fill-Round $G $forget (Px 6) $P.SurfaceHover }
             Draw-Text $G (Tx '\u00d7') $F.BodyStrong $P.Muted $forget.X $forget.Y $forget.Width $forget.Height 'Center'
-            Add-Hit $map "forget-$($peer.id)" $forget ([scriptblock]::Create("`$script:BridgeUi.ConfirmForget = '$($peer.id)'; `$script:BridgeDialog.Invalidate()"))
+            Add-Hit $map "forget-$($peer.id)" $forget ([scriptblock]::Create("`$script:BridgeUi.ConfirmForget = '$($peer.id)'; `$script:BridgeDialog.Invalidate()")) 'Olvidar este PC'
             $right = $forget.X - (Px 6)
             foreach ($button in @(@{ Id = "claude-$($peer.id)"; Label = 'Claude Code'; Action = "Open-BridgeTerminal '$($peer.id)' -Claude" },
                                   @{ Id = "term-$($peer.id)"; Label = 'Terminal'; Action = "Open-BridgeTerminal '$($peer.id)'" })) {
@@ -903,7 +903,7 @@ function Draw-BridgeDialog($Form, $G) {
         $subRect = New-Rect ($row.X + (Px 14)) ($row.Y + (Px 35)) ($row.Width - (Px 28)) (Px 16)
         $subColor = if ($hover -eq "copy-$($peer.id)") { $P.Accent } else { $P.Muted }
         Draw-Text $G $sub $F.Small $subColor $subRect.X $subRect.Y $subRect.Width $subRect.Height
-        Add-Hit $map "copy-$($peer.id)" (New-Rect $subRect.X $subRect.Y ((Measure-TextWidth "ssh $alias" $F.Small) + (Px 4)) $subRect.Height) ([scriptblock]::Create("Copy-BridgeCommand 'ssh $alias'"))
+        Add-Hit $map "copy-$($peer.id)" (New-Rect $subRect.X $subRect.Y ((Measure-TextWidth "ssh $alias" $F.Small) + (Px 4)) $subRect.Height) ([scriptblock]::Create("Copy-BridgeCommand 'ssh $alias'")) 'Copiar este comando'
         $y += Px 64
     }
     $y += Px 6
@@ -1057,6 +1057,8 @@ function Show-ApprovalForm([string]$RenderPath) {
     Enable-DoubleBuffer $form
     $form.Tag = New-HitMap
     Register-HitMap $form
+    # No Tab / Enter here: a window that pops up while you type must not take keys meant for another app.
+    $form.Tag.NoKeys = $true
     $script:ApprovalForm = $form
     $script:ApprovalLogo = New-TintedLogo $P.Accent (Px 22)
     $form.Add_HandleCreated({ param($sender, $e) Set-RoundedWindow $sender $script:Palette.Border })

@@ -221,6 +221,8 @@ $Popup.Add_Paint({
     $dotX = $w - (Px 18) - $dotSize
     $dotColor = if ($view -and $view.Fresh) { $P.low } else { $P.Faint }
     $g.FillEllipse((New-Object System.Drawing.SolidBrush($dotColor)), $dotX, (Px 29) - [int]($dotSize / 2), $dotSize, $dotSize)
+    $dotTip = if ($view -and $view.Fresh) { 'Datos al d\u00eda: una sesi\u00f3n respondi\u00f3 hace menos de 10 min' } else { 'Sin respuestas de Claude Code en los \u00faltimos 10 min' }
+    Add-Hit $map 'fresh' (New-Rect ($dotX - (Px 4)) (Px 21) ($dotSize + (Px 8)) ($dotSize + (Px 8))) $null (Tx $dotTip)
     $nextRight = $dotX - (Px 10)
     if ($script:Plan) {
         $pillW = (Measure-TextWidth $script:Plan $F.Badge) + (Px 18)
@@ -234,7 +236,7 @@ $Popup.Add_Paint({
     if ($busy -or $map.Hover -eq 'refresh') { Fill-Round $g $refreshBox (Px 8) $P.SurfaceHover }
     $refreshColor = if ($busy -or $map.Hover -eq 'refresh') { $P.Accent } else { $P.Muted }
     Draw-Text $g (Tx '\u21bb') $F.Refresh $refreshColor $refreshBox.X ($refreshBox.Y - (Px 1)) $refreshBox.Width $refreshBox.Height 'Center'
-    Add-Hit $map 'refresh' $refreshBox { Start-UsageRefresh }
+    Add-Hit $map 'refresh' $refreshBox { Start-UsageRefresh } 'Actualizar el uso ahora'
 
     if (-not $view -or -not $view.HasData) {
         Draw-Text $g (Tx 'Sin datos de uso todav\u00eda') $F.BodyStrong $P.Text (Px 18) (Px 74) (Px ($PopupWidth - 36)) (Px 24)
@@ -307,6 +309,8 @@ $Popup.Add_Paint({
     $pen.Dispose()
 })
 
+# Esc closes the popup like the other windows.
+$Popup.Add_KeyDown({ param($sender, $e) if ($e.KeyCode -eq 'Escape') { $sender.Hide(); $script:LastHidden = Get-Date } })
 $Popup.Add_Deactivate({
     $script:Popup.Hide()
     $script:LastHidden = Get-Date

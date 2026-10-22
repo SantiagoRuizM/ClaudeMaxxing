@@ -871,7 +871,7 @@ function Draw-Hub($Form, $G) {
     $close = New-Rect ($w - (Px 52)) (Px 16) (Px 30) (Px 30)
     if ($hover -eq 'close') { Fill-Round $G $close (Px 6) $P.SurfaceHover }
     Draw-Text $G (Tx '\u00d7') $F.Close $P.Muted $close.X $close.Y $close.Width $close.Height 'Center'
-    Add-Hit $map 'close' $close { $script:HubDialog.Close() }
+    Add-Hit $map 'close' $close { $script:HubDialog.Close() } 'Cerrar (Esc)'
     if ($hub.Message -and ((Get-Date) - $hub.MessageAt).TotalSeconds -lt $(if ($hub.MessageError) { 15 } else { 8 })) {
         Draw-Text $G $hub.Message $F.Small $(if ($hub.MessageError) { $P.Error } else { $P.Accent }) ($x0 + (Px 220)) (Px 20) ($close.X - $x0 - (Px 230)) (Px 20) 'Right'
     }
