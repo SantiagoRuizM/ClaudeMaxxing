@@ -68,6 +68,13 @@ Assert-Equal ('Hoy ' + (Tx '\u00b7') + ' ' + (Format-Clock $sameDay) + ' (en 2h 
 $otherDay = Get-Date -Year 2026 -Month 10 -Day 11 -Hour 7 -Minute 59 -Second 0 -Millisecond 0
 Assert-Equal ((Get-DayLabel $otherDay $now) + ' ' + (Tx '\u00b7') + ' ' + (Format-Clock $otherDay) + ' (en 1d 20h)') (Format-ResetText $otherDay $now) 'reset text other day'
 
+$screenRect = [pscustomobject]@{ Left = 0; Top = 0; Right = 1920; Bottom = 1080 }
+$bottomBar = [pscustomobject]@{ Left = 0; Top = 0; Right = 1920; Bottom = 1032 }
+Assert-Equal '1548,710' ((Get-PopupLocation $bottomBar $screenRect 360 310 12) -join ',') 'popup above a bottom taskbar'
+$topBar = [pscustomobject]@{ Left = 0; Top = 48; Right = 1920; Bottom = 1080 }
+Assert-Equal '1548,60' ((Get-PopupLocation $topBar $screenRect 360 310 12) -join ',') 'popup under a top taskbar'
+$leftBar = [pscustomobject]@{ Left = 64; Top = 0; Right = 1920; Bottom = 1080 }
+Assert-Equal '76,758' ((Get-PopupLocation $leftBar $screenRect 360 310 12) -join ',') 'popup next to a left taskbar'
 Assert-Equal 'low' (Get-UsageLevel 30) 'level low'
 Assert-Equal 'medium' (Get-UsageLevel 72) 'level medium'
 Assert-Equal 'high' (Get-UsageLevel 86) 'level high'

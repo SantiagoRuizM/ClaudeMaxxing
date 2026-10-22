@@ -9,6 +9,8 @@ $script:CloudCardHeight = 106
 $script:TabStripHeight = 38
 
 function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string]$Tab = 'schedule') {
+    # One at a time: the tray menu and the ClaudeMaxxing window can both open it.
+    if ($script:ScheduleDialog -and -not $script:ScheduleDialog.IsDisposed) { $script:ScheduleDialog.Activate(); return }
     $P = $script:Palette
     $F = $script:Fonts
     $openedAt = Get-Date
@@ -18,7 +20,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
 
     $W = 440
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = 'Claude'
+    $dlg.Text = $(if ($Tab -eq 'plan') { 'Plan semanal' } else { Tx 'Agendar sesi\u00f3n' })
     $dlg.FormBorderStyle = 'None'
     $dlg.StartPosition = 'CenterScreen'
     $dlg.BackColor = $P.Back
@@ -620,7 +622,8 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             $sender.Close()
         })
     }
-    [void]$dlg.ShowDialog()
+    $script:ScheduleDialog = $dlg
+    try { [void]$dlg.ShowDialog() } finally { $script:ScheduleDialog = $null }
     $dlg.Dispose()
     if ($logo) { $logo.Dispose() }
 }

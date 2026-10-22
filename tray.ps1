@@ -167,9 +167,9 @@ function Set-PopupSize {
 }
 
 function Move-PopupToCorner {
-    $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
-    $script:Popup.Location = New-Object System.Drawing.Point(
-        ($area.Right - $script:Popup.Width - (Px 12)), ($area.Bottom - $script:Popup.Height - (Px 12)))
+    $screen = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position)
+    $at = Get-PopupLocation $screen.WorkingArea $screen.Bounds $script:Popup.Width $script:Popup.Height (Px 12)
+    $script:Popup.Location = New-Object System.Drawing.Point($at[0], $at[1])
 }
 $script:Popup = New-Object System.Windows.Forms.Form
 $Popup.FormBorderStyle = 'None'
@@ -342,16 +342,19 @@ $Notify.Text = 'Claude'
 $Notify.Visible = -not $Rendering
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
+# Grouped like the ClaudeMaxxing window: the window, usage, scheduling, the other tools. Names match its sections.
 [void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
-[void]$menu.Items.Add((Tx 'Planear sesi\u00f3n del d\u00eda...'), $null, { Show-HubDialog 'plan' })
+[void]$menu.Items.Add((Tx 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' })
+[void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
-[void]$menu.Items.Add('Actualizar datos', $null, { Start-UsageRefresh })
+[void]$menu.Items.Add('Actualizar uso', $null, { Start-UsageRefresh; Show-Popup })
+[void]$menu.Items.Add('Ver uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
+[void]$menu.Items.Add('-')
 [void]$menu.Items.Add((Tx 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
 [void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
-[void]$menu.Items.Add('Abrir uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
 [void]$menu.Items.Add('-')
 # Claude Whisper: live call copilot in its own process (whisper.ps1).
-[void]$menu.Items.Add('Claude Whisper', $null, { Start-WhisperWindow $TrayRoot })
+[void]$menu.Items.Add('Claude Whisper...', $null, { Start-WhisperWindow $TrayRoot })
 # Otros PCs: terminals on paired PCs and the incoming sessions, rebuilt each time the submenu opens.
 $script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PCs')
 [void]$script:BridgeMenu.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
