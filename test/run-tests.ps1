@@ -809,6 +809,111 @@ try {
     Remove-Item -LiteralPath $costDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- Planear sesion (lib\judge.ps1): trials on disk, progress, verdict text, status of a dead worker
+. (Join-Path $TrayRoot 'lib\judge.ps1')
+Assert-Equal $true ($manifest -contains 'claudeJudge\.claude\skills\court\court.py') 'runtime includes the court skill'
+Assert-Equal 'Culpable, 4 a 2' (Format-JudgeScore ([pscustomobject]@{ verdict = 'GUILTY'; guilty = 4; not_guilty = 2 })) 'judge score: guilty'
+Assert-Equal 'No culpable, 7 a 5' (Format-JudgeScore ([pscustomobject]@{ verdict = 'NOT GUILTY'; guilty = 5; not_guilty = 7 })) 'judge score: larger side first'
+Assert-Equal 'Jurado dividido, 3 a 3' (Format-JudgeScore ([pscustomobject]@{ verdict = 'HUNG JURY'; guilty = 3; not_guilty = 3 })) 'judge score: hung jury'
+Assert-Equal 'Sin veredicto' (Format-JudgeScore $null) 'judge score: no tally'
+$judgeDir = Join-Path ([IO.Path]::GetTempPath()) ('cmx-judge-test-{0}' -f [guid]::NewGuid().ToString('N'))
+try {
+    $done = Join-Path $judgeDir '.court\20261020-090000'
+    $open = Join-Path $judgeDir '.court\20261020-100000'
+    foreach ($d in "$done\judge", "$done\jury", "$open\opening", "$open\rebuttal", "$open\jury", (Join-Path $judgeDir '.court\notes')) { New-Item -ItemType Directory -Force $d | Out-Null }
+    [IO.File]::WriteAllText("$done\case.md", "# Vender velas en Etsy`nTengo 200 USD.")
+    [IO.File]::WriteAllText("$done\tally.json", '{"verdict":"GUILTY","guilty":2,"not_guilty":1,"jurors":[{"juror":"The Accountant","vote":"GUILTY","reason":"No hay margen.","fact":"","flip":"Un precio de 30 USD"}]}')
+    [IO.File]::WriteAllText("$done\judge\judge.md", "## Charges that stuck`n**Margen**: muy bajo.")
+    [IO.File]::WriteAllText("$open\case.md", 'Otra idea')
+    [IO.File]::WriteAllText("$open\state.json", '{"jury":[{"name":"a"},{"name":"b"},{"name":"c"}]}')
+    foreach ($f in 'opening\prosecution', 'opening\defense', 'rebuttal\prosecution', 'rebuttal\defense', 'jury\juror-01') { [IO.File]::WriteAllText("$open\$f.md", 'x') }
+    $trials = @(Get-JudgeTrials $judgeDir)
+    Assert-Equal 1 $trials.Count 'judge trials: only finished runs, never other folders'
+    Assert-Equal 'Vender velas en Etsy' $trials[0].Title 'judge trials: title is the first line of the case'
+    [IO.File]::WriteAllText("$done\idea.txt", "Velas artesanales en Etsy`ncon 200 USD")
+    Assert-Equal 'Velas artesanales en Etsy' (Get-JudgeTrial $done).Title 'judge trials: the idea as written wins over the case file'
+    Assert-Equal 'Jurado: 1 de 3 votos' (Get-JudgeProgress $open) 'judge progress: votes so far'
+    Assert-Equal 'Preparando el caso...' (Get-JudgeProgress '') 'judge progress: no run yet'
+    $feedback = Format-JudgeFeedback $trials[0]
+    Assert-Equal $true ($feedback.Contains('- El contador (Culpable): No hay margen.') -and $feedback.Contains('Margen: muy bajo.') -and -not $feedback.Contains('##')) 'judge feedback: Spanish juror names, judge text without markdown'
+    $statusFile = Join-Path $judgeDir 'status.json'
+    Write-JsonFile $statusFile ([ordered]@{ state = 'running'; pid = 0 })
+    Assert-Equal 'error' (Get-JudgeStatus $statusFile).state 'judge status: a running trial without its worker is an error'
+    Write-JsonFile $statusFile ([ordered]@{ state = 'running'; pid = $PID })
+    Assert-Equal 'running' (Get-JudgeStatus $statusFile).state 'judge status: live worker keeps running'
+} finally { Remove-Item -LiteralPath $judgeDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Planear sesion: where trials run, which claude, and the one-line reason of a failure
+# Claude Code refuses every write under a .claude folder, even in acceptEdits: no trial could run there.
+Assert-Equal $false (Test-JudgeProtectedPath $JudgeHome) 'judge home is outside the folders Claude Code protects'
+Assert-Equal $true (Test-JudgeProtectedPath (Join-Path $env:USERPROFILE '.claude\usage-tray\judge')) 'judge: ~/.claude is protected'
+Assert-Equal $true (Test-JudgeProtectedPath 'D:\repo\.git\x') 'judge: .git is protected'
+Assert-Equal $false (Test-JudgeProtectedPath 'D:\repo\claudeJudge\court') 'judge: a name that only contains claude is not'
+$fakes = Join-Path $TrayRoot 'test\fakes'
+Assert-Equal (Join-Path $fakes 'claude.cmd') (Resolve-JudgeClaude (Join-Path $fakes 'claude.cmd')) 'judge claude: an existing preferred path wins'
+Assert-Equal $true ((Resolve-JudgeClaude 'D:\nowhere\claude.exe') -ne 'D:\nowhere\claude.exe') 'judge claude: a missing path is skipped'
+$denied = [pscustomobject]@{ is_error = $false; result = 'x'; permission_denials = @(
+    [pscustomobject]@{ tool_name = 'Write'; tool_input = [pscustomobject]@{ file_path = 'D:\j\.court\r\case.md' } },
+    [pscustomobject]@{ tool_name = 'Bash'; tool_input = [pscustomobject]@{ command = 'ls' } }) }
+Assert-Equal $true ((Get-JudgeFailure $denied '' 0 $false 60) -like 'Claude no tuvo permiso para Write D:\j\.court\r\case.md (y 1 m*s).') 'judge failure: first denied write and the count of the rest'
+Assert-Equal $true ((Get-JudgeFailure ([pscustomobject]@{ is_error = $true; subtype = 'error_max_turns'; result = 'Reached max' }) '' 1 $false 60) -like '*(error_max_turns): Reached max') 'judge failure: is_error answer'
+Assert-Equal $true ((Get-JudgeFailure $null "`n  boom: crashed`nmore" 3 $false 60) -like '*: boom: crashed') 'judge failure: no answer, first stderr line'
+Assert-Equal $true ((Get-JudgeFailure $null '' 5 $false 60) -like '*(c*digo 5).') 'judge failure: no answer, no stderr'
+Assert-Equal $true ((Get-JudgeFailure $null '' -1 $true 60) -like '* en 60 min y se detuvo.') 'judge failure: time limit'
+Assert-Equal $true ((Get-JudgeFailure ([pscustomobject]@{ is_error = $false; result = 'Listo' }) '' 0 $false 60) -like '* sin veredicto: Listo') 'judge failure: answer without a verdict'
+
+# --- Planear sesion: the worker end to end with a fake claude and python (test\fakes): no plan usage, no network
+function Invoke-JudgeWorker([string]$Mode, [string]$Dir, [int]$Timeout = 60) {
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    [IO.File]::WriteAllText((Join-Path $Dir 'idea.txt'), 'Vender velas en Etsy', (New-Object System.Text.UTF8Encoding($false)))
+    $env:FAKE_CLAUDE_MODE = $Mode
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $TrayRoot 'lib\judge-worker.ps1') -Jury 3 -WorkDir $Dir `
+        -ClaudePath (Join-Path $fakes 'claude.cmd') -Python (Join-Path $fakes 'python3.cmd') -TimeoutSeconds $Timeout | Out-Null
+    Remove-Item Env:FAKE_CLAUDE_MODE
+    $status = Read-JsonFile (Join-Path $Dir 'status.json')
+    $log = if ($status -and $status.log -and (Test-Path -LiteralPath $status.log)) { [IO.File]::ReadAllText($status.log, [Text.Encoding]::UTF8) } else { '' }
+    [pscustomobject]@{ Status = $status; Log = $log; Called = (Test-Path -LiteralPath (Join-Path $Dir 'fake-claude-called.txt')) }
+}
+$workerRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-judge-worker-{0}' -f [guid]::NewGuid().ToString('N'))
+try {
+    $r = Invoke-JudgeWorker 'verdict' (Join-Path $workerRoot 'verdict')
+    Assert-Equal 'done' $r.Status.state 'judge worker: a finished trial is done'
+    Assert-Equal $true (Test-Path -LiteralPath (Join-Path $r.Status.run 'idea.txt')) 'judge worker: the trial keeps the idea as written'
+    Assert-Equal $true (Test-Path -LiteralPath (Join-Path $workerRoot 'verdict\.claude\skills\court\SKILL.md')) 'judge worker: the skill is copied next to the trial'
+    Assert-Equal $true ($r.Log.Contains('sesi' + [char]0x00F3 + 'n') -and $r.Log.Contains('turns=9') -and $r.Log.Contains('verdict ready')) 'judge worker: log has the answer, decoded as UTF-8'
+    $called = [IO.File]::ReadAllText((Join-Path $workerRoot 'verdict\fake-claude-called.txt'))
+    Assert-Equal $true ($called.Contains('--permission-mode acceptEdits') -and $called.Contains('--setting-sources project') -and $called.Contains('--jury 3')) 'judge worker: claude gets the unattended flags'
+    Assert-Equal 'Vender velas en Etsy' ([IO.File]::ReadAllText((Join-Path $workerRoot 'verdict\.court\case.md'), [Text.Encoding]::UTF8).Trim()) 'judge worker: the case file is the idea as written (never translated)'
+
+    $r = Invoke-JudgeWorker 'deny' (Join-Path $workerRoot 'deny')
+    Assert-Equal 'error' $r.Status.state 'judge worker: refused writes are an error'
+    Assert-Equal $true ($r.Status.message -like 'Claude no tuvo permiso para Write *case.md (y 1 m*') 'judge worker: the message names the refused file'
+    Assert-Equal $true ($r.Log.Contains('denied: ') -and $r.Log.Contains('denials=2') -and $r.Log.Contains('ning' + [char]0x00FA + 'n')) 'judge worker: log lists every denial'
+
+    $r = Invoke-JudgeWorker 'error' (Join-Path $workerRoot 'error')
+    Assert-Equal $true ($r.Status.state -eq 'error' -and $r.Status.message -like '*(error_max_turns)*') 'judge worker: is_error answer'
+
+    $r = Invoke-JudgeWorker 'crash' (Join-Path $workerRoot 'crash')
+    Assert-Equal $true ($r.Status.message -like '*boom: the fake claude crashed*') 'judge worker: stderr reaches the message'
+    Assert-Equal $true ($r.Log.Contains('exit 3')) 'judge worker: log has the exit code'
+
+    $r = Invoke-JudgeWorker 'hang' (Join-Path $workerRoot 'hang') 3
+    Assert-Equal $true ($r.Status.state -eq 'error' -and $r.Status.message -like '* y se detuvo.') 'judge worker: a hung claude is stopped at the limit'
+
+    # A folder under .claude fails before claude is called, so no plan is spent.
+    $r = Invoke-JudgeWorker 'verdict' (Join-Path $workerRoot '.claude\judge')
+    Assert-Equal $true ($r.Status.state -eq 'error' -and $r.Status.message -like '*carpeta protegida*' -and -not $r.Called) 'judge worker: protected folder is refused before calling claude'
+
+    $dir = Join-Path $workerRoot 'nopython'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    [IO.File]::WriteAllText((Join-Path $dir 'idea.txt'), 'Vender velas en Etsy')
+    $env:FAKE_CLAUDE_MODE = 'verdict'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $TrayRoot 'lib\judge-worker.ps1') -WorkDir $dir -Jury 3 `
+        -ClaudePath (Join-Path $fakes 'claude.cmd') -Python 'no-such-python-cmx' | Out-Null
+    Remove-Item Env:FAKE_CLAUDE_MODE
+    Assert-Equal $true ((Read-JsonFile (Join-Path $dir 'status.json')).message -like 'Falta Python 3*') 'judge worker: missing python is named'
+} finally { Remove-Item -LiteralPath $workerRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {
     $tokens = $null; $errors = $null

@@ -1,5 +1,6 @@
 # ClaudeMaxxing window: every tool in one place, opened from the popup's "Entrar a ClaudeMaxxing" button.
-# Sections: Inicio (overview, with the diagram of nearby PCs and the latest calls), Uso y agenda, Claude Code
+# Sections: Inicio (overview, with the diagram of nearby PCs and the latest calls), Planear sesion (lib\hubplan.ps1:
+# an idea on trial before Claude Judge), Uso y agenda, Claude Code
 # (sessions opened from the Explorer menu), Otros PCs (diagram of nearby PCs and their connection), Claude
 # Whisper (settings and call history) and Voz. The longer flows keep their own windows: the schedule dialog,
 # pairing in Otros PCs (pairing is only accepted while that window is open) and the Whisper context dialog.
@@ -29,6 +30,7 @@ $script:HubFonts = @{
 
 $script:HubSections = @(
     @{ Id = 'home'; Label = 'Inicio'; Glyph = '\ue80f' },
+    @{ Id = 'plan'; Label = (Tx 'Planear sesi\u00f3n'); Glyph = '\uea80' },
     @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
     @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
@@ -174,6 +176,7 @@ function Update-HubCache([switch]$Full) {
     $slow = $Full -or ($now - $hub.SlowAt).TotalSeconds -ge 10
     $c.FreeLlm = Get-HubFreeLlm $c.FreeLlm -Slow:$slow -Full:$Full
     try { $c.ContextMode = Get-ContextModeState; $c.MaxxStatus = Get-MaxxStatus } catch { }
+    try { Update-HubJudge } catch { }
     if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
@@ -439,6 +442,9 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "stats-hours", "stats-models-all"...: a tab (and the all-time range) of Estadisticas.
     $statsTab = 'summary'; $statsRange = 'recent'
     if ($Section -match '^stats-([a-z]+?)(?:-(all))?$') { $statsTab = $Matches[1]; if ($Matches[2]) { $statsRange = 'all' }; $Section = 'stats' }
+    # "plan-running", "plan-error", "plan-empty": the preview's sample state of Planear sesion.
+    $planPreview = ''
+    if ($Section -match '^plan-([a-z]+)$') { $planPreview = $Matches[1]; $Section = 'plan' }
     if ($script:HubDialog) {
         if ($Section) { Set-HubSection $Section }
         Update-HubNow
@@ -461,7 +467,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $script:HubDialog = $dlg
     $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Logo = (New-TintedLogo $P.Accent (Px 22)); Cache = @{}
         SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = ''
-        StatsTab = $statsTab; StatsRange = $statsRange; StatsError = '' }
+        StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview }
     # A damaged data file must not take the click handler (and the tray) down: the section just shows less.
     if ($RenderPath) { Set-HubPreview } else { try { Update-HubCache -Full; if ($script:Hub.Section -eq 'stats') { Update-HubStats } } catch { } }
 
@@ -633,6 +639,7 @@ function Get-HubNavBadge([string]$Id) {
             if (@($nodes | Where-Object { $_.State -eq 'session' }).Count) { return @{ Dot = $P.Accent } }
             if (@($nodes | Where-Object { $_.State -eq 'online' }).Count) { return @{ Dot = $P.Ok } }
         }
+        'plan' { if ($c.JudgeStatus -and $c.JudgeStatus.state -eq 'running') { return @{ Dot = $P.Accent } } }
         'whisper' { if ($c.WhisperRunning) { return @{ Dot = $P.Ok } } }
         'voice' { if ($c.VoiceMuted) { return @{ Text = 'off'; Color = $P.Faint } } }
     }
@@ -849,6 +856,7 @@ function Draw-Hub($Form, $G) {
     $inner = $w - $x0 - (Px 24)
     $title = (@($script:HubSections | Where-Object { $_.Id -eq $hub.Section })[0]).Label
     if ($hub.Section -eq 'home') { $title = 'Todo ClaudeMaxxing' }
+    if ($hub.Section -eq 'plan') { $title = Tx 'Planear sesi\u00f3n del d\u00eda' }
     Draw-Text $G $title $F.Title $P.Text $x0 (Px 14) (Px 320) (Px 32)
     $close = New-Rect ($w - (Px 52)) (Px 16) (Px 30) (Px 30)
     if ($hover -eq 'close') { Fill-Round $G $close (Px 6) $P.SurfaceHover }
@@ -861,6 +869,7 @@ function Draw-Hub($Form, $G) {
     $pen.Dispose()
 
     switch ($hub.Section) {
+        'plan'    { Draw-HubPlanSection $G $map $hover $x0 $inner }
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
         'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
@@ -1563,4 +1572,18 @@ function Set-HubPreview {
     $c.Stats = Read-JsonFile $StatsFile
     $c.ToolStats = @{ Calls = 2; CallMinutes = 45; CallAnswers = 3; Runs = 14; RunsOk = 13; MenuOpens = 90; Paired = 2 }
     $c.ScheduleRows = @(Get-ScheduleRows $script:PendingTasks (Read-JsonFile $CloudFile) (Read-JsonFile $HistoryFile) $now 5)
+    # Planear sesion: -HubSection plan, plan-running, plan-error or plan-empty.
+    $state = $script:Hub.PlanPreview
+    $c.JudgeTrials = @(if ($state -ne 'empty') { @(
+        [pscustomobject]@{ Title = (Tx 'Grabar un curso de Claude Code en espa\u00f1ol y venderlo en Hotmart'); At = $now.AddHours(-2); Tally = [pscustomobject]@{ verdict = 'GUILTY'; guilty = 4; not_guilty = 2 } },
+        [pscustomobject]@{ Title = 'Migrar la tienda web a Next.js antes del viernes'; At = $now.AddDays(-1).AddHours(-3); Tally = [pscustomobject]@{ verdict = 'NOT GUILTY'; guilty = 5; not_guilty = 7 } },
+        [pscustomobject]@{ Title = (Tx 'Dedicar la ma\u00f1ana a ClaudeMaxxing y la tarde a clientes'); At = $now.AddDays(-3); Tally = [pscustomobject]@{ verdict = 'HUNG JURY'; guilty = 3; not_guilty = 3 } }
+    ) })
+    $c.JudgeStatus = switch ($state) {
+        'running' { [pscustomobject]@{ state = 'running'; jury = 6; at = $now.AddMinutes(-3).ToString('o') } }
+        # Any existing file stands in for the log, so the preview shows the "Ver registro" button.
+        'error'   { [pscustomobject]@{ state = 'error'; log = (Join-Path $TrayRoot 'tray.ps1'); message = 'Claude no tuvo permiso para Write .court\20261020-122700\case.md (y 3 m' + [char]0x00E1 + 's).' } }
+        default   { $null }
+    }
+    $c.JudgeProgress = 'Jurado: 4 de 6 votos'
 }

@@ -7,7 +7,8 @@ $script:RuntimeFiles = @(
     'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1'
 )
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
-$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates')
+# claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial.
+$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
 # the Python environment for edge-tts and the icons copied from the Claude app.
 $script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets')
