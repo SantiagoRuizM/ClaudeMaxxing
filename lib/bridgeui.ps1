@@ -560,8 +560,13 @@ function Update-BridgeMenu($Item) {
     if (-not $b -or -not $b.Ready) { return }
     if ($b.Peers.Count) { [void]$Item.DropDownItems.Add('-') }
     foreach ($peer in $b.Peers) {
-        [void]$Item.DropDownItems.Add("Terminal en $($peer.name)", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)'"))
-        [void]$Item.DropDownItems.Add("Claude Code en $($peer.name)", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)' -Claude"))
+        # Say when a PC has not been seen lately; still clickable, since a router that drops broadcasts hides
+        # PCs that can be reached all the same.
+        $seen = $b.Discovered[$peer.id]
+        $online = $seen -and ((Get-Date) - $seen.seen).TotalSeconds -le $BridgeSeenSeconds
+        $suffix = if ($online) { '' } else { ' (sin verlo en la red)' }
+        [void]$Item.DropDownItems.Add("Terminal en $($peer.name)$suffix", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)'"))
+        [void]$Item.DropDownItems.Add("Claude Code en $($peer.name)$suffix", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)' -Claude"))
     }
     $sessions = @($b.Sessions.Values)
     if ($sessions.Count) {
@@ -683,7 +688,8 @@ function Show-BridgeDialog([string]$RenderPath) {
     $dlg.StartPosition = 'CenterScreen'
     $dlg.BackColor = $P.Back
     $dlg.KeyPreview = $true
-    $dlg.TopMost = $true
+    # Not always on top: it stays open while you pair, so other windows must be able to go over it.
+    $dlg.TopMost = $false
     $dlg.ClientSize = New-Object System.Drawing.Size((Px $W), (Px 480))
     if ($script:Notify -and $script:Notify.Icon) { $dlg.Icon = $script:Notify.Icon }
     Enable-DoubleBuffer $dlg

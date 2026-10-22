@@ -64,6 +64,16 @@ function Format-Age($AgeMinutes) {
     'Actualizado hace {0} h' -f [int][Math]::Floor($minutes / 60)
 }
 
+# Where the popup goes: in the corner next to the taskbar's clock, wherever the taskbar is (bottom, top or left;
+# right is like bottom). $Work is the screen's working area and $Bounds the whole screen.
+function Get-PopupLocation($Work, $Bounds, [int]$Width, [int]$Height, [int]$Margin) {
+    $x = $Work.Right - $Width - $Margin
+    $y = $Work.Bottom - $Height - $Margin
+    if ($Work.Top -gt $Bounds.Top) { $y = $Work.Top + $Margin }
+    if ($Work.Left -gt $Bounds.Left) { $x = $Work.Left + $Margin }
+    @($x, $y)
+}
+
 function Get-UsageLevel([double]$Percent) {
     if ($Percent -ge 80) { return 'high' }
     if ($Percent -ge 50) { return 'medium' }
