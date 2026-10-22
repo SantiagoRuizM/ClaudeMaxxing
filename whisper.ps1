@@ -581,18 +581,19 @@ $script:ListenButton = New-WhisperButton 'Escuchar' $P $true
 $script:AnswerButton = New-WhisperButton 'Responder' $P
 $script:ScreenButton = New-WhisperButton 'Pantalla' $P
 $script:ContextButton = New-WhisperButton 'Contexto' $P
+$script:ClearButton = New-WhisperButton 'Limpiar' $P
 $script:AutoButton = New-WhisperButton 'Auto' $P
 $script:TranslateButton = New-WhisperButton 'Traducir' $P
 $script:MoreButton = New-WhisperButton ([string][char]0x22EF) $P
 foreach ($b in $script:ListenButton, $script:AnswerButton, $script:ScreenButton, $script:ContextButton, $script:MoreButton) { $buttons.Controls.Add($b) }
 [void]$header.Controls.Add($buttons, 0, 1)
-# Second row: the two switches that decide what happens on its own.
+# Second row: the two switches that decide what happens on its own, and Limpiar.
 $toggles = New-Object System.Windows.Forms.FlowLayoutPanel
 $toggles.Dock = 'Fill'
 $toggles.AutoSize = $true
 $toggles.WrapContents = $true
 $toggles.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, (Px 4))
-foreach ($b in $script:AutoButton, $script:TranslateButton) {
+foreach ($b in $script:AutoButton, $script:TranslateButton, $script:ClearButton) {
     $b.Font = $script:Fonts.Small
     $b.Margin = New-Object System.Windows.Forms.Padding((Px 2), 0, (Px 4), 0)
     $toggles.Controls.Add($b)
@@ -602,6 +603,7 @@ foreach ($b in $script:AutoButton, $script:TranslateButton) {
 $tips = New-Object System.Windows.Forms.ToolTip
 $tips.SetToolTip($script:AnswerButton, (Tx 'Que Claude responda ahora a lo \u00faltimo que dijeron'))
 $tips.SetToolTip($script:ScreenButton, (Tx 'Claude mira tu pantalla (por ejemplo un ejercicio de programaci\u00f3n) y lo resuelve'))
+$tips.SetToolTip($script:ClearButton, (Tx 'Borra la conversaci\u00f3n y las respuestas, Claude olvida lo anterior y vuelve a escuchar'))
 $tips.SetToolTip($script:ContextButton, (Tx 'Tu perfil, la conversaci\u00f3n, el idioma y el modelo'))
 $tips.SetToolTip($script:AutoButton, (Tx 'Responder solo cuando detecte una pregunta, en cualquier idioma (tambi\u00e9n en una canci\u00f3n)'))
 $tips.SetToolTip($script:TranslateButton, (Tx 'Traducir en vivo a tu idioma lo que suena en el PC'))
@@ -620,7 +622,6 @@ $script:TopMostItem.Add_Click({
     if (-not (Test-Path -LiteralPath $WhisperSessionsDir)) { New-Item -ItemType Directory -Force -Path $WhisperSessionsDir | Out-Null }
     Start-Process explorer.exe $WhisperSessionsDir
 })
-[void]$more.Items.Add((Tx 'Nueva conversaci\u00f3n (olvidar lo anterior)'), $null, { Reset-Conversation })
 [void]$more.Items.Add('-')
 [void]$more.Items.Add('Cerrar Claude Whisper', $null, { $script:Form.Close() })
 $script:MoreButton.Add_Click({ $more.Show($script:MoreButton, 0, $script:MoreButton.Height) })
@@ -802,6 +803,7 @@ function Render-Answer {
 }
 
 function Reset-Conversation {
+    Stop-Listening
     Stop-Claude
     Stop-Interpreter
     $script:InterpQueue.Clear()
@@ -820,6 +822,7 @@ function Reset-Conversation {
     $script:TranscriptDirty = $true
     $script:AnswerDirty = $true
     [void](Start-Claude)
+    Start-Listening
 }
 
 # ---- actions
@@ -829,6 +832,7 @@ $script:AnswerButton.Add_Click({ Request-AnswerNow })
 $script:AutoButton.Add_Click({ $script:Settings.autoAnswer = -not [bool]$script:Settings.autoAnswer; Save-WhisperSettings; Update-Controls })
 $script:TranslateButton.Add_Click({ $script:Settings.translate = -not [bool]$script:Settings.translate; Save-WhisperSettings; Update-Controls })
 $script:ScreenButton.Add_Click({ Request-Screen })
+$script:ClearButton.Add_Click({ Reset-Conversation })
 $script:PrevButton.Add_Click({ if ($script:AnswerIndex -gt 0) { $script:AnswerIndex--; $script:AnswerDirty = $true } })
 $script:NextButton.Add_Click({ if ($script:AnswerIndex -lt $script:Answers.Count - 1) { $script:AnswerIndex++; $script:AnswerDirty = $true } })
 $script:ContextButton.Add_Click({
