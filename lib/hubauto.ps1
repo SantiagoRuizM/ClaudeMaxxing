@@ -23,7 +23,8 @@ function Get-AutoState {
 }
 
 function Save-AutoSettings($Settings) {
-    try { Write-JsonFile $AutoPlanFile $Settings } catch { }
+    try { Write-JsonFile $AutoPlanFile $Settings }
+    catch { if ($script:HubDialog -and $script:Hub) { Set-HubMessage ((Tx 'No se pudo guardar la agenda autom\u00e1tica: ') + $_.Exception.Message) } }
 }
 
 # Brings Task Scheduler in line with the plan. Hourly from the tray timer; -Force after a change.
@@ -224,12 +225,12 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
         $statusText = Tx 'Act\u00edvala y la bandeja agenda sola estas sesiones para los pr\u00f3ximos d\u00edas.'
     } elseif ($current -and $current.HasData -and $current.Session.Active) {
         if (Test-AutoAligned $current.Session.ResetsAt $plan.Starts) {
-            $statusText = (Tx '\u2713 La ventana actual sigue el plan: cambia a las ') + (Format-Clock $current.Session.ResetsAt) + '.'; $statusColor = $P.Ok
+            $statusText = (Tx '\u2713 La sesi\u00f3n actual sigue el plan: termina a las ') + (Format-Clock $current.Session.ResetsAt) + '.'; $statusColor = $P.Ok
         } else {
-            $statusText = 'La ventana actual cambia a las ' + (Format-Clock $current.Session.ResetsAt) + ', fuera del plan: se reengancha en la siguiente sesi' + (Tx '\u00f3') + 'n.'; $statusColor = $P.Warn
+            $statusText = (Tx 'La sesi\u00f3n actual termina a las ') + (Format-Clock $current.Session.ResetsAt) + (Tx ', fuera del plan: la cadena sigue en la pr\u00f3xima sesi\u00f3n autom\u00e1tica.'); $statusColor = $P.Warn
         }
     } elseif ($nextText) {
-        $statusText = 'Sin ventana abierta: la pr' + (Tx '\u00f3') + 'xima sesi' + (Tx '\u00f3') + 'n autom' + (Tx '\u00e1') + 'tica es ' + $nextText + '.'
+        $statusText = (Tx 'Ninguna sesi\u00f3n en curso: la pr\u00f3xima autom\u00e1tica es ') + $nextText + '.'
     }
     $conflicts = @($view.Conflicts)
     if ($conflicts.Count) {
