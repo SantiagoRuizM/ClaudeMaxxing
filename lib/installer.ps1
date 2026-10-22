@@ -270,7 +270,8 @@ function Register-AppEntry([string]$InstallDir) {
         Publisher       = $AppName
         InstallLocation = $InstallDir
         DisplayIcon     = Join-Path $env:LOCALAPPDATA 'ClaudeCodeMenu\Assets\claude.ico'
-        UninstallString = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $powershell, (Join-Path $InstallDir 'uninstall.ps1')
+        # -Pause: the console Settings opens stays until Enter, so its messages can be read.
+        UninstallString = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -Pause' -f $powershell, (Join-Path $InstallDir 'uninstall.ps1')
     }
     foreach ($name in $values.Keys) { Set-ItemProperty -LiteralPath $UninstallKey -Name $name -Value $values[$name] }
     foreach ($name in 'NoModify', 'NoRepair') { New-ItemProperty -LiteralPath $UninstallKey -Name $name -Value 1 -PropertyType DWord -Force | Out-Null }

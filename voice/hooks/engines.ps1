@@ -106,7 +106,7 @@ function New-ElevenAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) 
             -Body ([Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
     } catch {
         $fail = Get-HttpFailure $_
-        $why = if ($fail.Body -match 'quota_exceeded') { 'sin creditos' } elseif ($fail.Code -eq 401) { 'clave rechazada' } elseif ($fail.Code -eq 429) { 'demasiadas peticiones' } else { "HTTP $($fail.Code)" }
+        $why = if ($fail.Body -match 'quota_exceeded') { 'sin cr' + [char]0xE9 + 'ditos' } elseif ($fail.Code -eq 401) { 'clave rechazada' } elseif ($fail.Code -eq 429) { 'demasiadas peticiones' } else { "HTTP $($fail.Code)" }
         Write-Log "elevenlabs: fallo ($why)"
         if ($fail.Body -match 'quota_exceeded') { Set-EngineSnooze 'elevenlabs' 360 $why }
         elseif ($fail.Code -in 401, 402) { Set-EngineSnooze 'elevenlabs' 60 $why }
@@ -139,7 +139,7 @@ function New-GeminiAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) 
             -Body ([Text.Encoding]::UTF8.GetBytes($json))
     } catch {
         $fail = Get-HttpFailure $_
-        $why = if ($fail.Code -eq 429) { 'limite de la capa gratuita' } elseif ($fail.Code -in 400, 401, 403) { 'clave o peticion rechazada' } else { "HTTP $($fail.Code)" }
+        $why = if ($fail.Code -eq 429) { 'l' + [char]0xED + 'mite de la capa gratuita' } elseif ($fail.Code -in 400, 401, 403) { 'clave o petici' + [char]0xF3 + 'n rechazada' } else { "HTTP $($fail.Code)" }
         Write-Log "gemini: fallo ($why)"
         if ($fail.Code -eq 429) { Set-EngineSnooze 'gemini' 30 $why }
         elseif ($fail.Code -in 401, 403 -or $fail.Body -match 'API_KEY_INVALID') { Set-EngineSnooze 'gemini' 60 $why }

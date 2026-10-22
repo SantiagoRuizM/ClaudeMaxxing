@@ -1507,7 +1507,12 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         'sapi' { Tx 'La voz de Windows: sin internet, pero la menos natural.' }
         default { Tx 'Voces neuronales de Microsoft, gratis y sin clave. ElevenLabs y Gemini suenan m\u00e1s naturales.' }
     }
-    Draw-Wrapped $G $detail $F.Small $P.Muted ($ecard.X + (Px 16)) ($ecard.Y + (Px 44)) ($ecard.Width - (Px 32)) (Px 34)
+    $detailColor = $P.Muted
+    if ($state -and $state.Snooze) {
+        $detail = $script:VoiceEngines[$engine] + ' en pausa hasta las ' + (Format-Clock $state.Snooze.Until) + $(if ($state.Snooze.Why) { ' (' + $state.Snooze.Why + ')' } else { '' }) + ': mientras, los res' + (Tx '\u00fa') + 'menes usan Edge.'
+        $detailColor = $P.Warn
+    }
+    Draw-Wrapped $G $detail $F.Small $detailColor ($ecard.X + (Px 16)) ($ecard.Y + (Px 44)) ($ecard.Width - (Px 32)) (Px 34)
     $x = $ecard.X + (Px 16)
     $buttons = @(
         @{ Id = 'voice-key-eleven'; Label = $(if ($state -and $state.ElevenKey) { 'Cambiar clave ElevenLabs' } else { 'Pegar clave ElevenLabs' }); Action = { Set-HubVoiceKey 'elevenlabs' }; Accent = ($engine -eq 'elevenlabs' -and -not ($state -and $state.ElevenKey)) },
