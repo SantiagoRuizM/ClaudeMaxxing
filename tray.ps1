@@ -354,7 +354,12 @@ $script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PC
 $script:BridgeMenu.Add_DropDownOpening({ Update-BridgeMenu $script:BridgeMenu })
 [void]$menu.Items.Add($script:BridgeMenu)
 [void]$menu.Items.Add('-')
-[void]$menu.Items.Add('Salir', $null, { [System.Windows.Forms.Application]::Exit() })
+[void]$menu.Items.Add('Salir', $null, {
+    # Leaving stops the SSH server, which ends what other PCs have open here.
+    $open = if ($script:Bridge) { @($script:Bridge.Sessions.Values).Count } else { 0 }
+    if ($open -gt 0 -and -not (Confirm-UiAction (Tx "Otros PCs tienen $open sesi\u00f3n(es) abierta(s) en este PC. Al salir se cierran. \u00bfSalir igualmente?"))) { return }
+    [System.Windows.Forms.Application]::Exit()
+})
 $Notify.ContextMenuStrip = $menu
 
 $Notify.Add_MouseClick({

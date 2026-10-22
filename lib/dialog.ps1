@@ -95,7 +95,17 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             $height = 404 + $script:TabStripHeight + $rowsHeight + 14 + $cloudHeight + 36 + 22
         }
         $dlg.ClientSize = New-Object System.Drawing.Size((Px $W), (Px $height))
+        # Grown downward from where it opened: pull it back up so the buttons stay on screen.
+        $area = [System.Windows.Forms.Screen]::FromControl($dlg).WorkingArea
+        if ($dlg.Bottom -gt $area.Bottom) { $dlg.Top = [Math]::Max($area.Top, $area.Bottom - $dlg.Height) }
         $dlg.Invalidate()
+    }
+    # Scheduled rows that fit on this screen (at 150 % five rows and the cloud card are taller than a laptop's).
+    function Get-RowsThatFit {
+        $area = [System.Windows.Forms.Screen]::FromControl($dlg).WorkingArea
+        $cloudHeight = if ($state.Cloud) { $script:CloudCardHeight + 14 } else { 0 }
+        $fixed = 404 + $script:TabStripHeight + 14 + $cloudHeight + 36 + 22 + 16
+        [Math]::Max(1, [int][Math]::Floor(($area.Height / $script:Scale - $fixed) / 36))
     }
     function Set-Tab([string]$Id) {
         $state.Tab = $Id
@@ -106,7 +116,10 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
         $now = Get-Date
         $tasks = Get-SessionTasks
         $requests = Read-JsonFile $CloudFile
-        $state.Rows = @(Get-ScheduleRows $tasks $requests (Read-JsonFile $HistoryFile) $now)
+        $rows = @(Get-ScheduleRows $tasks $requests (Read-JsonFile $HistoryFile) $now)
+        $fit = Get-RowsThatFit
+        $state.HiddenRows = [Math]::Max(0, $rows.Count - $fit)
+        $state.Rows = @($rows | Select-Object -First $fit)
         $state.Booked = @(Get-ScheduleRows $tasks $requests $null $now 500 |
             Where-Object { $_.State -in 'pending', 'requested', 'creating', 'cloud-ok' } | ForEach-Object { $_.At })
         Update-WeekPlan
@@ -457,6 +470,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
 
             # scheduled list
             Draw-Text $g 'AGENDADAS' $F.Caps $P.Muted $left (Py 384) (Px 200) (Px 18)
+            if ($state.HiddenRows -gt 0) { Draw-Text $g (Tx "+$($state.HiddenRows) m\u00e1s (no caben en la pantalla)") $F.Small $P.Muted $left (Py 384) $inner (Px 18) 'Right' }
             $y = Py 404
             if ($state.Rows.Count -eq 0) {
                 $row = New-Rect $left $y $inner (Px 32)
@@ -492,7 +506,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
                     $removeId = "remove-$i"
                     if ($hover -eq $removeId) { Fill-Round $g $remove (Px 6) $P.SurfaceHover }
                     Draw-Text $g (Tx '\u00d7') $F.BodyStrong $P.Muted $remove.X $remove.Y $remove.Width $remove.Height 'Center'
-                    Add-Hit $map $removeId $remove ([scriptblock]::Create("Remove-SessionTask '$($item.TaskName)'; `$state.Message = 'Sesi' + (Tx '\u00f3') + 'n quitada.'; `$state.MessageKind = 'ok'; Update-Rows"))
+                    Add-Hit $map $removeId $remove ([scriptblock]::Create("if (Remove-SessionTask '$($item.TaskName)') { `$state.Message = (Tx 'Sesi\u00f3n quitada.'); `$state.MessageKind = 'ok' } else { `$state.Message = (Tx 'No se pudo quitar: mira el Programador de tareas.'); `$state.MessageKind = 'error' }; Update-Rows"))
                     $statusRight = $remove.X - (Px 6)
                 }
                 Draw-Text $g $status $F.Small $statusColor ($row.X + (Px 200)) $row.Y ($statusRight - $row.X - (Px 200)) $row.Height 'Right'

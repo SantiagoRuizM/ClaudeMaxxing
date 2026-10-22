@@ -19,7 +19,7 @@ function New-BridgeState([string]$SshDir) {
     @{
         Ctx = (New-BridgeContext -SshDir $SshDir); SshdPath = (Join-Path $SshDir 'sshd.exe')
         Ready = $false; Problem = ''; Detail = ''
-        Identity = $null; Keys = $null; Gate = $null; Udp = $null; FirewallOk = $false
+        Identity = $null; Keys = $null; Gate = $null; Udp = $null; FirewallOk = $false; FirewallJob = $null; FirewallState = ''
         Server = $null; ServerListen = ''; ServerStarts = @(); Peers = @(); Settings = $null
         Discovered = @{}; Networks = @(); NetworksAt = [datetime]::MinValue
         Pairing = $null; PairingMode = $false; PairingModeAt = [datetime]::MinValue; UdpAddress = ''
@@ -500,10 +500,26 @@ function Set-BridgeAccept([bool]$On) {
     $b.Dirty = $true
 }
 
+# "Permitir...": the UAC prompt runs in its own process; Complete-BridgeFirewall picks up the result.
 function Repair-BridgeFirewall {
     $b = $script:Bridge
-    try { [void](Set-BridgeFirewall $b.SshdPath) } catch { Write-BridgeLog $b.Ctx $_.Exception.Message }
+    if ($b.FirewallJob) { return }
+    if (Test-BridgeFirewall $b.SshdPath) { Complete-BridgeFirewall; return }
+    $b.FirewallJob = Start-Elevated (Get-BridgeFirewallScript $b.SshdPath)
+    $b.FirewallState = if ($b.FirewallJob) { 'waiting' } else { 'declined' }
+    if (-not $b.FirewallJob) { Write-BridgeLog $b.Ctx 'firewall: UAC prompt declined' }
+    $b.Dirty = $true
+}
+
+function Complete-BridgeFirewall {
+    $b = $script:Bridge
+    if ($b.FirewallJob) {
+        $ok = $b.FirewallJob.ExitCode -eq 0
+        $b.FirewallJob = $null
+        if (-not $ok) { Write-BridgeLog $b.Ctx 'firewall: the elevated rules script failed' }
+    }
     $b.FirewallOk = Test-BridgeFirewall $b.SshdPath
+    $b.FirewallState = if ($b.FirewallOk) { '' } else { 'failed' }
     Update-BridgeNetwork
     Update-BridgeServer
     Send-BridgeHello -Probe
@@ -551,7 +567,8 @@ function Update-BridgeMenu($Item) {
     if ($sessions.Count) {
         [void]$Item.DropDownItems.Add('-')
         foreach ($session in $sessions) {
-            [void]$Item.DropDownItems.Add("Desconectar a $($session.PeerName) ($(Get-SessionLabel $session))", $null, [scriptblock]::Create("Stop-BridgeSession '$($session.Id)'"))
+            $ask = "Tx '\u00bfCerrar lo que $($session.PeerName) tiene abierto en este PC? Lo que est\u00e9 haciendo all\u00ed se corta.'"
+            [void]$Item.DropDownItems.Add("Desconectar a $($session.PeerName) ($(Get-SessionLabel $session))", $null, [scriptblock]::Create("if (Confirm-UiAction ($ask)) { Stop-BridgeSession '$($session.Id)' }"))
         }
     }
 }
@@ -565,6 +582,7 @@ function Invoke-BridgeTick {
         }
         return
     }
+    if ($b.FirewallJob -and $b.FirewallJob.HasExited) { Complete-BridgeFirewall }
     if (-not $b.Ready -or $b.Busy) { return }
     $b.Busy = $true
     try {
@@ -634,7 +652,14 @@ function Get-BridgeStatus {
         'openssh' { return @{ Text = (Tx 'Falta OpenSSH: reinstala ClaudeMaxxing (install.ps1 desde el repo).'); Color = $P.Error } }
         'error'   { return @{ Text = "No se pudo preparar: $($b.Detail)"; Color = $P.Error } }
     }
-    if (-not $b.FirewallOk) { return @{ Text = 'Falta la regla del firewall.'; Color = $P.Warn; Fix = 'Permitir...'; FixAction = { Repair-BridgeFirewall } } }
+    if (-not $b.FirewallOk) {
+        switch ($b.FirewallState) {
+            'waiting'  { return @{ Text = (Tx 'Esperando el permiso de administrador\u2026'); Color = $P.Warn } }
+            'declined' { return @{ Text = (Tx 'Cancelaste el permiso: sin la regla del firewall no acepta conexiones.'); Color = $P.Warn; Fix = 'Permitir...'; FixAction = { Repair-BridgeFirewall } } }
+            'failed'   { return @{ Text = 'No se pudo crear la regla del firewall.'; Color = $P.Error; Fix = 'Reintentar...'; FixAction = { Repair-BridgeFirewall } } }
+        }
+        return @{ Text = 'Falta la regla del firewall.'; Color = $P.Warn; Fix = 'Permitir...'; FixAction = { Repair-BridgeFirewall } }
+    }
     # New Wi-Fi networks are Public by default: the fix is marking this one Private in Settings.
     if (-not $b.Networks.Count) { return @{ Text = 'Red no privada: ni busca PCs ni acepta conexiones.'; Color = $P.Warn; Fix = 'Hacerla privada...'; FixAction = { Start-Process 'ms-settings:network-status' } } }
     $network = ($b.Networks | Select-Object -First 1).Name
@@ -738,7 +763,10 @@ function Resize-BridgeDialog {
     $ui = $script:BridgeUi
     $ui.Resizing = $false
     if (-not $script:BridgeDialog) { return }
-    $script:BridgeDialog.ClientSize = New-Object System.Drawing.Size((Px 440), $ui.WantHeight)
+    # Never taller than the screen, and pulled back up when it grew past the bottom.
+    $area = [System.Windows.Forms.Screen]::FromControl($script:BridgeDialog).WorkingArea
+    $script:BridgeDialog.ClientSize = New-Object System.Drawing.Size((Px 440), [Math]::Min($ui.WantHeight, $area.Height - (Px 16)))
+    if ($script:BridgeDialog.Bottom -gt $area.Bottom) { $script:BridgeDialog.Top = [Math]::Max($area.Top, $area.Bottom - $script:BridgeDialog.Height) }
     $script:BridgeDialog.Invalidate()
 }
 
@@ -881,12 +909,16 @@ function Draw-BridgeDialog($Form, $G) {
     $y += Px 6
 
     # ClaudeMaxxing PCs seen on the network, not paired yet
-    Draw-Text $G 'EN TU RED' $F.Caps $P.Muted $left $y (Px 200) (Px 18)
-    $y += Px 22
     $seen = @()
     if ($b) {
         $seen = @($b.Discovered.Values | Where-Object { ((Get-Date) - $_.seen).TotalSeconds -le $BridgeSeenSeconds -and -not (Find-BridgePeer $_.id) } | Sort-Object name)
     }
+    # Up to four, so a busy network does not push the window past the screen; the rest are counted.
+    $hiddenSeen = [Math]::Max(0, $seen.Count - 4)
+    $seen = @($seen | Select-Object -First 4)
+    Draw-Text $G 'EN TU RED' $F.Caps $P.Muted $left $y (Px 200) (Px 18)
+    if ($hiddenSeen -gt 0) { Draw-Text $G (Tx "+$hiddenSeen m\u00e1s: escribe su IP abajo") $F.Small $P.Muted $left $y $inner (Px 18) 'Right' }
+    $y += Px 22
     if (-not $seen.Count) {
         $row = New-Rect $left $y $inner (Px 36)
         Fill-Round $G $row (Px 8) $P.Surface

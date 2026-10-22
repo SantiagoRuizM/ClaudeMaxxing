@@ -37,8 +37,9 @@ function Get-SessionTasks {
     @($items | Sort-Object At)
 }
 
+# $true when the task is gone, so callers only report what really happened.
 function Remove-SessionTask([string]$Name) {
-    Unregister-ScheduledTask -TaskName $Name -TaskPath $script:SessionTaskPath -Confirm:$false -ErrorAction SilentlyContinue
+    try { Unregister-ScheduledTask -TaskName $Name -TaskPath $script:SessionTaskPath -Confirm:$false -ErrorAction Stop; $true } catch { $false }
 }
 
 # Returns how many tasks were removed. -LegacyOnly: only the ones in the old folder, whose action points

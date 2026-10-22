@@ -190,8 +190,10 @@ function Set-HubSection([string]$Id) {
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
-function Set-HubMessage([string]$Text) {
+# Header note after an action. Errors ("No se pudo...", or -Error) are drawn in the error color and stay longer.
+function Set-HubMessage([string]$Text, [switch]$Error) {
     $script:Hub.Message = $Text
+    $script:Hub.MessageError = $Error -or $Text -like 'No se pud*'
     $script:Hub.MessageAt = Get-Date
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
@@ -235,6 +237,8 @@ function Show-HubCodeWindow([int]$Index) {
 
 function Install-HubFreeLlm {
     if ($script:Hub.Preview) { return }
+    $ask = Tx "FreeLLMAPI es una app de terceros. Se descarga su instalador oficial $FreeLlmVersion (unos 110 MB, sin firma de c\u00f3digo; se comprueba su SHA-512) y se instala para tu usuario. \u00bfSeguir?"
+    if (-not (Confirm-UiAction $ask $script:HubDialog)) { return }
     $worker = Join-Path $TrayRoot 'lib\freellm-install.ps1'
     # Written first, so it never overwrites the worker's own progress.
     Write-JsonFile $FreeLlmInstallFile ([ordered]@{ state = 'downloading'; message = (Tx 'Preparando la descarga\u2026'); version = $FreeLlmVersion; at = (Get-Date).ToString('o') })
@@ -251,6 +255,16 @@ function Open-HubFreeLlm {
 }
 
 # Takes the unified key from the clipboard (copied from the Keys page of FreeLLMAPI) and checks it there.
+# A call that blocks for seconds (a web check, a compile): say so and show the wait cursor before it starts,
+# since the window cannot repaint until it returns.
+# (Odd parameter names: $BusyWork runs here and sees these variables, so they must not shadow the caller's.)
+function Invoke-HubBusy([string]$BusyNote, [scriptblock]$BusyWork) {
+    Set-HubMessage $BusyNote
+    $busyForm = $script:HubDialog
+    if ($busyForm) { $busyForm.Cursor = [System.Windows.Forms.Cursors]::WaitCursor; $busyForm.Refresh() }
+    try { & $BusyWork } finally { if ($busyForm -and -not $busyForm.IsDisposed) { $busyForm.Cursor = [System.Windows.Forms.Cursors]::Default } }
+}
+
 function Set-HubFreeLlmKey {
     if ($script:Hub.Preview) { return }
     $key = ''
@@ -260,7 +274,7 @@ function Set-HubFreeLlmKey {
         return
     }
     $settings = Get-FreeLlmSettings
-    $check = Test-FreeLlmKey (Get-FreeLlmPort) $key
+    $check = Invoke-HubBusy (Tx 'Comprobando la clave en FreeLLMAPI\u2026') { Test-FreeLlmKey (Get-FreeLlmPort) $key }
     if ($check.Status -eq 'bad-key') { Set-HubMessage (Tx 'FreeLLMAPI no acepta esa clave: c\u00f3piala otra vez de su p\u00e1gina Keys.'); return }
     try { Save-FreeLlmSettings $settings.Enabled $key } catch { Set-HubMessage ('No se pudo guardar: ' + $_.Exception.Message); return }
     switch ($check.Status) {
@@ -299,7 +313,10 @@ function Set-HubContextMode([bool]$On) {
 }
 
 function Stop-HubPeerSessions([string]$PeerId) {
-    foreach ($session in @($script:Bridge.Sessions.Values | Where-Object { $_.PeerId -eq $PeerId })) { Stop-BridgeSession $session.Id }
+    $sessions = @($script:Bridge.Sessions.Values | Where-Object { $_.PeerId -eq $PeerId })
+    if (-not $sessions.Count) { return }
+    if (-not (Confirm-UiAction (Tx "\u00bfCerrar lo que $($sessions[0].PeerName) tiene abierto en este PC? Lo que est\u00e9 haciendo all\u00ed se corta.") $script:HubDialog)) { return }
+    foreach ($session in $sessions) { Stop-BridgeSession $session.Id }
     Set-HubMessage 'Sesiones de ese PC cerradas.'
 }
 
@@ -407,9 +424,7 @@ function Set-HubVoiceKey([string]$Engine) {
     if ($script:Hub.Preview) { return }
     $key = ''
     try { $key = ([System.Windows.Forms.Clipboard]::GetText()).Trim() } catch { }
-    Set-HubMessage 'Comprobando la clave...'
-    if ($script:HubDialog) { $script:HubDialog.Refresh() }
-    $result = Save-VoiceKey $Engine $key
+    $result = Invoke-HubBusy (Tx 'Comprobando la clave\u2026') { Save-VoiceKey $Engine $key }
     Set-HubMessage $(if ($result.Ok) { [string][char]0x2713 + ' ' + $result.Message } else { $result.Message })
     $script:Hub.Cache.VoiceEngine = Get-VoiceEngineState
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
@@ -417,7 +432,7 @@ function Set-HubVoiceKey([string]$Engine) {
 
 function Update-HubVoiceCredits {
     if ($script:Hub.Preview) { return }
-    $credits = Update-ElevenCredits
+    $credits = Invoke-HubBusy (Tx 'Leyendo los cr\u00e9ditos de ElevenLabs\u2026') { Update-ElevenCredits }
     Set-HubMessage $(if ($credits) { 'ElevenLabs: quedan ' + (Format-ElevenCredits $credits) } else { (Tx 'No se pudieron leer los cr\u00e9ditos de ElevenLabs.') })
     $script:Hub.Cache.VoiceEngine = Get-VoiceEngineState
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
@@ -478,6 +493,10 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
         catch {
             $script:Hub.Error = "$($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))"
             if ($script:Hub.Preview) { [Console]::Error.WriteLine('hub paint: ' + $script:Hub.Error + "`n" + $_.ScriptStackTrace) }
+            # Said at the bottom of the window, so a half-drawn section is not mistaken for missing data.
+            try {
+                Draw-Text $e.Graphics ((Tx 'Esta secci\u00f3n no se pudo dibujar entera: ') + $script:Hub.Error) $script:Fonts.Small $script:Palette.Error ((Px $HubNavWidth) + (Px 24)) ($sender.ClientSize.Height - (Px 26)) ($sender.ClientSize.Width - (Px $HubNavWidth) - (Px 48)) (Px 20)
+            } catch { }
         }
     })
     $dlg.Add_FormClosed({
@@ -846,15 +865,15 @@ function Draw-Hub($Form, $G) {
     $x0 = $navW + (Px 24)
     $inner = $w - $x0 - (Px 24)
     $title = (@($script:HubSections | Where-Object { $_.Id -eq $hub.Section })[0]).Label
-    if ($hub.Section -eq 'home') { $title = 'Todo ClaudeMaxxing' }
+
     if ($hub.Section -eq 'plan') { $title = Tx 'Planear sesi\u00f3n del d\u00eda' }
     Draw-Text $G $title $F.Title $P.Text $x0 (Px 14) (Px 320) (Px 32)
     $close = New-Rect ($w - (Px 52)) (Px 16) (Px 30) (Px 30)
     if ($hover -eq 'close') { Fill-Round $G $close (Px 6) $P.SurfaceHover }
     Draw-Text $G (Tx '\u00d7') $F.Close $P.Muted $close.X $close.Y $close.Width $close.Height 'Center'
     Add-Hit $map 'close' $close { $script:HubDialog.Close() }
-    if ($hub.Message -and ((Get-Date) - $hub.MessageAt).TotalSeconds -lt 8) {
-        Draw-Text $G $hub.Message $F.Small $P.Accent ($x0 + (Px 220)) (Px 20) ($close.X - $x0 - (Px 230)) (Px 20) 'Right'
+    if ($hub.Message -and ((Get-Date) - $hub.MessageAt).TotalSeconds -lt $(if ($hub.MessageError) { 15 } else { 8 })) {
+        Draw-Text $G $hub.Message $F.Small $(if ($hub.MessageError) { $P.Error } else { $P.Accent }) ($x0 + (Px 220)) (Px 20) ($close.X - $x0 - (Px 230)) (Px 20) 'Right'
     }
     $G.DrawLine($pen, $x0, (Px 56), $x0 + $inner, (Px 56))
     $pen.Dispose()

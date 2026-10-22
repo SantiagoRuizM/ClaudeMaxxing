@@ -203,3 +203,13 @@ function Register-HitMap([System.Windows.Forms.Form]$Form) {
         if ($hit) { & $hit.Action }
     })
 }
+
+# Yes/No before something that cannot be undone; No is the default button. $Owner keeps it on top of that window.
+function Confirm-UiAction([string]$Text, $Owner = $null) {
+    $buttons = [System.Windows.Forms.MessageBoxButtons]::YesNo
+    $icon = [System.Windows.Forms.MessageBoxIcon]::Warning
+    $default = [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+    $answer = if ($Owner) { [System.Windows.Forms.MessageBox]::Show($Owner, $Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
+        else { [System.Windows.Forms.MessageBox]::Show($Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
+    $answer -eq [System.Windows.Forms.DialogResult]::Yes
+}
