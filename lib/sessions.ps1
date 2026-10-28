@@ -55,11 +55,13 @@ function Get-SlotColor([int]$Index) { $SlotColors[$Index % $SlotColors.Count] }
 function Get-SlotTabColor([int]$Index) { (Get-SlotColor $Index).Hex }
 
 # Claude Code command line: a fixed session id (so the voice state can be prepared before it starts),
-# the voice plugin for this session only, and /color as the first prompt (a local command: no model call).
-function Format-ClaudeCommand([string]$Run, [string]$SessionId, [string]$PluginDir, [string]$ColorName) {
+# the voice plugin for this session only, extra settings for this session only (FreeLLMAPI sessions),
+# and /color as the first prompt (a local command: no model call).
+function Format-ClaudeCommand([string]$Run, [string]$SessionId, [string]$PluginDir, [string]$ColorName, [string]$SettingsPath) {
     $command = $Run
     if ($SessionId) { $command += ' --session-id ' + $SessionId }
     if ($PluginDir) { $command += ' --plugin-dir ' + (Format-WtPath $PluginDir) }
+    if ($SettingsPath) { $command += ' --settings ' + (Format-WtPath $SettingsPath) }
     if ($ColorName) { $command += ' "/color ' + $ColorName + '"' }
     $command
 }

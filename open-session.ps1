@@ -96,7 +96,7 @@ try {
     try {
         $free = Get-FreeLlmLaunch
         $freeNotice = $free.Notice
-        if ($free.Prefix) { $command = $free.Prefix + $command; $backend = 'freellm' }
+        if ($free.Prefix) { $command = $free.Prefix + (Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name $free.Settings); $backend = 'freellm' }
     } catch {
         Write-SessionLog "freellm: $($_.Exception.Message)"
     }

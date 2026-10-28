@@ -270,6 +270,7 @@ $colorNames = @('red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'c
 Assert-Equal 0 @($SlotColors.Name | Where-Object { $colorNames -notcontains $_ }).Count 'every color name is one /color accepts'
 Assert-Equal 'claude --session-id 1111 --plugin-dir "C:\vt\voice\plugin" "/color green"' (Format-ClaudeCommand 'claude' '1111' 'C:\vt\voice\plugin' 'green') 'claude command with session id, plugin and color'
 Assert-Equal 'claude "/color red"' (Format-ClaudeCommand 'claude' '' '' 'red') 'claude command without voice plugin'
+Assert-Equal 'claude --settings "C:\h\freellm-settings.json" "/color red"' (Format-ClaudeCommand 'claude' '' '' 'red' 'C:\h\freellm-settings.json') 'claude command with session settings before the first prompt'
 Assert-Equal '-w new -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude' $odd[0]) 'no --pos for negative coordinates'
 Assert-Equal $true ((Format-SessionsFullMessage 4 2).Contains('(2 pantallas)')) 'full message names the monitors'
 Assert-Equal $true ((Format-SessionsFullMessage 2 1).Contains('(1 pantalla)')) 'full message, one monitor'

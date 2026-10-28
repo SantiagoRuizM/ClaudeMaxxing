@@ -8,6 +8,9 @@
 
 $FreeLlmFile        = Join-Path $TrayHome 'freellm.json'
 $FreeLlmInstallFile = Join-Path $TrayHome 'freellm-install.json'
+# Optional Claude Code settings for FreeLLMAPI sessions only (passed with --settings), e.g. deniedMcpServers
+# to drop heavy MCP servers: free tiers cap tools per request (Groq: 128) and every tool costs input tokens.
+$FreeLlmSessionSettingsFile = Join-Path $TrayHome 'freellm-settings.json'
 $FreeLlmDownloadDir = Join-Path $TrayHome 'freellm'
 # The version that was tested here, and the sha512 of its installer (from the release's latest.yml).
 $FreeLlmVersion     = '0.16.5'
@@ -138,7 +141,7 @@ function Format-FreeLlmEnv([string]$BaseUrl, [string]$Key) {
 # What open-session.ps1 needs: Prefix (cmd.exe env, or '' for a normal session) and Notice (why it fell back).
 function Get-FreeLlmLaunch {
     $settings = Get-FreeLlmSettings
-    $launch = [pscustomobject]@{ Prefix = ''; Notice = ''; Port = 0 }
+    $launch = [pscustomobject]@{ Prefix = ''; Notice = ''; Port = 0; Settings = '' }
     if (-not $settings.Enabled) { return $launch }
     if (-not (Test-FreeLlmKeyFormat $settings.Key)) {
         $launch.Notice = Tx 'FreeLLMAPI est\u00e1 activado pero falta su clave: p\u00e9gala en ClaudeMaxxing > Claude Code. Abro la sesi\u00f3n con tu plan.'
@@ -151,6 +154,7 @@ function Get-FreeLlmLaunch {
     }
     $launch.Port = $port
     $launch.Prefix = Format-FreeLlmEnv (Get-FreeLlmBaseUrl $port) $settings.Key
+    if (Test-Path -LiteralPath $FreeLlmSessionSettingsFile) { $launch.Settings = $FreeLlmSessionSettingsFile }
     $launch
 }
 
