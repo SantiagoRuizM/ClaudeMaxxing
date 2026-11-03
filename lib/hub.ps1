@@ -1,11 +1,12 @@
 # ClaudeMaxxing window: every tool in one place, opened from the popup's "Entrar a ClaudeMaxxing" button.
 # Sections: Inicio (overview, with the diagram of nearby PCs and the latest calls), Planear sesion (lib\hubplan.ps1:
-# an idea on trial before Claude Judge), Uso y agenda, Claude Code
+# an idea on trial before Claude Judge), Ambientes (lib\harness.ps1: one dot per YourHarness environment, click
+# to turn it on or off), Uso y agenda, Claude Code
 # (sessions opened from the Explorer menu), Otros PCs (diagram of nearby PCs and their connection), Claude
 # Whisper (settings and call history) and Voz. The longer flows keep their own windows: the schedule dialog,
 # pairing in Otros PCs (pairing is only accepted while that window is open) and the Whisper context dialog.
 # Owner-drawn like the rest of the tray; Paint only reads $script:Hub.Cache, which a timer refreshes.
-# Needs theme.ps1, usage.ps1, schedule.ps1, sessions.ps1, bridgeui.ps1, whisper.ps1, whisperui.ps1 and freellm.ps1.
+# Needs theme.ps1, usage.ps1, schedule.ps1, sessions.ps1, bridgeui.ps1, whisper.ps1, whisperui.ps1, freellm.ps1 and harness.ps1.
 # Keep this file ASCII: non-ASCII text is written as \uXXXX and decoded with Tx.
 
 $script:HubDialog = $null
@@ -31,6 +32,7 @@ $script:HubFonts = @{
 $script:HubSections = @(
     @{ Id = 'home'; Label = 'Inicio'; Glyph = '\ue80f' },
     @{ Id = 'plan'; Label = (Tx 'Planear sesi\u00f3n'); Glyph = '\uea80' },
+    @{ Id = 'envs'; Label = 'Ambientes'; Glyph = '\ue7e8' },
     @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
     @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
@@ -168,6 +170,7 @@ function Update-HubCache([switch]$Full) {
     $c.FreeLlm = Get-HubFreeLlm $c.FreeLlm -Slow:$slow -Full:$Full
     try { $c.ContextMode = Get-ContextModeState; $c.MaxxStatus = Get-MaxxStatus } catch { }
     try { Update-HubJudge } catch { }
+    try { $c.Harness = Get-HarnessState } catch { $c.Harness = $null }
     if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
@@ -451,6 +454,40 @@ function Set-HubHotkeys([bool]$On) {
 
 # ---------------------------------------------------------------- window
 
+function Select-HubHarnessDir {
+    if ($script:Hub.Preview) { return }
+    $picker = New-Object System.Windows.Forms.FolderBrowserDialog
+    $picker.Description = 'Carpeta de YourHarness (la que tiene env.js y environments)'
+    if ($picker.ShowDialog($script:HubDialog) -ne 'OK' -or -not $picker.SelectedPath) { return }
+    if (Set-HarnessDir $picker.SelectedPath) { Set-HubMessage 'YourHarness conectado.'; Update-HubNow }
+    else { Set-HubMessage 'No se pudo conectar: esa carpeta no tiene env.js y environments.' -Failed }
+}
+
+# A dot was clicked: turn that environment on, or off when it is the one on. Asks first, since both close things.
+function Switch-HubHarness([string]$Id) {
+    if ($script:Hub.Preview) { return }
+    $state = $script:Hub.Cache.Harness
+    if (-not $state -or -not $state.Dir) { return }
+    if ($state.Job -and $state.Job.state -eq 'running') { Set-HubMessage (Tx 'Espera: hay un cambio en curso.'); return }
+    $target = @($state.Envs | Where-Object { $_.Id -eq $Id })[0]
+    if (-not $target) { return }
+    $isOn = $state.Active -and $state.Active.id -eq $Id
+    if ($isOn) {
+        $action = 'off'
+        # Tx only on literal text: names and paths may hold backslashes, which Tx would try to decode.
+        $ask = (Tx '\u00bfApagar ') + $target.Name + (Tx '? Se cierra solo lo suyo: sus pesta\u00f1as, servidores, Docker, m\u00fasica y carpeta, con apagado suave.')
+    } else {
+        $action = 'on'
+        $ask = (Tx '\u00bfEncender ') + $target.Name + '? Se cierra lo que no sea suyo (cada cierre con su motivo, con apagado suave) y se abre lo suyo.'
+        if ($state.Active) { $ask += ' Sales de ' + $state.Active.name + '.' }
+    }
+    if (-not (Confirm-UiAction $ask $script:HubDialog)) { return }
+    $failed = Start-HarnessJob $state.Dir $Id $action
+    if ($failed) { Set-HubMessage $failed -Failed; return }
+    Set-HubMessage $(if ($isOn) { "Apagando $($target.Name)..." } else { "Encendiendo $($target.Name)..." })
+    Update-HubNow
+}
+
 function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "stats-hours", "stats-models-all"...: a tab (and the all-time range) of Estadisticas.
     $statsTab = 'summary'; $statsRange = 'recent'
@@ -458,6 +495,9 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "plan-running", "plan-error", "plan-empty": the preview's sample state of Planear sesion.
     $planPreview = ''
     if ($Section -match '^plan-([a-z]+)$') { $planPreview = $Matches[1]; $Section = 'plan' }
+    # "envs-busy", "envs-error", "envs-none": the preview's sample state of Ambientes.
+    $envsPreview = ''
+    if ($Section -match '^envs-([a-z]+)$') { $envsPreview = $Matches[1]; $Section = 'envs' }
     if ($script:HubDialog) {
         if ($Section) { Set-HubSection $Section }
         Update-HubNow
@@ -480,7 +520,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $script:HubDialog = $dlg
     $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Logo = (New-TintedLogo $P.Accent (Px 22)); Cache = @{}
         SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = ''
-        StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview }
+        StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview; EnvsPreview = $envsPreview }
     # A damaged data file must not take the click handler (and the tray) down: the section just shows less.
     if ($RenderPath) { Set-HubPreview } else { try { Update-HubCache -Full; if ($script:Hub.Section -eq 'stats') { Update-HubStats } } catch { } }
 
@@ -660,6 +700,11 @@ function Get-HubNavBadge([string]$Id) {
             if (@($nodes | Where-Object { $_.State -eq 'online' }).Count) { return @{ Dot = $P.Ok } }
         }
         'plan' { if ($c.JudgeStatus -and $c.JudgeStatus.state -eq 'running') { return @{ Dot = $P.Accent } } }
+        'envs' {
+            $hs = $c.Harness
+            if ($hs -and $hs.Job -and $hs.Job.state -eq 'running') { return @{ Dot = $P.Accent } }
+            if ($hs -and $hs.Active) { return @{ Dot = $P.Ok } }
+        }
         'whisper' { if ($c.WhisperRunning) { return @{ Dot = $P.Ok } } }
         'voice' { if ($c.VoiceMuted) { return @{ Text = 'off'; Color = $P.Faint } } }
     }
@@ -890,6 +935,7 @@ function Draw-Hub($Form, $G) {
 
     switch ($hub.Section) {
         'plan'    { Draw-HubPlanSection $G $map $hover $x0 $inner }
+        'envs'    { Draw-HubEnvsSection $G $map $hover $x0 $inner }
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
         'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
@@ -902,6 +948,119 @@ function Draw-Hub($Form, $G) {
     $border = New-Object System.Drawing.Pen($P.Border)
     $G.DrawRectangle($border, 0, 0, $w - 1, $h - 1)
     $border.Dispose()
+}
+
+# ---------------------------------------------------------------- Ambientes
+
+function Format-HubHarnessTime($Iso) {
+    try { ([datetime]$Iso).ToString('HH:mm') } catch { '' }
+}
+
+# One dot per YourHarness environment: green on, accent while changing, track off, error ring when the last
+# change failed. Clicking a dot turns it on (or off when it is the one on); no clicks while a change runs.
+function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    $HF = $script:HubFonts
+    $hs = $script:Hub.Cache.Harness
+    $y = Px 72
+
+    if (-not $hs -or -not $hs.Dir) {
+        $card = New-Rect $X0 $y $Inner (Px 96)
+        Draw-HubCard $G $card
+        $bw = Get-PillWidth (Tx 'Elegir carpeta\u2026')
+        Draw-PillButton $G $Map $Hover 'envs-dir' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 14)) $bw (Px 26)) (Tx 'Elegir carpeta\u2026') { Select-HubHarnessDir } -Accent
+        $tw = $card.Width - $bw - (Px 48)
+        Draw-Text $G 'Conecta YourHarness' $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) $tw (Px 22)
+        Draw-Wrapped $G (Tx 'Los ambientes (Trabajo, Atlas, empezar el d\u00eda\u2026) viven en YourHarness: elige su carpeta, la que tiene env.js y environments. Necesita Node.js y su extensi\u00f3n de Chrome.') $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 52)
+        return
+    }
+
+    $envs = @($hs.Envs)
+    $job = $hs.Job
+    $running = $job -and $job.state -eq 'running'
+    $activeId = if ($hs.Active) { [string]$hs.Active.id } else { '' }
+    $right = if ($hs.Active) { 'Encendido: ' + $hs.Active.name + ' desde ' + (Format-HubHarnessTime $hs.Active.since) } else { 'Ninguno encendido' }
+    Draw-HubCaption $G 'AMBIENTES' $X0 $y $Inner $right
+    $y += Px 28
+
+    if (-not $envs.Count) {
+        Draw-Text $G (Tx 'YourHarness no tiene ambientes: a\u00f1ade uno en su carpeta environments.') $F.Body $P.Muted $X0 $y $Inner (Px 24)
+        return
+    }
+
+    # Up to 4 dots per row, centered in equal cells.
+    $perRow = [Math]::Min(4, [Math]::Max(3, $envs.Count))
+    $cellW = [int]($Inner / $perRow)
+    $size = Px 84
+    $cellH = Px 176
+    for ($i = 0; $i -lt $envs.Count; $i++) {
+        $e = $envs[$i]
+        $cx = $X0 + ($i % $perRow) * $cellW + [int]($cellW / 2)
+        $top = $y + [Math]::Floor($i / $perRow) * $cellH
+        $dot = New-Rect ($cx - [int]($size / 2)) ($top + (Px 8)) $size $size
+        $hitId = "env-$($e.Id)"
+        $busy = $running -and $job.id -eq $e.Id
+        $on = $activeId -eq $e.Id
+        $failed = -not $running -and $job -and $job.id -eq $e.Id -and $job.state -eq 'error'
+
+        if (-not $running -and $Hover -eq $hitId) {
+            $halo = New-Rect ($dot.X - (Px 7)) ($dot.Y - (Px 7)) ($size + (Px 14)) ($size + (Px 14))
+            Draw-HubDot $G $halo.X $halo.Y $halo.Width $P.SurfaceHover
+        }
+        $fill = if ($busy) { $P.Accent } elseif ($on) { $P.Ok } else { $P.Track }
+        Draw-HubDot $G $dot.X $dot.Y $size $fill
+        if ($failed) {
+            $pen = New-Object System.Drawing.Pen($P.Error, (Px 3))
+            $G.DrawEllipse($pen, $dot.X - (Px 2), $dot.Y - (Px 2), $size + (Px 4), $size + (Px 4))
+            $pen.Dispose()
+        }
+        Draw-Text $G (Tx '\ue7e8') $HF.NodeLarge $(if ($busy -or $on) { $P.AccentText } else { $P.Muted }) $dot.X $dot.Y $dot.Width $dot.Height 'Center'
+
+        $textX = $cx - [int]($cellW / 2) + (Px 8)
+        $textW = $cellW - (Px 16)
+        $ty = $dot.Bottom + (Px 10)
+        Draw-Text $G $e.Name $F.BodyStrong $P.Text $textX $ty $textW (Px 22) 'Center'
+        if ($busy) {
+            $line = if ($job.step) { [string]$job.step } elseif ($job.action -eq 'off') { Tx 'Apagando\u2026' } else { Tx 'Encendiendo\u2026' }
+            $color = $P.Accent
+        } elseif ($failed) { $line = (Tx 'Fall\u00f3: ') + [string]$job.message; $color = $P.Error }
+        elseif ($on) { $line = 'Encendido desde ' + (Format-HubHarnessTime $hs.Active.since); $color = $P.Ok }
+        else { $line = 'Apagado'; $color = $P.Faint }
+        Draw-Text $G $line $F.Small $color $textX ($ty + (Px 22)) $textW (Px 18) 'Center'
+        Draw-Text $G $e.Focus $F.Small $P.Muted $textX ($ty + (Px 40)) $textW (Px 18) 'Center'
+
+        if (-not $running) {
+            $tip = if ($on) { "Apagar $($e.Name)" } else { "Encender $($e.Name)" }
+            Add-Hit $Map $hitId (New-Rect $textX $dot.Y $textW ($ty + (Px 58) - $dot.Y)) ([scriptblock]::Create("Switch-HubHarness '$($e.Id)'")) $tip
+        }
+    }
+    $y += [Math]::Ceiling($envs.Count / $perRow) * $cellH + (Px 8)
+
+    # The last change, in full: its step while it runs, what failed, or when it ended.
+    $card = New-Rect $X0 $y $Inner (Px 64)
+    Draw-HubCard $G $card
+    $bw = Get-PillWidth (Tx 'Cambiar carpeta\u2026')
+    Draw-PillButton $G $Map $Hover 'envs-dir' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 18)) $bw (Px 26)) (Tx 'Cambiar carpeta\u2026') { Select-HubHarnessDir }
+    $tw = $card.Width - $bw - (Px 48)
+    if ($job) {
+        $verb = if ($job.action -eq 'off') { 'Apagar' } else { 'Encender' }
+        $when = if ($job.endedAt) { ' ' + (Tx '\u00b7') + ' ' + (Format-HubHarnessTime $job.endedAt) } else { '' }
+        $title = "$verb $($job.name)$when"
+        switch ($job.state) {
+            'running' { $sub = (Tx 'En curso: ') + [string]$job.step; $subColor = $P.Accent }
+            'error'   { $sub = (Tx 'Fall\u00f3: ') + [string]$job.message; $subColor = $P.Error }
+            default   { $sub = $(if ($job.message) { (Tx '\u2713 Hecho, con avisos: ') + [string]$job.message } else { Tx '\u2713 Hecho' }); $subColor = $(if ($job.message) { $P.Warn } else { $P.Ok }) }
+        }
+    } else {
+        $title = (Tx 'Ning\u00fan cambio todav\u00eda')
+        $sub = 'Haz clic en una bolita para encender o apagar su ambiente.'
+        $subColor = $P.Muted
+    }
+    Draw-Text $G $title $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) $tw (Px 22)
+    Draw-Text $G $sub $F.Small $subColor ($card.X + (Px 16)) ($card.Y + (Px 36)) $tw (Px 18)
+    $y = $card.Bottom + (Px 12)
+    Draw-Wrapped $G ('Encender un ambiente cierra lo que no es suyo, cada cierre con su motivo y con apagado suave, y abre lo suyo. Apagarlo cierra solo lo suyo. Un cambio a la vez. YourHarness en ' + $hs.Dir + '.') $F.Small $P.Faint $X0 $y $Inner (Px 40)
 }
 
 # ---------------------------------------------------------------- Inicio
@@ -1608,6 +1767,22 @@ function Set-HubPreview {
     $c.Stats = Read-JsonFile $StatsFile
     $c.ToolStats = @{ Calls = 2; CallMinutes = 45; CallAnswers = 3; Runs = 14; RunsOk = 13; MenuOpens = 90; Paired = 2 }
     $c.ScheduleRows = @(Get-ScheduleRows $script:PendingTasks (Read-JsonFile $CloudFile) (Read-JsonFile $HistoryFile) $now 5)
+    # Ambientes: -HubSection envs, envs-busy, envs-error or envs-none (YourHarness not chosen yet).
+    $sampleEnvs = @(
+        [pscustomobject]@{ Id = 'atlas'; Name = 'Atlas'; Focus = 'Modulo: Libro 1 y Libro 2, con el Tablero' },
+        [pscustomobject]@{ Id = 'trabajo'; Name = 'Trabajo'; Focus = 'Cliente: backend Django + frontend React/Vite' },
+        [pscustomobject]@{ Id = 'startday'; Name = 'StartDay'; Focus = (Tx 'planear el d\u00eda: mensajes, correo y agenda') }
+    )
+    $sampleActive = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; since = $now.AddMinutes(-48).ToString('o') }
+    $c.Harness = switch ($script:Hub.EnvsPreview) {
+        'none'  { @{ Dir = $null; Envs = @(); Active = $null; Job = $null } }
+        'busy'  { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive
+                     Job = [pscustomobject]@{ id = 'atlas'; name = 'Atlas'; action = 'on'; state = 'running'; step = 'Parando 5 contenedores de Cliente'; message = '' } } }
+        'error' { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $null
+                     Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'error'; step = ''; message = (Tx 'Docker Desktop no respondi\u00f3 en 2 minutos'); endedAt = $now.AddMinutes(-3).ToString('o') } } }
+        default { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive
+                     Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'done'; step = ''; message = ''; endedAt = $now.AddMinutes(-48).ToString('o') } } }
+    }
     # Planear sesion: -HubSection plan, plan-running, plan-error or plan-empty.
     $state = $script:Hub.PlanPreview
     $c.JudgeTrials = @(if ($state -ne 'empty') { @(

@@ -299,6 +299,36 @@ try {
 } finally { Remove-Item -LiteralPath $freeCfg -Force -ErrorAction SilentlyContinue }
 Assert-Equal 'http://127.0.0.1:31415' (Get-FreeLlmBaseUrl 31415) 'freellm: base url is the server root'
 
+# --- Ambientes (lib\harness.ps1): YourHarness state from its files, on a fake YourHarness folder
+. (Join-Path $TrayRoot 'lib\harness.ps1')
+$harnessTmp = Join-Path ([IO.Path]::GetTempPath()) ('cmx-harness-test-{0}' -f [guid]::NewGuid().ToString('N'))
+$HarnessSettingsFile = Join-Path $harnessTmp 'harness.json'
+try {
+    New-Item -ItemType Directory -Force -Path (Join-Path $harnessTmp 'yh\environments'), (Join-Path $harnessTmp 'yh\run') | Out-Null
+    $yh = Join-Path $harnessTmp 'yh'
+    Assert-Equal $null (Get-HarnessDir) 'harness: no folder chosen yet'
+    Assert-Equal 0 @((Get-HarnessState $null).Envs).Count 'harness: no folder, no environments'
+    Assert-Equal $false (Set-HarnessDir $yh) 'harness: a folder without env.js is refused'
+    [IO.File]::WriteAllText((Join-Path $yh 'env.js'), '')
+    [IO.File]::WriteAllText((Join-Path $yh 'environments\Zeta.json'), '{"name":"Zeta","focus":"z"}')
+    [IO.File]::WriteAllText((Join-Path $yh 'environments\alfa.json'), '{"name":"Alfa","focus":"a"}')
+    Assert-Equal $true (Set-HarnessDir $yh) 'harness: folder with env.js and environments accepted'
+    Assert-Equal $yh (Get-HarnessDir) 'harness: chosen folder remembered'
+    $hs = Get-HarnessState $yh
+    Assert-Equal 'alfa,zeta' ((@($hs.Envs) | ForEach-Object { $_.Id }) -join ',') 'harness: environments sorted, ids lower-case'
+    Assert-Equal $null $hs.Active 'harness: nothing on without active.json'
+    [IO.File]::WriteAllText((Join-Path $yh 'run\active.json'), '{"id":"alfa","name":"Alfa","since":"2026-11-03T09:00:00Z"}')
+    [IO.File]::WriteAllText((Join-Path $yh 'run\job.json'), '{"id":"zeta","name":"Zeta","action":"on","state":"running","step":"x","pid":999999}')
+    $hs = Get-HarnessState $yh
+    Assert-Equal 'alfa' $hs.Active.id 'harness: active environment read'
+    Assert-Equal 'error' $hs.Job.state 'harness: a running job whose process died is reported as failed'
+    [IO.File]::WriteAllText((Join-Path $yh 'run\job.json'), ('{"id":"zeta","name":"Zeta","action":"on","state":"running","step":"x","pid":' + $PID + '}'))
+    Assert-Equal 'running' (Get-HarnessState $yh).Job.state 'harness: a live job stays running'
+    Assert-Equal $true ((Start-HarnessJob $yh 'alfa' 'off') -like 'Ya hay un cambio en curso*') 'harness: one change at a time'
+    Assert-Equal $true ([bool](Start-HarnessJob $yh 'a b' 'on')) 'harness: invalid environment id refused'
+    Assert-Equal $true ([bool](Start-HarnessJob (Join-Path $harnessTmp 'nope') 'alfa' 'on')) 'harness: missing YourHarness refused'
+} finally { Remove-Item -LiteralPath $harnessTmp -Recurse -Force -ErrorAction SilentlyContinue }
+
 # --- Ahorro de tokens (lib\maxx.ps1): context-mode state from Claude Code's own files
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
 $cmHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-cm-test-{0}' -f [guid]::NewGuid().ToString('N'))
