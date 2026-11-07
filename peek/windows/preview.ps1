@@ -14,7 +14,7 @@ $life = if ($env:PEEK_LIFE) { [int]$env:PEEK_LIFE } else { 60 }
 if (-not (Test-Path -LiteralPath $file)) { [Console]::Out.WriteLine('error: not there'); exit 1 }
 # The popup (shown without taking the focus, topmost, the pointer passing through) and the Explorer's
 # thumbnail of any file, compiled once into the temp folder: compiling takes a second.
-$assembly = Join-Path $env:TEMP 'maxx-peek-2.dll'
+$assembly = Join-Path $env:TEMP 'maxx-peek-3.dll'
 if (-not (Test-Path -LiteralPath $assembly)) {
   try {
   Add-Type -OutputAssembly $assembly -OutputType Library -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
@@ -57,16 +57,19 @@ public static class MaxxPeekThumb {
       bool anyAlpha = false;
       for (int i = 3; i < bits.Length; i += 4) { if (bits[i] != 0) { anyAlpha = true; break; } }
       if (!anyAlpha) return opaque;
-      // The rows run top-down or bottom-up depending on the source: the opaque copy, which GDI turned
-      // the right way up, says which.
+      // The rows run top-down (thumbnails) or bottom-up (icons) depending on the source: the opaque
+      // copy, which GDI turned the right way up, says which, sampled over the whole picture (an icon's
+      // first and last rows are often both transparent). A tie is an icon.
       int same = 0, flipped = 0;
-      for (int x = 0; x < w; x += Math.Max(1, w / 32)) {
-        Color top = opaque.GetPixel(x, 0);
-        int a = x * 4, z = (ht - 1) * stride + x * 4;
-        if (bits[a] == top.B && bits[a + 1] == top.G && bits[a + 2] == top.R) same++;
-        if (bits[z] == top.B && bits[z + 1] == top.G && bits[z + 2] == top.R) flipped++;
+      for (int y = 0; y < ht; y += Math.Max(1, ht / 32)) {
+        for (int x = 0; x < w; x += Math.Max(1, w / 32)) {
+          Color seen = opaque.GetPixel(x, y);
+          int a = y * stride + x * 4, z = (ht - 1 - y) * stride + x * 4;
+          if (bits[a] == seen.B && bits[a + 1] == seen.G && bits[a + 2] == seen.R) same++;
+          if (bits[z] == seen.B && bits[z + 1] == seen.G && bits[z + 2] == seen.R) flipped++;
+        }
       }
-      bool bottomUp = flipped > same;
+      bool bottomUp = flipped >= same;
       opaque.Dispose();
       Bitmap result = new Bitmap(w, ht, PixelFormat.Format32bppPArgb);
       BitmapData data = result.LockBits(new Rectangle(0, 0, w, ht), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
