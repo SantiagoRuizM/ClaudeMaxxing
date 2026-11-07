@@ -648,6 +648,43 @@ $repoRefs = @($manifest | Where-Object {
 })
 Assert-Equal '' ($repoRefs -join ', ') 'no runtime file has an absolute path to this PC'
 
+# --- Peek: on in every session through the env block of ~/.claude/settings.json, edited as text
+foreach ($needed in 'peek\hooks\register.tsx', 'peek\windows\preview.ps1', 'peek\.claude-plugin\plugin.json') {
+    Assert-Equal $true ($manifest -contains $needed) "runtime includes $needed"
+}
+$peekSettings = Join-Path $env:TEMP "claudemaxxing-peek-test-$PID.json"
+$peekDir = 'X:\Apps\ClaudeMaxxing\peek'
+try {
+    [IO.File]::WriteAllText($peekSettings, "{`r`n  `"model`": `"opus`",`r`n  `"hooks`": { `"Stop`": [] }`r`n}`r`n")
+    Assert-Equal $true ((Install-PeekSettings $peekSettings $peekDir) -like 'on*') 'peek: installs into settings with no env block'
+    $peekJson = [IO.File]::ReadAllText($peekSettings) | ConvertFrom-Json
+    Assert-Equal 'X:/Apps/ClaudeMaxxing/peek' $peekJson.env.CLAUDE_CODE_PLUGIN_DIRS 'peek: plugin folder listed, with forward slashes'
+    Assert-Equal '1' $peekJson.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS 'peek: mods switched on'
+    Assert-Equal 'opus' $peekJson.model 'peek: the rest of the settings kept'
+    Assert-Equal $true ([IO.File]::ReadAllText($peekSettings).Contains("`"model`": `"opus`",`r`n")) 'peek: the rest keeps its formatting'
+    Assert-Equal 'already on' (Install-PeekSettings $peekSettings $peekDir) 'peek: install is idempotent'
+    Assert-Equal $true (Test-Path -LiteralPath "$peekSettings.bak-claudemaxxing") 'peek: settings backed up once'
+    [IO.File]::WriteAllText($peekSettings, '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"D:\\mine","A":"b"},"x":1}')
+    [void](Install-PeekSettings $peekSettings 'x:/apps/claudemaxxing/peek/')
+    Assert-Equal 'D:\mine;x:/apps/claudemaxxing/peek/' (([IO.File]::ReadAllText($peekSettings) | ConvertFrom-Json).env.CLAUDE_CODE_PLUGIN_DIRS) 'peek: appended to folders already listed'
+    Assert-Equal 'removed' (Uninstall-PeekSettings $peekSettings $peekDir) 'peek: uninstall matches the folder however it is spelled'
+    $peekJson = [IO.File]::ReadAllText($peekSettings) | ConvertFrom-Json
+    Assert-Equal 'D:\mine' $peekJson.env.CLAUDE_CODE_PLUGIN_DIRS 'peek: uninstall keeps the other folders'
+    Assert-Equal '1' $peekJson.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS 'peek: uninstall leaves the mods switch'
+    [IO.File]::WriteAllText($peekSettings, '{"env":{"A":"b","CLAUDE_CODE_PLUGIN_DIRS":"X:/Apps/ClaudeMaxxing/peek"}}')
+    Assert-Equal 'removed' (Uninstall-PeekSettings $peekSettings $peekDir) 'peek: uninstall of the only folder'
+    $peekText = [IO.File]::ReadAllText($peekSettings)
+    Assert-Equal $true ((Test-JsonText $peekText) -and -not $peekText.Contains('PLUGIN_DIRS')) 'peek: the variable goes, no comma left behind'
+    [IO.File]::WriteAllText($peekSettings, '{"env": {}}')
+    [void](Install-PeekSettings $peekSettings $peekDir)
+    Assert-Equal $true (Test-JsonText ([IO.File]::ReadAllText($peekSettings))) 'peek: an empty env block takes both variables'
+    [IO.File]::WriteAllText($peekSettings, '{ not json')
+    Assert-Equal $true ((Install-PeekSettings $peekSettings $peekDir) -like 'skipped*') 'peek: broken settings are left alone'
+    Assert-Equal '{ not json' ([IO.File]::ReadAllText($peekSettings)) 'peek: broken settings unchanged'
+} finally {
+    Remove-Item -LiteralPath $peekSettings, "$peekSettings.bak-claudemaxxing" -ErrorAction SilentlyContinue
+}
+
 # --- Explorer menu: prebuilt files committed, and the MSIX built from the current manifest
 foreach ($file in 'ClaudeCodeMenu.dll', 'ClaudeCodeMenuStub.exe', 'ClaudeCodeMenu.msix') {
     Assert-Equal $true (Test-Path -LiteralPath (Join-Path $TrayRoot "menu\bin\$file")) "menu\bin\$file is in the repo"

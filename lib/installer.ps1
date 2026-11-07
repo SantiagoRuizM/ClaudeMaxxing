@@ -4,7 +4,11 @@
 # Everything the installed tray, menu launcher and voice need; nothing else from the repo is copied.
 $script:RuntimeFiles = @(
     'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1',
-    'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js'
+    'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js',
+    # Peek: the plugin Claude Code loads (its tests, README and the sample paths in them stay in the repo).
+    'peek\LICENSE', 'peek\.claude-plugin\plugin.json', 'peek\hooks\hooks.json', 'peek\hooks\register.tsx', 'peek\hooks\paths.ts',
+    'peek\hooks\code.ts', 'peek\hooks\markdown.ts', 'peek\hooks\link.tsx', 'peek\hooks\window.ts', 'peek\windows\preview.ps1',
+    'peek\windows\reveal.ps1'
 )
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
 # claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
@@ -305,3 +309,80 @@ function Register-HarnessHost([string]$InstallDir) {
 }
 
 function Unregister-HarnessHost { Remove-Item -Path $HarnessHostKey -Force -ErrorAction SilentlyContinue }
+
+# Peek (peek\): Claude Code loads the installed folder in every session through CLAUDE_CODE_PLUGIN_DIRS in the "env"
+# block of ~/.claude/settings.json, and runs its hooks module only with CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 (mods
+# are early access). The file is edited as text, so the rest keeps its formatting, and written only if the result
+# parses. Uninstalling removes the folder from the list and leaves the switch: other plugins' mods may need it.
+$PeekDirsVar = 'CLAUDE_CODE_PLUGIN_DIRS'
+$PeekHooksVar = 'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS'
+
+function ConvertTo-JsonText([string]$Value) { '"' + $Value.Replace('\', '\\').Replace('"', '\"') + '"' }
+
+function Test-JsonText([string]$Text) { try { $null = $Text | ConvertFrom-Json; $true } catch { $false } }
+
+function Get-SettingsEnvValue([string]$Text, [string]$Name) {
+    $settings = $Text | ConvertFrom-Json
+    if ($settings -and $settings.env -and $settings.env.PSObject.Properties[$Name]) { return [string]$settings.env.$Name }
+    $null
+}
+
+# The settings text with env.$Name set to $Value; the "env" block is made when there is none.
+function Set-SettingsEnvText([string]$Text, [string]$Name, [string]$Value) {
+    $entry = (ConvertTo-JsonText $Name) + ': ' + (ConvertTo-JsonText $Value)
+    $existing = [regex]('("' + [regex]::Escape($Name) + '"\s*:\s*)"(?:[^"\\]|\\.)*"')
+    $found = $existing.Match($Text)
+    if ($found.Success) { return $Text.Substring(0, $found.Index) + $found.Groups[1].Value + (ConvertTo-JsonText $Value) + $Text.Substring($found.Index + $found.Length) }
+    $block = ([regex]'"env"\s*:\s*\{').Match($Text)
+    if ($block.Success) {
+        $at = $block.Index + $block.Length
+        $rest = $Text.Substring($at)
+        return $Text.Substring(0, $at) + "`n    " + $entry + $(if ($rest -match '^\s*\}') { "`n  " } else { ',' }) + $rest
+    }
+    $open = $Text.IndexOf('{')
+    if ($open -lt 0) { return "{`n  `"env`": {`n    $entry`n  }`n}`n" }
+    $rest = $Text.Substring($open + 1)
+    $Text.Substring(0, $open + 1) + "`n  `"env`": {`n    $entry`n  }" + $(if ($rest -match '^\s*\}') { "`n" } else { ',' }) + $rest
+}
+
+# The settings text without env.$Name; a comma it leaves before the closing brace goes too.
+function Remove-SettingsEnvText([string]$Text, [string]$Name) {
+    $found = ([regex]('\s*"' + [regex]::Escape($Name) + '"\s*:\s*"(?:[^"\\]|\\.)*"\s*,?')).Match($Text)
+    if (-not $found.Success) { return $Text }
+    $before = $Text.Substring(0, $found.Index)
+    $after = $Text.Substring($found.Index + $found.Length)
+    if ($after -match '^\s*\}') { $before = $before -replace ',(\s*)$', '$1' }
+    $before + $after
+}
+
+function Format-PeekDir([string]$Path) { ($Path -replace '\\', '/').TrimEnd('/').ToLowerInvariant() }
+
+function Install-PeekSettings([string]$SettingsPath, [string]$PeekDir) {
+    $text = if (Test-Path -LiteralPath $SettingsPath) { [IO.File]::ReadAllText($SettingsPath) } else { '{}' }
+    if (-not (Test-JsonText $text)) { return "skipped: $SettingsPath is not valid JSON" }
+    $dir = $PeekDir -replace '\\', '/'
+    $dirs = @(([string](Get-SettingsEnvValue $text $PeekDirsVar)) -split ';' | Where-Object { $_.Trim() })
+    $new = $text
+    if (-not ($dirs | Where-Object { (Format-PeekDir $_) -eq (Format-PeekDir $dir) })) { $new = Set-SettingsEnvText $new $PeekDirsVar ((@($dirs) + $dir) -join ';') }
+    if ((Get-SettingsEnvValue $new $PeekHooksVar) -ne '1') { $new = Set-SettingsEnvText $new $PeekHooksVar '1' }
+    if ($new -eq $text) { return 'already on' }
+    if (-not (Test-JsonText $new)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    $backup = "$SettingsPath.bak-claudemaxxing"
+    if ((Test-Path -LiteralPath $SettingsPath) -and -not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $SettingsPath -Destination $backup }
+    [IO.File]::WriteAllText($SettingsPath, $new, (New-Object Text.UTF8Encoding $false))
+    "on in every session ($PeekDirsVar, $PeekHooksVar)"
+}
+
+function Uninstall-PeekSettings([string]$SettingsPath, [string]$PeekDir) {
+    if (-not (Test-Path -LiteralPath $SettingsPath)) { return 'not installed' }
+    $text = [IO.File]::ReadAllText($SettingsPath)
+    if (-not (Test-JsonText $text)) { return "skipped: $SettingsPath is not valid JSON" }
+    $current = Get-SettingsEnvValue $text $PeekDirsVar
+    if (-not $current) { return 'not installed' }
+    $dirs = @($current -split ';' | Where-Object { $_.Trim() -and (Format-PeekDir $_) -ne (Format-PeekDir $PeekDir) })
+    $new = if ($dirs.Count) { Set-SettingsEnvText $text $PeekDirsVar ($dirs -join ';') } else { Remove-SettingsEnvText $text $PeekDirsVar }
+    if ($new -eq $text) { return 'not installed' }
+    if (-not (Test-JsonText $new)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    [IO.File]::WriteAllText($SettingsPath, $new, (New-Object Text.UTF8Encoding $false))
+    'removed'
+}

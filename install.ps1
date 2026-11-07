@@ -107,6 +107,11 @@ if ($statusline) {
     Add-Warning 'No bash statusline script in ~/.claude/settings.json, so Claude Code does not report usage to the tray on every response. The tray still asks the usage endpoint on start, when opened and with its refresh button.'
 }
 
+# Peek: the paths in Claude's replies become links with a preview, in every Claude Code session.
+$peekState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'peek')
+Write-Host "Peek: $peekState"
+if ($peekState -like 'skipped*') { Add-Warning "Peek $peekState" }
+
 # ---------------------------------------------------------------- 5. Explorer menu
 Write-Step 'Explorer menu (Abrir con Claude Code)'
 if ($SkipMenu) {
