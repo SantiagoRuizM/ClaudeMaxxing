@@ -4,7 +4,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { plan, isSatisfied, recordSwitch, describe, judge } = require('./env');
+const { plan, isSatisfied, recordSwitch, describe, judge, focusOf } = require('./env');
 
 const load = (id) => JSON.parse(fs.readFileSync(path.join(__dirname, 'test', 'environments', `${id}.json`), 'utf8'));
 const G = load('trabajo');
@@ -265,6 +265,16 @@ it('Fingerprint: a new title is the same machine, a new site is not; fit comes f
   assert.notEqual(a.fingerprint, c.fingerprint);
   assert.deepEqual(c.state.encaje.find((f) => f.id === 'trabajo').suyo, 1);
   assert.deepEqual(c.state.encaje.find((f) => f.id === 'gaming').falta, 1);
+});
+
+it('Focus (SelfHarness): what the environment on would close, and dev servers but never its hosts', () => {
+  const envs = [{ id: 'trabajo', ...G }, { id: 'gaming', ...GAMING }];
+  const snap = machine({ profiles: [profile(LABORAL, tab('I Survived 7 Days', 'https://www.youtube.com/watch?v=1'), tab('Admin', 'http://localhost:8000/api/v1/admin/'))], listening, protectedPids: [HOST_PID] });
+  const f = focusOf(envs, snap, { id: 'trabajo' }, new Date(2026, 10, 7, 9));
+  assert.deepEqual(f.tabs.map((t) => [t.title, t.profile]), [['I Survived 7 Days', 'work']]);
+  assert.match(f.tabs[0].reason, /Trabajo/);
+  assert.deepEqual(f.servers.map((s) => [s.port, s.label]), [[5173, 'Frontend Vite'], [8765, null]]);
+  assert.deepEqual(focusOf(envs, snap, null).tabs, []);
 });
 
 // Async cases (the judge) finish after the sync ones; a failure there sets the exit code.

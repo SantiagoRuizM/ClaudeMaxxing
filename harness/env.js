@@ -8,7 +8,8 @@
 //   node env.js <name> [on|off]          preview
 //   node env.js <name> [on|off] --yes    apply (records the active environment in run/active.json)
 //   node env.js status [--json]          which environment is on, the last job and the list of environments
-//   node env.js detect [--json] [--force] [--state]   which environment what is open belongs to (run/detect.json)
+//   node env.js detect [--json] [--force] [--state]   which environment what is open belongs to (run/detect.json),
+//                                        plus focus drift and dev servers (run/focus.json)
 //   --job                                also record progress in run/job.json (ClaudeMaxxing reads it)
 // Every switch and the time spent in each environment go to run/history.json.
 const fs = require('fs');
@@ -219,7 +220,8 @@ async function snapshot(env) {
   const player = !env.music?.folder ? [] : psJson(`Get-CimInstance Win32_Process -Filter "Name='wmplayer.exe'" | ForEach-Object { [string]$_.CommandLine }`);
   const ports = {};
   for (const port of [...(env.stopPorts || []), ...(env.devServers || [])].map((x) => x.port)) ports[port] = portOwner(port);
-  const listening = !env.stopServers ? [] : psJson(`Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -ge 1024 } | Sort-Object LocalPort, OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if ($p) { [pscustomobject]@{ port = $_.LocalPort; pid = $_.OwningProcess; name = $p.ProcessName } } }`);
+  // Below the ephemeral range (49152+): there listen Chrome hosts and other local helpers, never dev servers.
+  const listening = !env.stopServers ? [] : psJson(`Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -ge 1024 -and $_.LocalPort -lt 49152 } | Sort-Object LocalPort, OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if ($p) { [pscustomobject]@{ port = $_.LocalPort; pid = $_.OwningProcess; name = $p.ProcessName } } }`);
   let docker = null;
   if (env.docker) { const up = dockerUp(); docker = { up, running: up ? dockerRunning() : [] }; }
   const gdocs = {};
@@ -435,6 +437,7 @@ function recordSwitch(hist, prev, mode, id, now) {
 // with probabilities) when TYPESAFE_API_KEY is set, then claude -p when Jev is missing, fails or is unsure.
 // The verdict goes to run/detect.json; ClaudeMaxxing offers the switch when it is not the environment that is on.
 const DETECT_FILE = path.join(RUN_DIR, 'detect.json');
+const FOCUS_FILE = path.join(RUN_DIR, 'focus.json');
 const SURE = 0.6;
 const siteOf = (url) => { try { const u = new URL(url); return u.protocol.startsWith('http') ? `${u.host}${u.pathname.split('/').slice(0, 2).join('/')}` : u.protocol.replace(':', ''); } catch { return 'otro'; } };
 
@@ -533,11 +536,32 @@ async function judge(state, options, { jev = askJev, claude = askClaude, key = t
   return { ...verdict, notas: notes };
 }
 
+// For ClaudeMaxxing's SelfHarness tab, from the same snapshot as the detection: what the environment that is on
+// would close (focus drift, with each reason) and every dev server listening (the processes some environment's
+// stopServers names, or the usual ones), never YourHarness's own hosts.
+const DEV_PROCESSES = ['node', 'python', 'python3', 'pythonw', 'py', 'uvicorn', 'deno', 'bun', 'java', 'dotnet', 'php', 'ruby', 'go'];
+function focusOf(envs, snap, active, now = new Date()) {
+  const env = envs.find((e) => e.id === active?.id);
+  const p = env ? plan(env, snap, 'on') : null;
+  const names = new Set([...DEV_PROCESSES, ...envs.flatMap((e) => e.stopServers?.processes || [])].map((n) => n.toLowerCase()));
+  const known = Object.fromEntries(envs.flatMap((e) => (e.devServers || []).map((s) => [s.port, s.name])));
+  const servers = (snap.listening || []).filter((l) => names.has(l.name.toLowerCase()) && !(snap.protectedPids || []).includes(l.pid))
+    .map((l) => ({ port: l.port, pid: l.pid, name: l.name, label: known[l.port] || null })).sort((a, b) => a.port - b.port);
+  return {
+    at: now.toISOString(), active: active?.id || null,
+    tabs: p ? p.closeTabs.map((t) => ({ id: t.id, title: t.title, url: t.url, profile: String(t.profile).split('@')[0], reason: t.reason })) : [],
+    apps: p ? p.apps.map((a) => ({ name: a.name, pids: a.pids, reason: a.reason })) : [],
+    servers,
+  };
+}
+
 async function detect(flags) {
   if (status().job?.state === 'running') return { skipped: 'hay un cambio en curso' };
   const envs = listEnvs().map((e) => ({ id: e.id, ...loadEnv(e.id) }));
   const active = readJson(ACTIVE_FILE);
-  const { state, fingerprint } = describe(await snapshot(probeOf(envs)), envs, active);
+  const snap = await snapshot(probeOf(envs));
+  writeJson(FOCUS_FILE, focusOf(envs, snap, active));
+  const { state, fingerprint } = describe(snap, envs, active);
   const last = readJson(DETECT_FILE);
   if (!flags.includes('--force') && last?.fingerprint === fingerprint && !last.error) return { ...last, cached: true };
   const options = Object.fromEntries([...envs.map((e) => [e.id, `${e.name}: ${e.focus}`]), ['ninguno', 'ninguno encaja: una mezcla sin foco']]);
@@ -623,4 +647,4 @@ async function main(argv) {
 if (require.main === module) {
   main(process.argv.slice(2)).catch((e) => { console.error(`error: ${e.message}`); process.exitCode = 1; });
 }
-module.exports = { classify, plan, isSatisfied, status, recordSwitch, describe, judge };
+module.exports = { classify, plan, isSatisfied, status, recordSwitch, describe, judge, focusOf };

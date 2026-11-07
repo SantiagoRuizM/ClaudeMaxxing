@@ -38,16 +38,19 @@ function Get-HarnessState([string]$Dir = (Get-HarnessDir), [string]$DataDir = $H
         $job | Add-Member -NotePropertyName state -NotePropertyValue 'error' -Force
         $job | Add-Member -NotePropertyName message -NotePropertyValue (Tx 'el proceso se interrumpi\u00f3') -Force
     }
-    # history.json: the switches and time per environment; detect.json: the last "which one am I in?" verdict.
-    @{ Dir = $Dir; DataDir = $DataDir; Envs = $envs; Active = $active; Job = $job; History = (Read-JsonFile (Join-Path $run 'history.json')); Detect = (Read-JsonFile (Join-Path $run 'detect.json')) }
+    # history.json: the switches and time per environment; detect.json: the last "which one am I in?" verdict;
+    # focus.json: what the environment on would close and the dev servers listening (SelfHarness).
+    @{ Dir = $Dir; DataDir = $DataDir; Envs = $envs; Active = $active; Job = $job; History = (Read-JsonFile (Join-Path $run 'history.json')); Detect = (Read-JsonFile (Join-Path $run 'detect.json'))
+        Focus = (Read-JsonFile (Join-Path $run 'focus.json')) }
 }
 
 # The graph from history.json: seconds per environment (today and in total, the one on counting until now)
 # and one edge per direction with how many times you switched that way.
 function Get-HarnessGraph($State, [datetime]$Now = (Get-Date)) {
     $today = $Now.ToString('yyyy-MM-dd')
+    $weekStart = $Now.Date.AddDays(-6).ToString('yyyy-MM-dd')  # the last 7 days, today included
     $time = @{}
-    foreach ($e in @($State.Envs)) { $time[$e.Id] = @{ Today = 0.0; Total = 0.0 } }
+    foreach ($e in @($State.Envs)) { $time[$e.Id] = @{ Today = 0.0; Week = 0.0; Total = 0.0; Entries = 0 } }
     $hist = $State.History
     if ($hist -and $hist.time) {
         foreach ($day in $hist.time.PSObject.Properties) {
@@ -55,6 +58,8 @@ function Get-HarnessGraph($State, [datetime]$Now = (Get-Date)) {
                 if (-not $time.ContainsKey($entry.Name)) { continue }
                 $time[$entry.Name].Total += [double]$entry.Value
                 if ($day.Name -eq $today) { $time[$entry.Name].Today += [double]$entry.Value }
+                # ISO dates compare as text.
+                if ([string]::CompareOrdinal($day.Name, $weekStart) -ge 0) { $time[$entry.Name].Week += [double]$entry.Value }
             }
         }
     }
@@ -66,6 +71,7 @@ function Get-HarnessGraph($State, [datetime]$Now = (Get-Date)) {
             $running = [Math]::Min(12 * 3600, [Math]::Max(0, ($Now - $since).TotalSeconds))
             $time[[string]$active.id].Total += $running
             if ($since.ToString('yyyy-MM-dd') -eq $today) { $time[[string]$active.id].Today += $running }
+            if ([string]::CompareOrdinal($since.ToString('yyyy-MM-dd'), $weekStart) -ge 0) { $time[[string]$active.id].Week += $running }
         }
     }
     $edges = @()
@@ -74,10 +80,14 @@ function Get-HarnessGraph($State, [datetime]$Now = (Get-Date)) {
             $from, $to = $edge.Name -split '>', 2
             if ($time.ContainsKey($from) -and $time.ContainsKey($to) -and [int]$edge.Value -gt 0) {
                 $edges += [pscustomobject]@{ From = $from; To = $to; Count = [int]$edge.Value }
+                $time[$to].Entries += [int]$edge.Value
             }
         }
     }
-    @{ Time = $time; Edges = $edges }
+    # Focus span: the time per stint. Stints are entries by a switch; the very first one has no edge into it.
+    foreach ($t in $time.Values) { $t.Mean = if ($t.Total -gt 0) { $t.Total / [Math]::Max(1, $t.Entries) } else { 0.0 } }
+    $top = @($edges | Sort-Object Count -Descending | Select-Object -First 1)
+    @{ Time = $time; Edges = $edges; Switches = [int](@($edges | ForEach-Object { $_.Count }) + 0 | Measure-Object -Sum).Sum; Top = $(if ($top.Count) { $top[0] } else { $null }) }
 }
 
 function Get-HarnessNode {
@@ -108,25 +118,48 @@ function Start-HarnessDetect([string]$Dir, [switch]$Force) {
     Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirectory $Dir -WindowStyle Hidden -PassThru
 }
 
-# Whether a verdict from detect.json should be offered now: it says another environment fits, it is about the
-# environment that is on now (not one from before a switch), it is fresh and it was not asked already.
-function Test-HarnessOffer($State, [string]$Asked, [datetime]$Now = (Get-Date)) {
+# SelfHarness: the watcher's settings, per PC. Values missing from the file, or not among the choices the window
+# offers, fall back to the defaults (3 minutes, 60 %, quiet while Gaming is on: a game may be full screen).
+$SelfHarnessFile = Join-Path $TrayHome 'selfharness.json'
+$SelfHarnessMinutes = @(1, 2, 3, 5, 10, 15, 30)
+$SelfHarnessConfidences = @(0.5, 0.6, 0.7, 0.8, 0.9)
+
+function Get-SelfHarnessSettings($Saved = (Read-JsonFile $SelfHarnessFile)) {
+    $s = [ordered]@{ detect = $true; minutes = 3; minConfidence = 0.6; quiet = @('gaming') }
+    if ($Saved) {
+        if ($null -ne $Saved.detect) { $s.detect = [bool]$Saved.detect }
+        if ($SelfHarnessMinutes -contains [int]$Saved.minutes) { $s.minutes = [int]$Saved.minutes }
+        if ($SelfHarnessConfidences -contains [double]$Saved.minConfidence) { $s.minConfidence = [double]$Saved.minConfidence }
+        if ($null -ne $Saved.quiet) { $s.quiet = @($Saved.quiet | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^[a-z0-9_-]+$' }) }
+    }
+    $s
+}
+
+function Set-SelfHarnessSetting([string]$Name, $Value) {
+    $s = Get-SelfHarnessSettings
+    $s[$Name] = $Value
+    Write-JsonFile $SelfHarnessFile $s
+}
+
+# Whether a verdict from detect.json should be offered now: another environment fits with at least the minimum
+# confidence, it is about the environment that is on now (not one from before a switch), it is fresh, it was not
+# asked already and the environment on is not a quiet one.
+function Test-HarnessOffer($State, [string]$Asked, [datetime]$Now = (Get-Date), [double]$MinConfidence = 0.6, [string[]]$Quiet = @()) {
     $d = $State.Detect
-    if (-not $d -or -not $d.offer -or -not $d.suggestion -or [string]$d.at -eq $Asked) { return $false }
+    if (-not $d -or -not $d.suggestion -or [string]$d.at -eq $Asked -or [double]$d.confidence -lt $MinConfidence) { return $false }
     if ($State.Job -and $State.Job.state -eq 'running') { return $false }
     $activeId = if ($State.Active) { [string]$State.Active.id } else { '' }
+    if ($Quiet -contains $activeId) { return $false }
     if ([string]$d.suggestion -eq $activeId -or [string]$d.active -ne $activeId) { return $false }
     if (-not @($State.Envs | Where-Object { $_.Id -eq [string]$d.suggestion }).Count) { return $false }
     try { $at = [datetime]$d.at } catch { return $false }
     ($Now - $at).TotalMinutes -lt 10
 }
 
-# Tray timer: every 3 minutes a detection; when it finds you in another environment, a question in your face
-# (topmost, on the active desktop). One question per verdict: "No" is remembered until what is open changes.
-# shortcut: no detection or question while Gaming is on (a game may be full screen); use the Windows
-# notification state (SHQueryUserNotificationState) if it should also hold for full-screen apps elsewhere.
-$HarnessDetectMinutes = 3
-$script:HarnessWatch = @{ Process = $null; LastRun = [datetime]::MinValue; Asked = $null; Asking = $false }
+# Tray timer: a detection every few minutes (SelfHarness settings); when it finds you in another environment, a
+# question in your face (topmost, on the active desktop). One question per verdict: "No" is remembered until what
+# is open changes. In a quiet environment there is no detection at all (it also costs CPU).
+$script:HarnessWatch = @{ Process = $null; LastRun = [datetime]::MinValue; Asked = $null; Asking = $false; Hidden = @{} }
 
 function Invoke-HarnessWatch {
     $w = $script:HarnessWatch
@@ -134,15 +167,16 @@ function Invoke-HarnessWatch {
     $dir = Get-HarnessDir
     if (-not $dir) { return }
     $state = Get-HarnessState $dir
+    $settings = Get-SelfHarnessSettings
     # A verdict that was already there when the tray started is not asked.
     if ($null -eq $w.Asked) { $w.Asked = if ($state.Detect) { [string]$state.Detect.at } else { '' } }
-    if ($state.Active -and $state.Active.id -eq 'gaming') { return }
+    if (-not $settings.detect -or ($state.Active -and $settings.quiet -contains [string]$state.Active.id)) { return }
     $idle = -not ($state.Job -and $state.Job.state -eq 'running') -and -not ($w.Process -and -not $w.Process.HasExited)
-    if ($idle -and ((Get-Date) - $w.LastRun).TotalMinutes -ge $HarnessDetectMinutes) {
+    if ($idle -and ((Get-Date) - $w.LastRun).TotalMinutes -ge $settings.minutes) {
         $w.LastRun = Get-Date
         $w.Process = Start-HarnessDetect $dir
     }
-    if (-not (Test-HarnessOffer $state $w.Asked)) { return }
+    if (-not (Test-HarnessOffer $state $w.Asked (Get-Date) $settings.minConfidence $settings.quiet)) { return }
     $d = $state.Detect
     $w.Asked = [string]$d.at
     $w.Asking = $true
@@ -151,6 +185,26 @@ function Invoke-HarnessWatch {
     $failed = Start-HarnessJob $dir ([string]$d.suggestion) 'on'
     if ($failed -and $script:Notify) { $script:Notify.ShowBalloonTip(6000, 'Ambientes', $failed, [System.Windows.Forms.ToolTipIcon]::Warning) }
     if ($script:HubDialog) { try { Update-HubNow } catch { } }
+}
+
+# SelfHarness: closes tabs by id through harness\tabs.js, hidden (a closed tab comes back with Ctrl+Shift+T).
+# Returns an error text, or $null when it started.
+function Close-HarnessTabs([string]$Dir, [long[]]$Ids) {
+    $node = Get-HarnessNode
+    if (-not $node -or -not (Test-HarnessDir $Dir)) { return 'Falta Node.js o harness\tabs.js.' }
+    if (-not $Ids.Count) { return $null }
+    Start-Process -FilePath $node -ArgumentList ('"{0}" close {1}' -f (Join-Path $Dir 'tabs.js'), ($Ids -join ' ')) -WorkingDirectory $Dir -WindowStyle Hidden
+    $null
+}
+
+# SelfHarness: stops a dev server the user picked, only if that process still listens on that port (a PID may have
+# been reused since the last detection), with its whole tree (npm -> node). Returns an error text, or $null.
+function Stop-HarnessServer([int]$Port, [int]$ProcessId) {
+    $owner = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.OwningProcess })
+    if ($owner -notcontains $ProcessId) { return "El puerto $Port ya no es de ese proceso: nada que apagar." }
+    & taskkill.exe /PID $ProcessId /T /F *> $null
+    if ($LASTEXITCODE -ne 0) { return "No se pudo apagar el proceso $ProcessId." }
+    $null
 }
 
 # Who judged, as a name: jev -> Jev, claude -> Claude.

@@ -353,6 +353,34 @@ try {
     [IO.File]::WriteAllText((Join-Path $yh 'run\detect.json'), (& $detect 'gone' 'alfa' $fresh))
     Assert-Equal $false (Test-HarnessOffer (Get-HarnessState $yh) '' $now) 'harness offer: an environment that no longer exists is not offered'
     Assert-Equal 'Jev' (Format-HarnessJudge 'jev') 'harness: judge shown by name'
+
+    # SelfHarness: the minimum confidence and the quiet environments decide the offer, not env.js's own flag.
+    $hs = Get-HarnessState $yh
+    [IO.File]::WriteAllText((Join-Path $yh 'run\detect.json'), (& $detect 'zeta' 'alfa' $fresh).Replace('"confidence":0.9', '"confidence":0.65').Replace('"offer":true', '"offer":false'))
+    $hs = Get-HarnessState $yh
+    Assert-Equal $true (Test-HarnessOffer $hs '' $now 0.6) 'selfharness offer: 65 % passes a 60 % minimum'
+    Assert-Equal $false (Test-HarnessOffer $hs '' $now 0.7) 'selfharness offer: 65 % does not pass a 70 % minimum'
+    Assert-Equal $false (Test-HarnessOffer $hs '' $now 0.6 @('alfa')) 'selfharness offer: never while the environment on is a quiet one'
+
+    # SelfHarness settings: defaults, and only the choices the window offers are kept.
+    $SelfHarnessFile = Join-Path $harnessTmp 'selfharness.json'
+    $defaults = Get-SelfHarnessSettings
+    Assert-Equal 'True 3 0.6 gaming' ('{0} {1} {2} {3}' -f $defaults.detect, $defaults.minutes, ([double]$defaults.minConfidence).ToString([cultureinfo]::InvariantCulture), ($defaults.quiet -join ',')) 'selfharness settings: defaults without a file'
+    [IO.File]::WriteAllText($SelfHarnessFile, '{"detect":false,"minutes":7,"minConfidence":0.8,"quiet":["vacio","bad id!"]}')
+    $saved = Get-SelfHarnessSettings
+    Assert-Equal 'False 3 0.8 vacio' ('{0} {1} {2} {3}' -f $saved.detect, $saved.minutes, ([double]$saved.minConfidence).ToString([cultureinfo]::InvariantCulture), ($saved.quiet -join ',')) 'selfharness settings: unknown values fall back, bad ids dropped'
+    Set-SelfHarnessSetting 'minutes' 10
+    Set-SelfHarnessSetting 'quiet' @()
+    $saved = Get-SelfHarnessSettings
+    Assert-Equal '10 0' ('{0} {1}' -f $saved.minutes, @($saved.quiet).Count) 'selfharness settings: saved and read back (an empty quiet list stays empty)'
+
+    # SelfHarness stats: the week, the focus span (time per stint) and the most common switch.
+    [IO.File]::WriteAllText((Join-Path $yh 'run\history.json'), '{"edges":{"alfa>zeta":3,"zeta>alfa":1},"time":{"2026-11-07":{"zeta":600},"2026-11-02":{"alfa":3600},"2026-10-20":{"zeta":5400}}}')
+    [IO.File]::WriteAllText((Join-Path $yh 'run\active.json'), '{}')
+    $graph = Get-HarnessGraph (Get-HarnessState $yh) $now
+    Assert-Equal '600 6000' ('{0} {1}' -f $graph.Time['zeta'].Week, $graph.Time['zeta'].Total) 'selfharness stats: the week is the last 7 days'
+    Assert-Equal 2000 $graph.Time['zeta'].Mean 'selfharness stats: focus span is time per entry'
+    Assert-Equal '4 alfa>zeta' ('{0} {1}>{2}' -f $graph.Switches, $graph.Top.From, $graph.Top.To) 'selfharness stats: switches and the most common one'
 } finally { Remove-Item -LiteralPath $harnessTmp -Recurse -Force -ErrorAction SilentlyContinue }
 
 # --- Ahorro de tokens (lib\maxx.ps1): context-mode state from Claude Code's own files

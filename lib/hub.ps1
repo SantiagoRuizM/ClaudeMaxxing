@@ -33,6 +33,7 @@ $script:HubSections = @(
     @{ Id = 'home'; Label = 'Inicio'; Glyph = '\ue80f' },
     @{ Id = 'plan'; Label = (Tx 'Planear sesi\u00f3n'); Glyph = '\uea80' },
     @{ Id = 'envs'; Label = 'Ambientes'; Glyph = '\ue7e8' },
+    @{ Id = 'self'; Label = 'SelfHarness'; Glyph = '\ue83d' },
     @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
     @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
@@ -171,6 +172,7 @@ function Update-HubCache([switch]$Full) {
     try { $c.ContextMode = Get-ContextModeState; $c.MaxxStatus = Get-MaxxStatus } catch { }
     try { Update-HubJudge } catch { }
     try { $c.Harness = Get-HarnessState } catch { $c.Harness = $null }
+    try { $c.SelfHarness = Get-SelfHarnessSettings } catch { $c.SelfHarness = $null }
     if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
@@ -718,6 +720,14 @@ function Get-HubNavBadge([string]$Id) {
             if ($hs -and $hs.Job -and $hs.Job.state -eq 'running') { return @{ Dot = $P.Accent } }
             if ($hs -and $hs.Active) { return @{ Dot = $P.Ok } }
         }
+        'self' {
+            # How many open tabs do not fit the environment on (from the last detection).
+            $hs = $c.Harness
+            if ($hs -and $hs.Active -and $hs.Focus -and [string]$hs.Focus.active -eq [string]$hs.Active.id) {
+                $n = @($hs.Focus.tabs).Count
+                if ($n) { return @{ Text = [string]$n; Color = $P.Warn } }
+            }
+        }
         'whisper' { if ($c.WhisperRunning) { return @{ Dot = $P.Ok } } }
         'voice' { if ($c.VoiceMuted) { return @{ Text = 'off'; Color = $P.Faint } } }
     }
@@ -949,6 +959,7 @@ function Draw-Hub($Form, $G) {
     switch ($hub.Section) {
         'plan'    { Draw-HubPlanSection $G $map $hover $x0 $inner }
         'envs'    { Draw-HubEnvsSection $G $map $hover $x0 $inner }
+        'self'    { Draw-HubSelfSection $G $map $hover $x0 $inner }
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
         'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
@@ -1145,6 +1156,227 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     if ($detecting) { $sub = (Tx 'Mirando qu\u00e9 tienes abierto\u2026'); $subColor = $P.Accent }
     Draw-Text $G $title $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) $tw (Px 22)
     Draw-Text $G $sub $F.Small $subColor ($card.X + (Px 16)) ($card.Y + (Px 36)) $(if ($detecting) { $card.Width - (Px 32) } else { $tw }) (Px 18)
+}
+
+# ---------------------------------------------------------------- SelfHarness
+
+function Format-HubAgo($Iso) {
+    try { $minutes = [int]((Get-Date) - [datetime]$Iso).TotalMinutes } catch { return '' }
+    if ($minutes -lt 1) { 'ahora' } else { 'hace ' + (Format-HubDuration ($minutes * 60)) }
+}
+
+# Up to $Max environments as "Name 1 h 20 min \u00b7 Name 40 min", biggest first, from Get-HarnessGraph's times.
+function Format-HubEnvTimes($Graph, $Envs, [string]$Field, [int]$Max = 4) {
+    $rows = @(foreach ($e in @($Envs)) {
+        $t = $Graph.Time[$e.Id]
+        if ($t -and $t[$Field] -ge 60) { [pscustomobject]@{ Name = $e.Name; Secs = [double]$t[$Field] } }
+    })
+    if (-not $rows.Count) { return [string][char]0x2013 }
+    (@($rows | Sort-Object Secs -Descending | Select-Object -First $Max | ForEach-Object { $_.Name + ' ' + (Format-HubDuration $_.Secs) })) -join (Tx ' \u00b7 ')
+}
+
+# The watcher on yourself: what the environment on would close (focus drift), the dev servers listening, the
+# watcher's settings and a few numbers from the environments' history. Drift and servers come from
+# harness\env.js detect (run\focus.json), refreshed with every detection or with "Revisar ahora".
+function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    $hs = $script:Hub.Cache.Harness
+    $set = $script:Hub.Cache.SelfHarness
+    if (-not $set) { $set = Get-SelfHarnessSettings $null }
+    $y = Px 72
+    if (-not $hs -or -not $hs.Dir) {
+        Draw-Text $G 'Falta harness\env.js: vuelve a ejecutar install.ps1.' $F.Body $P.Muted $X0 $y $Inner (Px 24)
+        return
+    }
+    $colW = [int](($Inner - (Px 16)) / 2)
+    $rx = $X0 + $colW + (Px 16)
+    $focus = $hs.Focus
+    $w = $script:HarnessWatch
+    $detecting = $w -and $w.Process -and -not $w.Process.HasExited
+    $activeId = if ($hs.Active) { [string]$hs.Active.id } else { '' }
+    # The drift is about the environment on now; one computed for another (before a switch) is not shown.
+    $fresh = $focus -and $focus.at -and [string]$focus.active -eq $activeId
+    $at = if ($focus) { [string]$focus.at } else { '' }
+    $hiddenTabs = if ($w -and $w.Hidden[$at]) { @($w.Hidden[$at]) } else { @() }
+    $hiddenPorts = if ($w -and $w.Hidden["$at|ports"]) { @($w.Hidden["$at|ports"]) } else { @() }
+
+    # ---- focus drift (left)
+    $when = if ($detecting) { Tx 'revisando\u2026' } elseif ($at) { Format-HubAgo $at } else { '' }
+    Draw-HubCaption $G (Tx 'DESV\u00cdOS DE FOCO') $X0 $y $colW $when
+    $card = New-Rect $X0 ($y + (Px 24)) $colW (Px 300)
+    Draw-HubCard $G $card
+    $ix = $card.X + (Px 12)
+    $iw = $card.Width - (Px 24)
+    $iy = $card.Y + (Px 10)
+    $tabs = if ($fresh) { @($focus.tabs | Where-Object { $hiddenTabs -notcontains [long]$_.id }) } else { @() }
+    if (-not $hs.Active) {
+        Draw-Wrapped $G (Tx 'Enciende un ambiente en Ambientes: aqu\u00ed saldr\u00e1 lo que no encaja con \u00e9l, cada cosa con su motivo.') $F.Small $P.Muted $ix $iy $iw (Px 54)
+    } elseif (-not $fresh) {
+        Draw-Wrapped $G ((Tx 'Todav\u00eda no se ha revisado lo abierto con ') + $hs.Active.name + (Tx ': pulsa Revisar ahora.')) $F.Small $P.Muted $ix $iy $iw (Px 54)
+    } elseif (-not $tabs.Count) {
+        Draw-Text $G ((Tx '\u2713 Todo encaja con ') + $hs.Active.name) $F.BodyStrong $P.Ok $ix $iy $iw (Px 22)
+    } else {
+        Draw-Text $G ([string]$tabs.Count + $(if ($tabs.Count -eq 1) { Tx ' pesta\u00f1a no encaja con ' } else { Tx ' pesta\u00f1as no encajan con ' }) + $hs.Active.name) $F.BodyStrong $P.Text $ix $iy $iw (Px 22)
+        $ry = $iy + (Px 28)
+        foreach ($t in @($tabs | Select-Object -First 5)) {
+            $row = New-Rect ($ix - (Px 6)) $ry ($iw + (Px 12)) (Px 38)
+            $closeId = "self-close-$($t.id)"
+            if ($Hover -eq $closeId) { Fill-Round $G $row (Px 6) $P.SurfaceHover }
+            Draw-Text $G ([string]$t.title) $F.Body $P.Text $ix ($ry + (Px 1)) ($iw - (Px 30)) (Px 19)
+            Draw-Text $G ([string]$t.profile + (Tx ' \u00b7 ') + [string]$t.reason) $F.Small $P.Muted $ix ($ry + (Px 19)) ($iw - (Px 30)) (Px 17)
+            $x = New-Rect ($row.Right - (Px 30)) ($ry + (Px 7)) (Px 24) (Px 24)
+            Draw-Text $G (Tx '\u2715') $F.Body $(if ($Hover -eq $closeId) { $P.Accent } else { $P.Faint }) $x.X $x.Y $x.Width $x.Height 'Center'
+            Add-Hit $Map $closeId $row ([scriptblock]::Create("Close-HubSelfTabs @($($t.id))")) (Tx 'Cerrar esta pesta\u00f1a (vuelve con Ctrl+Shift+T)')
+            $ry += Px 40
+        }
+        if ($tabs.Count -gt 5) { Draw-Text $G ((Tx '+') + ($tabs.Count - 5) + (Tx ' m\u00e1s')) $F.Small $P.Faint $ix $ry $iw (Px 18) }
+    }
+    if ($fresh -and @($focus.apps).Count) {
+        $apps = (@($focus.apps | ForEach-Object { [string]$_.name })) -join ', '
+        Draw-Text $G ((Tx 'Apps fuera de foco: ') + $apps) $F.Small $P.Warn $ix ($card.Bottom - (Px 58)) $iw (Px 18)
+    }
+    $by = $card.Bottom - (Px 36)
+    if (-not $detecting) {
+        $bw = Get-PillWidth 'Revisar ahora'
+        Draw-PillButton $G $Map $Hover 'self-check' (New-Rect $ix $by $bw (Px 26)) 'Revisar ahora' { Invoke-HubHarnessDetect }
+    }
+    if ($tabs.Count) {
+        $label = 'Cerrar todas (' + $tabs.Count + ')'
+        $bw = Get-PillWidth $label
+        $ids = (@($tabs | ForEach-Object { [long]$_.id })) -join ','
+        Draw-PillButton $G $Map $Hover 'self-close-all' (New-Rect ($card.Right - (Px 12) - $bw) $by $bw (Px 26)) $label ([scriptblock]::Create("Close-HubSelfTabs @($ids)")) -Accent
+    }
+
+    # ---- dev servers (right, top)
+    $servers = if ($focus) { @($focus.servers | Where-Object { $hiddenPorts -notcontains [int]$_.port }) } else { @() }
+    Draw-HubCaption $G 'SERVIDORES' $rx $y $colW $(if ($servers.Count) { [string]$servers.Count + ' escuchando' } else { '' })
+    $shown = [Math]::Min(3, $servers.Count)
+    $card = New-Rect $rx ($y + (Px 24)) $colW ((Px 16) + [Math]::Max(1, $shown) * (Px 32) + $(if ($servers.Count -gt 3) { Px 18 } else { 0 }))
+    Draw-HubCard $G $card
+    $sx = $card.X + (Px 12)
+    $sw = $card.Width - (Px 24)
+    $sy = $card.Y + (Px 8)
+    if (-not $servers.Count) {
+        Draw-Text $G $(if ($focus) { Tx 'Ning\u00fan servidor de desarrollo escuchando.' } else { 'Sin revisar todav\u00eda.' }) $F.Small $P.Muted $sx ($sy + (Px 6)) $sw (Px 20)
+    }
+    foreach ($s in @($servers | Select-Object -First 3)) {
+        $bw = Get-PillWidth 'Apagar'
+        Draw-Text $G (':' + $s.port) $F.BodyStrong $P.Text $sx ($sy + (Px 4)) (Px 58) (Px 22)
+        $what = $(if ($s.label) { [string]$s.label + (Tx ' \u00b7 ') } else { '' }) + [string]$s.name + ' ' + $s.pid
+        Draw-Text $G $what $F.Small $P.Muted ($sx + (Px 60)) ($sy + (Px 6)) ($sw - (Px 68) - $bw) (Px 18)
+        Draw-PillButton $G $Map $Hover "self-stop-$($s.port)" (New-Rect ($card.Right - (Px 12) - $bw) ($sy + (Px 2)) $bw (Px 26)) 'Apagar' ([scriptblock]::Create("Stop-HubSelfServer $([int]$s.port) $([int]$s.pid)"))
+        $sy += Px 32
+    }
+    if ($servers.Count -gt 3) { Draw-Text $G ((Tx '+') + ($servers.Count - 3) + (Tx ' m\u00e1s')) $F.Small $P.Faint $sx $sy $sw (Px 18) }
+
+    # ---- the watcher's settings (right, below)
+    $ay = $card.Bottom + (Px 12)
+    Draw-HubCaption $G 'AVISO DE CAMBIO' $rx $ay $colW
+    $envs = @($hs.Envs)
+    # Quiet chips flow in rows inside the card; measured first so the card fits them.
+    $chips = @()
+    $cx = 0; $crow = 0
+    foreach ($e in $envs) {
+        $cw = Get-PillWidth ([string]$e.Name)
+        if ($cx -gt 0 -and $cx + $cw -gt $colW - (Px 24)) { $cx = 0; $crow++ }
+        $chips += @{ Env = $e; X = $cx; Row = $crow; W = $cw }
+        $cx += $cw + (Px 6)
+    }
+    $chipRows = if ($chips.Count) { $crow + 1 } else { 0 }
+    $card = New-Rect $rx ($ay + (Px 24)) $colW ((Px 150) + $chipRows * (Px 30))
+    Draw-HubCard $G $card
+    $rowX = $card.X + (Px 6)
+    $rowW = $card.Width - (Px 12)
+    Draw-HubToggleRow $G $Map $Hover 'self-detect' (New-Rect $rowX ($card.Y + (Px 6)) $rowW (Px 42)) 'Detectar y preguntar' (Tx 'Si lo abierto es de otro ambiente') ([bool]$set.detect) { Switch-HubSelfDetect }
+    Draw-HubPicker $G $Map $Hover 'self-min' (New-Rect $rowX ($card.Y + (Px 52)) $rowW (Px 30)) 'Cada' ("$($set.minutes) min") 'Step-HubSelfMinutes' ([bool]$set.detect)
+    Draw-HubPicker $G $Map $Hover 'self-conf' (New-Rect $rowX ($card.Y + (Px 86)) $rowW (Px 30)) (Tx 'Confianza m\u00ednima') ("$([int]([double]$set.minConfidence * 100)) %") 'Step-HubSelfConfidence' ([bool]$set.detect)
+    Draw-Text $G (Tx 'No molestar en (sin detecci\u00f3n ni aviso):') $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 122)) ($card.Width - (Px 32)) (Px 18)
+    foreach ($c in $chips) {
+        $rect = New-Rect ($card.X + (Px 12) + $c.X) ($card.Y + (Px 144) + $c.Row * (Px 30)) $c.W (Px 26)
+        $quiet = @($set.quiet) -contains [string]$c.Env.Id
+        $action = [scriptblock]::Create("Switch-HubSelfQuiet '$($c.Env.Id)'")
+        if ($quiet) { Draw-PillButton $G $Map $Hover "self-quiet-$($c.Env.Id)" $rect ([string]$c.Env.Name) $action -Accent }
+        else { Draw-PillButton $G $Map $Hover "self-quiet-$($c.Env.Id)" $rect ([string]$c.Env.Name) $action }
+    }
+
+    # ---- a few numbers from the environments' history (full width, below both columns)
+    $graph = Get-HarnessGraph $hs
+    $sy = [Math]::Max($card.Bottom, $y + (Px 324)) + (Px 12)
+    Draw-HubCaption $G (Tx 'STATS DE LOS AMBIENTES') $X0 $sy $Inner ((Tx 'm\u00e1s en ') + 'harness\docs\ESTADISTICAS.md')
+    $card = New-Rect $X0 ($sy + (Px 24)) $Inner (Px 104)
+    Draw-HubCard $G $card
+    $top = $graph.Top
+    $names = @{}
+    foreach ($e in $envs) { $names[$e.Id] = $e.Name }
+    $switches = if ($graph.Switches) { [string]$graph.Switches + ' en total' + $(if ($top) { (Tx ' \u00b7 el m\u00e1s com\u00fan: ') + $names[$top.From] + (Tx ' \u2192 ') + $names[$top.To] + ' (' + $top.Count + ')' } else { '' }) } else { [string][char]0x2013 }
+    $lines = @(
+        @('HOY', (Format-HubEnvTimes $graph $envs 'Today')),
+        @((Tx '7 D\u00cdAS'), (Format-HubEnvTimes $graph $envs 'Week')),
+        @('FOCO MEDIO', (Format-HubEnvTimes $graph $envs 'Mean')),
+        @('CAMBIOS', $switches)
+    )
+    $ly = $card.Y + (Px 10)
+    foreach ($l in $lines) {
+        Draw-Text $G $l[0] $F.Caps $P.Muted ($card.X + (Px 16)) ($ly + (Px 1)) (Px 92) (Px 20)
+        Draw-Text $G $l[1] $F.Small $P.Text ($card.X + (Px 112)) $ly ($card.Width - (Px 128)) (Px 20)
+        $ly += Px 22
+    }
+}
+
+# A drift tab's x (one id) or "Cerrar todas" (asks first). Closed tabs stay hidden until the next detection.
+function Close-HubSelfTabs([long[]]$Ids) {
+    if ($script:Hub.Preview -or -not $Ids.Count) { return }
+    $hs = $script:Hub.Cache.Harness
+    if (-not $hs -or -not $hs.Dir) { return }
+    if ($Ids.Count -gt 1) {
+        $ask = (Tx '\u00bfCerrar ') + $Ids.Count + (Tx ' pesta\u00f1as que no encajan con ') + $hs.Active.name + (Tx '? Se recuperan con Ctrl+Shift+T.')
+        if (-not (Confirm-UiAction $ask $script:HubDialog)) { return }
+    }
+    $failed = Close-HarnessTabs $hs.Dir $Ids
+    if ($failed) { Set-HubMessage $failed -Failed; return }
+    $key = if ($hs.Focus) { [string]$hs.Focus.at } else { '' }
+    $script:HarnessWatch.Hidden[$key] = @(@($script:HarnessWatch.Hidden[$key]) + $Ids | Where-Object { $_ })
+    Set-HubMessage $(if ($Ids.Count -eq 1) { Tx 'Pesta\u00f1a cerrada.' } else { "$($Ids.Count) " + (Tx 'pesta\u00f1as cerradas.') })
+    Update-HubNow
+}
+
+function Stop-HubSelfServer([int]$Port, [int]$ProcessId) {
+    if ($script:Hub.Preview) { return }
+    $ask = (Tx '\u00bfApagar el servidor del puerto ') + $Port + " (pid $ProcessId)? " + (Tx 'Se cierra ese proceso y lo que lanz\u00f3.')
+    if (-not (Confirm-UiAction $ask $script:HubDialog)) { return }
+    $failed = Stop-HarnessServer $Port $ProcessId
+    if ($failed) { Set-HubMessage $failed -Failed; return }
+    $hs = $script:Hub.Cache.Harness
+    $key = if ($hs -and $hs.Focus) { [string]$hs.Focus.at + '|ports' } else { '|ports' }
+    $script:HarnessWatch.Hidden[$key] = @(@($script:HarnessWatch.Hidden[$key]) + $Port | Where-Object { $_ })
+    Set-HubMessage "Servidor :$Port apagado."
+    Update-HubNow
+}
+
+function Switch-HubSelfDetect {
+    if ($script:Hub.Preview) { return }
+    Set-SelfHarnessSetting 'detect' (-not (Get-SelfHarnessSettings).detect)
+    Update-HubNow
+}
+
+# "< value >" pickers: one step through the choices lib\harness.ps1 accepts.
+function Step-HubSelfChoice([string]$Name, $Choices, [int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $i = [Array]::IndexOf($Choices, (Get-SelfHarnessSettings)[$Name])
+    $i = [Math]::Max(0, [Math]::Min($Choices.Count - 1, $i + $Delta))
+    Set-SelfHarnessSetting $Name $Choices[$i]
+    Update-HubNow
+}
+function Step-HubSelfMinutes([int]$Delta) { Step-HubSelfChoice 'minutes' $SelfHarnessMinutes $Delta }
+function Step-HubSelfConfidence([int]$Delta) { Step-HubSelfChoice 'minConfidence' $SelfHarnessConfidences $Delta }
+
+function Switch-HubSelfQuiet([string]$Id) {
+    if ($script:Hub.Preview) { return }
+    $quiet = @((Get-SelfHarnessSettings).quiet)
+    $quiet = if ($quiet -contains $Id) { @($quiet | Where-Object { $_ -ne $Id }) } else { $quiet + $Id }
+    Set-SelfHarnessSetting 'quiet' $quiet
+    Update-HubNow
 }
 
 # ---------------------------------------------------------------- Inicio
@@ -1865,6 +2097,13 @@ function Set-HubPreview {
     $sampleHistory = [pscustomobject]@{ last = 'trabajo'
         edges = [pscustomobject]@{ 'startday>trabajo' = 9; 'trabajo>atlas' = 4; 'atlas>trabajo' = 3; 'trabajo>endday' = 6; 'endday>gaming' = 2; 'gaming>vacio' = 1; 'vacio>startday' = 1; 'endday>startday' = 5 }
         time = [pscustomobject]@{ $day = [pscustomobject]@{ startday = 1500; atlas = 2400 }; '2026-11-01' = [pscustomobject]@{ trabajo = 61200; atlas = 9000; endday = 3600; gaming = 7200; startday = 5400 } } }
+    $sampleFocus = [pscustomobject]@{ at = $now.AddMinutes(-2).ToString('o'); active = 'trabajo'
+        tabs = @([pscustomobject]@{ id = 11; title = 'I Survived 7 Days In Abandoned City'; profile = 'work'; reason = 'sin relaci' + (Tx '\u00f3') + 'n con Trabajo' },
+            [pscustomobject]@{ id = 12; title = 'Recibidos (1321) - Gmail'; profile = 'personal'; reason = 'perfil Personal: personal, fuera de Trabajo' },
+            [pscustomobject]@{ id = 13; title = 'Tablero del Modulo'; profile = 'personal'; reason = 'perfil Personal: personal, fuera de Trabajo' })
+        apps = @([pscustomobject]@{ name = 'steam'; pids = @(40); reason = 'juegos' })
+        servers = @([pscustomobject]@{ port = 5173; pid = 500; name = 'node'; label = 'Frontend Vite' }, [pscustomobject]@{ port = 8765; pid = 612; name = 'python'; label = $null }) }
+    $c.SelfHarness = Get-SelfHarnessSettings $null
     $sampleDetect = [pscustomobject]@{ at = $now.AddMinutes(-2).ToString('o'); active = 'trabajo'; suggestion = 'atlas'; name = 'Atlas'; confidence = 0.86; judge = 'jev'; reason = 'probabilidades: atlas 86 %, trabajo 9 %, startday 3 %'; offer = $true }
     $c.Harness = switch ($script:Hub.EnvsPreview) {
         'none'  { @{ Dir = $null; Envs = @(); Active = $null; Job = $null } }
@@ -1872,7 +2111,7 @@ function Set-HubPreview {
                      Job = [pscustomobject]@{ id = 'atlas'; name = 'Atlas'; action = 'on'; state = 'running'; step = 'Parando 5 contenedores de Cliente'; message = '' } } }
         'error' { @{ Dir = 'D:\ClaudeMaxxing\harness'; Envs = $sampleEnvs; Active = $null; History = $sampleHistory; Detect = $null
                      Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'error'; step = ''; message = (Tx 'Docker Desktop no respondi\u00f3 en 2 minutos'); endedAt = $now.AddMinutes(-3).ToString('o') } } }
-        default { @{ Dir = 'D:\ClaudeMaxxing\harness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect
+        default { @{ Dir = 'D:\ClaudeMaxxing\harness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect; Focus = $sampleFocus
                      Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'done'; step = ''; message = ''; endedAt = $now.AddMinutes(-48).ToString('o') } } }
     }
     # Planear sesion: -HubSection plan, plan-running, plan-error or plan-empty.
