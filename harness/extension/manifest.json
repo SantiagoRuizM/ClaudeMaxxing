@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "YourHarness",
+  "version": "0.1.0",
+  "description": "Exposes open tabs (title, URL, page content) to the local YourHarness CLI and closes them on request.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8dTo5Upf2Q1Ua2l6Vk5RrIrxLPACMNjPZYnWMEGuU26cvneUf2JaXDaNpm1sfjKN9oB+fowmM+QhNTIbt/rXNfW7sL3PZF84b85NqTtEP/KMGTneXxYi1Xm8KfpOHs/cIIRgmIqx5IBlrmvgI9AB6MO51CEZiAsGbNLeh9e6RLG6sZfwQxVV1BvscAvZNTOrp0h499QDLLGjSFwIFntFznEgFrHr9ABS9WzjYosmi8P6gmuf20np0DIUtwsXbN6f20IyiIMSF6PI7SI7znUPorE1AxjZe4784drz7GgEIQjgzAIAScutQTgDKmGCy/E2S7pKiOaF+TomldLJpHm55wIDAQAB",
+  "permissions": ["tabs", "tabGroups", "scripting", "nativeMessaging", "alarms", "identity", "identity.email"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" }
+}

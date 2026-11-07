@@ -46,6 +46,10 @@ Write-Host (Uninstall-SshInclude)
 $bridgeRules = @(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count
 $rulesScript = if ($bridgeRules) { Get-BridgeFirewallRemovalScript } else { '' }
 
+# Ambientes: the Chrome extension stays loaded until removed in chrome://extensions; without its host it does nothing.
+Unregister-HarnessHost
+Write-Host 'Ambientes: native host unregistered (remove the extension in chrome://extensions)'
+
 if ($KeepMenu) {
     if (Test-Path -LiteralPath $MenuKey) { Remove-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue }
     Write-Host 'menu launcher removed (the Explorer entry opens plain Windows Terminal)'

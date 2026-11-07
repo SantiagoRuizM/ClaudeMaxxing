@@ -147,6 +147,12 @@ if (-not $NoHotkeys) {
     & $powershell -NoProfile -ExecutionPolicy Bypass -File $ctl hotkeys on | ForEach-Object { Write-Host $_ }
 }
 
+# ---------------------------------------------------------------- Ambientes
+Write-Step 'Ambientes (Chrome extension and its native host)'
+Write-Host (Register-HarnessHost $InstallDir)
+Write-Host "extension: load it once per Chrome profile (chrome://extensions > Developer mode > Load unpacked > $(Join-Path $InstallDir 'harness\extension')); updates only need its reload button"
+Write-Host "environments and state (per PC): $(Join-Path $TrayHome 'harness')"
+
 # ---------------------------------------------------------------- 7. Otros PCs
 Write-Step 'Otros PCs (terminals between PCs over SSH)'
 if ($SkipBridge) {

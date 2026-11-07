@@ -18,6 +18,10 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1
 
+      - name: Ambientes (harness) plan cases and the native host
+        shell: cmd
+        run: node harness\test.js
+
       - name: Menu DLL and stub build from source
         shell: cmd
         run: menu\build.cmd

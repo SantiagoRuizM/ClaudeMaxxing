@@ -4,14 +4,17 @@
 # Everything the installed tray, menu launcher and voice need; nothing else from the repo is copied.
 $script:RuntimeFiles = @(
     'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1',
-    'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1'
+    'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js'
 )
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
-# claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial.
-$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude')
+# claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
+# (env.js, the Chrome extension loaded unpacked from the install folder and its native messaging host).
+$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
-# the Python environment for edge-tts and the icons copied from the Claude app.
-$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets')
+# the Python environment for edge-tts, the icons copied from the Claude app and the native host files that
+# Register-HarnessHost writes (Chrome may be running that launcher).
+$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets',
+    'harness\host\yourharness-host.bat', 'harness\host\com.yourharness.bridge.json')
 
 # Relative paths of every runtime file in $Root.
 function Get-RuntimeManifest([string]$Root) {
@@ -277,3 +280,27 @@ function Register-AppEntry([string]$InstallDir) {
     foreach ($name in 'NoModify', 'NoRepair') { New-ItemProperty -LiteralPath $UninstallKey -Name $name -Value 1 -PropertyType DWord -Force | Out-Null }
     New-ItemProperty -LiteralPath $UninstallKey -Name EstimatedSize -Value $size -PropertyType DWord -Force | Out-Null
 }
+
+# Ambientes: Chrome starts harness\host\host.js through a native messaging host. Its launcher and manifest hold
+# this PC's node path, so they are written into the install folder here and registered for the current user.
+# The host name and the extension id (from "key" in harness\extension\manifest.json) are the ones YourHarness used.
+$HarnessHostName = 'com.yourharness.bridge'
+$HarnessHostKey = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$HarnessHostName"
+$HarnessExtensionId = 'fmmpaipmfhkkghcljocefmmbhimeonkm'
+
+function Register-HarnessHost([string]$InstallDir) {
+    $node = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $node) { return 'skipped: Node.js is not installed (Ambientes needs it)' }
+    $hostDir = Join-Path $InstallDir 'harness\host'
+    $launcher = Join-Path $hostDir 'yourharness-host.bat'
+    [IO.File]::WriteAllText($launcher, ("@echo off`r`n`"{0}`" `"%~dp0host.js`" %*`r`n" -f $node.Source), [Text.Encoding]::ASCII)
+    $manifest = Join-Path $hostDir "$HarnessHostName.json"
+    $json = [ordered]@{ name = $HarnessHostName; description = 'ClaudeMaxxing Ambientes: Chrome tabs for env.js'; path = $launcher
+        type = 'stdio'; allowed_origins = @("chrome-extension://$HarnessExtensionId/") } | ConvertTo-Json
+    [IO.File]::WriteAllText($manifest, $json, (New-Object Text.UTF8Encoding $false))  # Chrome rejects a BOM
+    New-Item -Path $HarnessHostKey -Force | Out-Null
+    Set-ItemProperty -Path $HarnessHostKey -Name '(default)' -Value $manifest
+    "native host: $manifest"
+}
+
+function Unregister-HarnessHost { Remove-Item -Path $HarnessHostKey -Force -ErrorAction SilentlyContinue }

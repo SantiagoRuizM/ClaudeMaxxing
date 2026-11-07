@@ -1,0 +1,22 @@
+{
+  "name": "Vacío",
+  "focus": "nada abierto: sin pestañas, servidores, Docker ni WSL; la mínima RAM",
+  "graceSeconds": 8,
+  "closeAllFolders": true,
+  "docker": { "all": true, "action": "stop", "stopTimeout": 30, "quitDesktop": true, "reason": "Vacío: los contenedores y Docker Desktop ocupan RAM" },
+  "wslShutdown": true,
+  "stopServers": {
+    "processes": ["node", "python", "python3", "pythonw", "py", "uvicorn", "deno", "bun", "java", "dotnet", "php", "ruby", "go"],
+    "reason": "Vacío: ningún servidor de desarrollo"
+  },
+  "tabs": { "open": [], "defaultReason": "Vacío: ninguna pestaña" },
+  "closeApps": [
+    { "process": "wmplayer", "reason": "música" },
+    { "process": "steam", "reason": "juegos" },
+    { "process": "ollama", "reason": "modelos locales: consume RAM y GPU" },
+    { "process": "ollama app", "reason": "bandeja de Ollama" },
+    { "process": "FreeLLMAPI", "reason": "consume RAM" },
+    { "process": "SystemSettings", "reason": "Configuración de Windows abierta" },
+    { "process": "RtkUWP", "reason": "Realtek Audio Console abierta" }
+  ]
+}

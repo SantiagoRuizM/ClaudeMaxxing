@@ -1,0 +1,57 @@
+{
+  "name": "Atlas",
+  "focus": "Modulo: Libro 1 y Libro 2, con el Tablero",
+  "chromeProfile": "Profile 1",
+  "graceSeconds": 8,
+  "closeProfiles": [{ "email": "work@example.com", "reason": "perfil Laboral: trabajo de Trabajo, fuera del Atlas" }],
+  "folder": "C:\\Users\\me\\Mi unidad (personal@example.com)\\Atlas",
+  "docker": {
+    "composeDir": "C:\\Users\\me\\Documents\\Projects\\Trabajo\\Cliente",
+    "action": "stop",
+    "stopTimeout": 30,
+    "quitDesktop": true,
+    "reason": "Trabajo en pausa: libera la memoria que necesitan los Vite sobre Drive"
+  },
+  "stopPorts": [{ "port": 5173, "reason": "Vite de Cliente (Trabajo)" }],
+  "devServers": [
+    {
+      "name": "Tablero del Modulo",
+      "port": 5180,
+      "cwd": "C:\\Users\\me\\Mi unidad (personal@example.com)\\Atlas",
+      "command": "node .claude/skills/levantar-atlas/scripts/levantar.mjs tablero",
+      "managed": true
+    }
+  ],
+  "tabs": {
+    "open": [
+      { "name": "Tablero", "url": "http://localhost:5180/" },
+      { "name": "Libro 1. Primero", "gdoc": "C:\\Users\\me\\Mi unidad (personal@example.com)\\Atlas\\06. Modulo\\Libro_1_Primero\\Texto\\Libro 1. Primero.gdoc" },
+      { "name": "Libro 2. Segundo (v0.4)", "gdoc": "C:\\Users\\me\\Mi unidad (personal@example.com)\\Atlas\\06. Modulo\\Libro_2_Segundo\\Texto\\Libro 2. Segundo (Version0.4).gdoc" },
+      { "name": "Música del Atlas", "url": "https://music.youtube.com/playlist?list=PLexamplePlaylist0000", "match": "list=PLexamplePlaylist0000" }
+    ],
+    "keep": [
+      { "match": "list=PLexamplePlaylist0000", "reason": "la playlist del Atlas" },
+      { "match": "^https?://(docs|drive)\\.google\\.com/", "reason": "documentos del Drive del Atlas" },
+      { "match": "^https?://(localhost|127\\.0\\.0\\.1):(5180|52\\d\\d)/", "reason": "Tablero o sitio local del Atlas" },
+      { "match": "^chrome(-extension)?://", "reason": "página interna de Chrome" }
+    ],
+    "close": [
+      { "match": "music\\.youtube\\.com", "reason": "otra música: en el Atlas suena su playlist" },
+      { "match": "web\\.whatsapp\\.com", "reason": "mensajería" },
+      { "match": "mail\\.google\\.com", "reason": "correo" },
+      { "match": "calendar\\.google\\.com", "reason": "agenda: fuera del bloque de foco" },
+      { "match": "claude\\.ai/", "reason": "chat de Claude fuera del repo" },
+      { "match": "^https?://(localhost|127\\.0\\.0\\.1):(5173|8000)/", "reason": "es de Trabajo" }
+    ],
+    "focusTopics": "\\b(atlas|modulo\\w*|landas?|tablero|latex|overleaf|filosof\\w*|primero|segundo|ontolog\\w*|mitolog\\w*|metaf[ií]sica)\\b"
+  },
+  "closeApps": [
+    { "process": "wmplayer", "reason": "otra música: el Brain.fm de Trabajo" },
+    { "process": "steam", "reason": "juegos" },
+    { "process": "ollama", "reason": "modelos locales: consume RAM y GPU" },
+    { "process": "ollama app", "reason": "bandeja de Ollama" },
+    { "process": "FreeLLMAPI", "reason": "no se usa en el Atlas" },
+    { "process": "SystemSettings", "reason": "Configuración de Windows abierta" },
+    { "process": "RtkUWP", "reason": "Realtek Audio Console abierta" }
+  ]
+}

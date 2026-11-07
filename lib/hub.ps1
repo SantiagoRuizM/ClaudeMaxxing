@@ -1,6 +1,6 @@
 # ClaudeMaxxing window: every tool in one place, opened from the popup's "Entrar a ClaudeMaxxing" button.
 # Sections: Inicio (overview, with the diagram of nearby PCs and the latest calls), Planear sesion (lib\hubplan.ps1:
-# an idea on trial before Claude Judge), Ambientes (lib\harness.ps1: one dot per YourHarness environment, click
+# an idea on trial before Claude Judge), Ambientes (lib\harness.ps1: a graph of the harness\ environments, click
 # to turn it on or off), Uso y agenda, Claude Code
 # (sessions opened from the Explorer menu), Otros PCs (diagram of nearby PCs and their connection), Claude
 # Whisper (settings and call history) and Voz. The longer flows keep their own windows: the schedule dialog,
@@ -454,13 +454,12 @@ function Set-HubHotkeys([bool]$On) {
 
 # ---------------------------------------------------------------- window
 
-function Select-HubHarnessDir {
+# The environments are this PC's .json files: open their folder to add or edit one.
+function Open-HubHarnessFolder {
     if ($script:Hub.Preview) { return }
-    $picker = New-Object System.Windows.Forms.FolderBrowserDialog
-    $picker.Description = 'Carpeta de YourHarness (la que tiene env.js y environments)'
-    if ($picker.ShowDialog($script:HubDialog) -ne 'OK' -or -not $picker.SelectedPath) { return }
-    if (Set-HarnessDir $picker.SelectedPath) { Set-HubMessage 'YourHarness conectado.'; Update-HubNow }
-    else { Set-HubMessage 'No se pudo conectar: esa carpeta no tiene env.js y environments.' -Failed }
+    $dir = Join-Path $HarnessHome 'environments'
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Start-Process explorer.exe -ArgumentList ('"{0}"' -f $dir)
 }
 
 # A dot was clicked: turn that environment on, or off when it is the one on. Asks first, since both close things.
@@ -498,7 +497,7 @@ function Invoke-HubHarnessDetect {
     if ($w.Process -and -not $w.Process.HasExited) { return }
     $w.LastRun = Get-Date
     $w.Process = Start-HarnessDetect $state.Dir -Force
-    if ($w.Process) { Set-HubMessage (Tx 'Detectando qu\u00e9 ambiente encaja\u2026') } else { Set-HubMessage 'No se pudo detectar: falta Node.js o YourHarness.' -Failed }
+    if ($w.Process) { Set-HubMessage (Tx 'Detectando qu\u00e9 ambiente encaja\u2026') } else { Set-HubMessage 'No se pudo detectar: falta Node.js o harness\env.js.' -Failed }
     Update-HubNow
 }
 
@@ -970,7 +969,7 @@ function Format-HubHarnessTime($Iso) {
     try { ([datetime]$Iso).ToString('HH:mm') } catch { '' }
 }
 
-# One dot per YourHarness environment: green on, accent while changing, track off, error ring when the last
+# One dot per environment (harness\env.js): green on, accent while changing, track off, error ring when the last
 # change failed. Clicking a dot turns it on (or off when it is the one on); no clicks while a change runs.
 function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
@@ -980,13 +979,10 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $y = Px 72
 
     if (-not $hs -or -not $hs.Dir) {
-        $card = New-Rect $X0 $y $Inner (Px 96)
+        $card = New-Rect $X0 $y $Inner (Px 80)
         Draw-HubCard $G $card
-        $bw = Get-PillWidth (Tx 'Elegir carpeta\u2026')
-        Draw-PillButton $G $Map $Hover 'envs-dir' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 14)) $bw (Px 26)) (Tx 'Elegir carpeta\u2026') { Select-HubHarnessDir } -Accent
-        $tw = $card.Width - $bw - (Px 48)
-        Draw-Text $G 'Conecta YourHarness' $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) $tw (Px 22)
-        Draw-Wrapped $G (Tx 'Los ambientes (Trabajo, Atlas, empezar el d\u00eda\u2026) viven en YourHarness: elige su carpeta, la que tiene env.js y environments. Necesita Node.js y su extensi\u00f3n de Chrome.') $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 52)
+        Draw-Text $G 'Falta harness\env.js' $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) ($card.Width - (Px 32)) (Px 22)
+        Draw-Wrapped $G (Tx 'Los ambientes vienen con ClaudeMaxxing: vuelve a ejecutar install.ps1. Necesitan Node.js y la extensi\u00f3n de Chrome (harness\extension, cargada en cada perfil).') $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 36)
         return
     }
 
@@ -999,7 +995,9 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $y += Px 28
 
     if (-not $envs.Count) {
-        Draw-Text $G (Tx 'YourHarness no tiene ambientes: a\u00f1ade uno en su carpeta environments.') $F.Body $P.Muted $X0 $y $Inner (Px 24)
+        $bw = Get-PillWidth 'Abrir carpeta'
+        Draw-PillButton $G $Map $Hover 'envs-folder' (New-Rect ($X0 + $Inner - $bw) $y $bw (Px 26)) 'Abrir carpeta' { Open-HubHarnessFolder } -Accent
+        Draw-Wrapped $G ((Tx 'Todav\u00eda no hay ambientes: a\u00f1ade su .json en ') + (Join-Path $hs.DataDir 'environments') + '.') $F.Body $P.Muted $X0 $y ($Inner - $bw - (Px 16)) (Px 48)
         return
     }
 
@@ -1101,8 +1099,8 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     # The last change, in full: its step while it runs, what failed, or when it ended.
     $card = New-Rect $X0 $y $Inner (Px 64)
     Draw-HubCard $G $card
-    $bw = Get-PillWidth (Tx 'Cambiar carpeta\u2026')
-    Draw-PillButton $G $Map $Hover 'envs-dir' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 18)) $bw (Px 26)) (Tx 'Cambiar carpeta\u2026') { Select-HubHarnessDir }
+    $bw = Get-PillWidth 'Abrir carpeta'
+    Draw-PillButton $G $Map $Hover 'envs-folder' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 18)) $bw (Px 26)) 'Abrir carpeta' { Open-HubHarnessFolder }
     $tw = $card.Width - $bw - (Px 48)
     if ($job) {
         $verb = if ($job.action -eq 'off') { 'Apagar' } else { 'Encender' }
@@ -1853,7 +1851,7 @@ function Set-HubPreview {
     $c.Stats = Read-JsonFile $StatsFile
     $c.ToolStats = @{ Calls = 2; CallMinutes = 45; CallAnswers = 3; Runs = 14; RunsOk = 13; MenuOpens = 90; Paired = 2 }
     $c.ScheduleRows = @(Get-ScheduleRows $script:PendingTasks (Read-JsonFile $CloudFile) (Read-JsonFile $HistoryFile) $now 5)
-    # Ambientes: -HubSection envs, envs-busy, envs-error or envs-none (YourHarness not chosen yet).
+    # Ambientes: -HubSection envs, envs-busy, envs-error or envs-none (harness\ missing).
     $sampleEnvs = @(
         [pscustomobject]@{ Id = 'atlas'; Name = 'Atlas'; Focus = 'Modulo: Libro 1 y Libro 2, con el Tablero' },
         [pscustomobject]@{ Id = 'endday'; Name = 'EndDay'; Focus = (Tx 'terminar el d\u00eda: se apaga el trabajo') },
@@ -1870,11 +1868,11 @@ function Set-HubPreview {
     $sampleDetect = [pscustomobject]@{ at = $now.AddMinutes(-2).ToString('o'); active = 'trabajo'; suggestion = 'atlas'; name = 'Atlas'; confidence = 0.86; judge = 'jev'; reason = 'probabilidades: atlas 86 %, trabajo 9 %, startday 3 %'; offer = $true }
     $c.Harness = switch ($script:Hub.EnvsPreview) {
         'none'  { @{ Dir = $null; Envs = @(); Active = $null; Job = $null } }
-        'busy'  { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect
+        'busy'  { @{ Dir = 'D:\ClaudeMaxxing\harness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect
                      Job = [pscustomobject]@{ id = 'atlas'; name = 'Atlas'; action = 'on'; state = 'running'; step = 'Parando 5 contenedores de Cliente'; message = '' } } }
-        'error' { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $null; History = $sampleHistory; Detect = $null
+        'error' { @{ Dir = 'D:\ClaudeMaxxing\harness'; Envs = $sampleEnvs; Active = $null; History = $sampleHistory; Detect = $null
                      Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'error'; step = ''; message = (Tx 'Docker Desktop no respondi\u00f3 en 2 minutos'); endedAt = $now.AddMinutes(-3).ToString('o') } } }
-        default { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect
+        default { @{ Dir = 'D:\ClaudeMaxxing\harness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect
                      Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'done'; step = ''; message = ''; endedAt = $now.AddMinutes(-48).ToString('o') } } }
     }
     # Planear sesion: -HubSection plan, plan-running, plan-error or plan-empty.

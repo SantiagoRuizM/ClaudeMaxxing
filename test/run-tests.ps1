@@ -302,18 +302,17 @@ Assert-Equal 'http://127.0.0.1:31415' (Get-FreeLlmBaseUrl 31415) 'freellm: base 
 # --- Ambientes (lib\harness.ps1): YourHarness state from its files, on a fake YourHarness folder
 . (Join-Path $TrayRoot 'lib\harness.ps1')
 $harnessTmp = Join-Path ([IO.Path]::GetTempPath()) ('cmx-harness-test-{0}' -f [guid]::NewGuid().ToString('N'))
-$HarnessSettingsFile = Join-Path $harnessTmp 'harness.json'
+$HarnessHome = Join-Path $harnessTmp 'yh'  # the per-PC data folder; here also the fake harness folder
 try {
     New-Item -ItemType Directory -Force -Path (Join-Path $harnessTmp 'yh\environments'), (Join-Path $harnessTmp 'yh\run') | Out-Null
     $yh = Join-Path $harnessTmp 'yh'
-    Assert-Equal $null (Get-HarnessDir) 'harness: no folder chosen yet'
+    Assert-Equal (Join-Path $TrayRoot 'harness') (Get-HarnessDir) 'harness: env.js comes with ClaudeMaxxing (harness\)'
     Assert-Equal 0 @((Get-HarnessState $null).Envs).Count 'harness: no folder, no environments'
-    Assert-Equal $false (Set-HarnessDir $yh) 'harness: a folder without env.js is refused'
+    Assert-Equal $false ([bool](Test-HarnessDir $yh)) 'harness: a folder without env.js is not the harness'
     [IO.File]::WriteAllText((Join-Path $yh 'env.js'), '')
     [IO.File]::WriteAllText((Join-Path $yh 'environments\Zeta.json'), '{"name":"Zeta","focus":"z"}')
     [IO.File]::WriteAllText((Join-Path $yh 'environments\alfa.json'), '{"name":"Alfa","focus":"a"}')
-    Assert-Equal $true (Set-HarnessDir $yh) 'harness: folder with env.js and environments accepted'
-    Assert-Equal $yh (Get-HarnessDir) 'harness: chosen folder remembered'
+    Assert-Equal $true ([bool](Test-HarnessDir $yh)) 'harness: a folder with env.js is'
     $hs = Get-HarnessState $yh
     Assert-Equal 'alfa,zeta' ((@($hs.Envs) | ForEach-Object { $_.Id }) -join ',') 'harness: environments sorted, ids lower-case'
     Assert-Equal $null $hs.Active 'harness: nothing on without active.json'
@@ -326,7 +325,7 @@ try {
     Assert-Equal 'running' (Get-HarnessState $yh).Job.state 'harness: a live job stays running'
     Assert-Equal $true ((Start-HarnessJob $yh 'alfa' 'off') -like 'Ya hay un cambio en curso*') 'harness: one change at a time'
     Assert-Equal $true ([bool](Start-HarnessJob $yh 'a b' 'on')) 'harness: invalid environment id refused'
-    Assert-Equal $true ([bool](Start-HarnessJob (Join-Path $harnessTmp 'nope') 'alfa' 'on')) 'harness: missing YourHarness refused'
+    Assert-Equal $true ([bool](Start-HarnessJob (Join-Path $harnessTmp 'nope') 'alfa' 'on')) 'harness: missing harness refused'
 
     # The graph: switches per direction and time per environment, the one on counting until now (12 h at most).
     $now = [datetime]'2026-11-07T10:00:00'
