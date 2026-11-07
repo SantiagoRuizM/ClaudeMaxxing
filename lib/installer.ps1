@@ -23,7 +23,8 @@ function Get-RuntimeManifest([string]$Root) {
     foreach ($dir in $script:RuntimeDirs) {
         $full = Join-Path $Root $dir
         if (-not (Test-Path -LiteralPath $full)) { continue }
-        foreach ($item in Get-ChildItem -LiteralPath $full -Recurse -File) {
+        # Git Bash leaves *.stackdump crash dumps in whatever folder it ran in: never part of the runtime.
+        foreach ($item in Get-ChildItem -LiteralPath $full -Recurse -File | Where-Object { $_.Extension -ne '.stackdump' }) {
             $relative = $item.FullName.Substring($Root.TrimEnd('\').Length + 1)
             if (-not (Test-PreservedPath $relative)) { $files.Add($relative) }
         }
