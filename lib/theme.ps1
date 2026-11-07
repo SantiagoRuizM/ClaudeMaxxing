@@ -11,6 +11,7 @@ if (-not ('ClaudeTray.Native' -as [type])) {
 [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
 [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
 [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
 '@
 }
 
@@ -114,6 +115,30 @@ function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
         [System.Drawing.GraphicsUnit]::Pixel, $attributes)
     $g.Dispose(); $source.Dispose(); $icon.Dispose()
     $bitmap
+}
+
+# Window and taskbar icon: the Claude spark in Claude orange with a dark "max" badge (two up chevrons).
+# Built once from the Claude app's icon (not redistributed); falls back to the tray icon.
+function Get-AppIcon {
+    if ($script:AppIcon) { return $script:AppIcon }
+    $size = 64
+    $bitmap = New-TintedLogo (New-Rgb 217 119 87) $size
+    if (-not $bitmap) { if ($script:Notify) { return $script:Notify.Icon }; return $null }
+    $g = [System.Drawing.Graphics]::FromImage($bitmap)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $badge = New-Object System.Drawing.RectangleF(34, 34, 30, 30)
+    $back = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
+    $g.FillEllipse($back, $badge)
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 4)
+    $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+    $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+    $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+    foreach ($y in 47, 56) { $g.DrawLines($pen, [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF(42, $y)), (New-Object System.Drawing.PointF(49, ($y - 7))), (New-Object System.Drawing.PointF(56, $y)))) }
+    $pen.Dispose(); $back.Dispose(); $g.Dispose()
+    # shortcut: the HICON from GetHicon is never destroyed; fine for one icon per process.
+    $script:AppIcon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+    $bitmap.Dispose()
+    $script:AppIcon
 }
 
 function New-Rect([int]$X, [int]$Y, [int]$W, [int]$H) { New-Object System.Drawing.Rectangle($X, $Y, $W, $H) }

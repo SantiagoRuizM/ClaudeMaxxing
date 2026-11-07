@@ -51,6 +51,8 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\judge.ps1')
 . (Join-Path $TrayRoot 'lib\hubplan.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
+# Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.
+[void][ClaudeTray.Native]::SetCurrentProcessExplicitAppUserModelID('ClaudeMaxxing.Tray')
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
 if (-not $Rendering) { [System.IO.File]::WriteAllText($TrayPidFile, [string]$PID) }

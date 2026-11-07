@@ -691,7 +691,7 @@ function Show-BridgeDialog([string]$RenderPath) {
     # Not always on top: it stays open while you pair, so other windows must be able to go over it.
     $dlg.TopMost = $false
     $dlg.ClientSize = New-Object System.Drawing.Size((Px $W), (Px 480))
-    if ($script:Notify -and $script:Notify.Icon) { $dlg.Icon = $script:Notify.Icon }
+    $appIcon = Get-AppIcon; if ($appIcon) { $dlg.Icon = $appIcon }
     Enable-DoubleBuffer $dlg
     $dlg.Tag = New-HitMap
     Register-HitMap $dlg
@@ -1059,7 +1059,7 @@ function Show-ApprovalForm([string]$RenderPath) {
     $form.KeyPreview = $true
     $first = Get-ApprovalRequest
     $form.ClientSize = New-Object System.Drawing.Size((Px $W), $(if ($first) { (Get-ApprovalLayout $first).Height } else { Px 342 }))
-    if ($script:Notify -and $script:Notify.Icon) { $form.Icon = $script:Notify.Icon }
+    $appIcon = Get-AppIcon; if ($appIcon) { $form.Icon = $appIcon }
     Enable-DoubleBuffer $form
     $form.Tag = New-HitMap
     Register-HitMap $form

@@ -527,7 +527,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.BackColor = $P.Back
     $dlg.KeyPreview = $true
     $dlg.ClientSize = New-Object System.Drawing.Size((Px $HubWidth), (Px $HubHeight))
-    if ($script:Notify -and $script:Notify.Icon) { $dlg.Icon = $script:Notify.Icon }
+    $appIcon = Get-AppIcon; if ($appIcon) { $dlg.Icon = $appIcon }
     Enable-DoubleBuffer $dlg
     $dlg.Tag = New-HitMap
     Register-HitMap $dlg
