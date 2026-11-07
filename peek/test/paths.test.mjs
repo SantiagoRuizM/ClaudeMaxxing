@@ -61,8 +61,8 @@ test('POSIX paths on Linux and macOS, and a Windows path under WSL', () => {
 })
 
 test('a line after the path, web addresses ignored, inline code spans whole', () => {
-  const [found] = pathsIn('ver src/app.ts:42:7 ahora')
-  assert.equal(found.target, 'src/app.ts')
+  const found = pathsIn('ver src/app.ts:42:7 ahora').find(candidate => candidate.target === 'src/app.ts')
+  assert.equal('ver src/app.ts:42:7 ahora'.slice(found.start, found.end), 'src/app.ts:42:7')
   assert.equal(lineOf('src/app.ts:42:7'), 42)
   assert.deepEqual(pathsIn('https://example.com/a/b.png'), [])
   assert.equal(pathOfSpan(DRIVE), DRIVE)
@@ -83,4 +83,14 @@ test('a range of lines after the path: linked whole, with spaces too, its lines 
   assert.equal(excerptOf(text, language, 0, 20, 4).source, 'line 1\nline 2\nline 3\nline 4')
   assert.equal(excerptOf(text, language, 5, 3, 25).source.split('\n').length, 3)
   assert.equal(excerptOf(text, language, 12, 20, 14).mark, 0)
+})
+
+test('a relative path whose folders hold spaces, as a list writes it, links whole from the working folder', () => {
+  const cwd = String.raw`C:\Users\user\Atlas`
+  const js = String.raw`C:\Users\user\Atlas\11. Modulo\apps\atlas\src\data\modulo.js`
+  const jpg = String.raw`C:\Users\user\Atlas\06. Modulo\Otros\Referencias graficas generales\5eeb.jpg`
+  const dir = String.raw`C:\Users\user\Atlas\06. Modulo\Otros\Referencias`
+  assert.deepEqual(linked('- 11. Modulo/apps/atlas/src/data/modulo.js:2', [js], cwd), ['11. Modulo/apps/atlas/src/data/modulo.js:2'])
+  assert.deepEqual(linked('- 11. Modulo/apps/atlas/src/data/modulo.js[1:5] y mas', [js], cwd), ['11. Modulo/apps/atlas/src/data/modulo.js[1:5]'])
+  assert.deepEqual(linked('mira 06. Modulo/Otros/Referencias graficas generales/5eeb.jpg', [jpg, dir], cwd), ['06. Modulo/Otros/Referencias graficas generales/5eeb.jpg'])
 })

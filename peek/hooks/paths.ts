@@ -34,6 +34,10 @@ const NEXT = String.raw`\s+(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\.{0,2}\/)`
 const SPACED = new RegExp(String.raw`${BEFORE}(?:[A-Za-z]:[\\/]|\\\\[^\s\\]|~[\\/]|\/(?=[\w.~]))(?:(?!${NEXT})[^\n\t\`"<>|*?])*`, 'g')
 // The most places one spaced path is offered ending at: each costs a look at the disk.
 const ENDS = 24
+// A relative path whose folders hold spaces (`11. Modulo/apps/x.ts`) is offered starting up to
+// this many words before where its spaceless part starts.
+const WORDS = 4
+const WORD_BEFORE = /([^\s`"<>|*?]+)[ \t]+$/
 // A whole inline code span that is a path: it may hold spaces when it starts as a path does.
 const SPAN = /^(?:(?:~|\.{1,2})?[\\/]|[A-Za-z]:[\\/]|\\\\|file:\/\/)[^\n`]*[^\s`]$/
 
@@ -86,7 +90,19 @@ export function pathsIn (text: string): Found[] {
     if (target && !inUrl(start)) found.set(`${start}:${trimmed.length}`, { start, end: start + trimmed.length, target })
   }
   for (const match of text.matchAll(FILE_URL)) add(match.index, match[0])
-  for (const match of text.matchAll(PLAIN)) add(match.index, match[0])
+  for (const match of text.matchAll(PLAIN)) {
+    add(match.index, match[0])
+    // Relative, with a folder: the words before it on its line may be the start of its first folders.
+    if (!/[\\/]/.test(match[0]) || /^(?:[\\/~]|\.{1,2}[\\/]|[A-Za-z]:)/.test(match[0])) continue
+    const lineStart = text.lastIndexOf('\n', match.index - 1) + 1
+    let start = match.index
+    for (let i = 0; i < WORDS; i++) {
+      const word = WORD_BEFORE.exec(text.slice(lineStart, start))
+      if (!word) break
+      start = lineStart + word.index
+      add(start, text.slice(start, match.index + match[0].length))
+    }
+  }
   for (const match of text.matchAll(SPACED)) {
     const spaced = match[0]
     if (!/\s/.test(spaced.trim())) continue
