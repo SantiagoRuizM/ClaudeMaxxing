@@ -1,7 +1,8 @@
 // node --test peek/test (Node 22.6+ reads the .ts module, its types stripped)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { lineOf, longest, pathOfSpan, pathsIn, resolve } from '../hooks/paths.ts'
+import { lastLineOf, lineOf, longest, pathOfSpan, pathsIn, resolve } from '../hooks/paths.ts'
+import { excerptOf, languageOf } from '../hooks/code.ts'
 
 const DRIVE = 'C:\\Users\\user\\Mi unidad (x@gmail.com)\\Atlas\\05. Modulo\\png\\056.png'
 
@@ -66,4 +67,20 @@ test('a line after the path, web addresses ignored, inline code spans whole', ()
   assert.deepEqual(pathsIn('https://example.com/a/b.png'), [])
   assert.equal(pathOfSpan(DRIVE), DRIVE)
   assert.equal(pathOfSpan('~/a b/c.mp4'), '~/a b/c.mp4')
+})
+
+test('a range of lines after the path: linked whole, with spaces too, its lines alone in the excerpt', () => {
+  const ts = String.raw`C:\Users\user\Mi unidad (x@gmail.com)\Atlas\02. Modulo\lib\modulo.ts`
+  assert.deepEqual(linked(`mira ${ts}[000:004].`, [ts]), [`${ts}[000:004]`])
+  assert.deepEqual(linked('y src/x.json[3:5], listo', [String.raw`C:\Users\user\Atlas\src\x.json`]), ['src/x.json[3:5]'])
+  assert.equal(pathOfSpan('src/app.py[12:20]'), 'src/app.py')
+  assert.equal(lineOf('a.ts[12:20]'), 12)
+  assert.equal(lastLineOf('a.ts[12:20]'), 20)
+  assert.equal(lastLineOf('a.ts:12'), undefined)
+  const text = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n')
+  const language = languageOf('a.ts')
+  assert.equal(excerptOf(text, language, 12, 20, 14).source, 'line 12\nline 13\nline 14')
+  assert.equal(excerptOf(text, language, 0, 20, 4).source, 'line 1\nline 2\nline 3\nline 4')
+  assert.equal(excerptOf(text, language, 5, 3, 25).source.split('\n').length, 3)
+  assert.equal(excerptOf(text, language, 12, 20, 14).mark, 0)
 })

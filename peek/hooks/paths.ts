@@ -1,21 +1,22 @@
 // Finding the paths a text names, in every form a reply writes them on Windows, Linux or macOS:
 // absolute (`/home/…`, `C:\…`, `C:/…`, `\\server\share\…`, Git Bash's `/c/…`, `file:///…`), from
 // home (`~/…`, `~\…`), relative (`./x`, `src/x.ts`, `src\x.ts`, `README.md`), each with an optional
-// `:line` or `:line:column` after it, with or without backticks. An absolute path may hold spaces
+// `:line`, `:line:column` or a range of lines `[from:to]` after it, with or without backticks. An absolute path may hold spaces
 // (`C:\Mi unidad (x)\a.png`): it is offered ending at each space it could end at, and candidates may
 // overlap. Every candidate is only a candidate: the hooks module keeps, of those that overlap, the
 // longest that leads to a file or folder.
 
-/** A path a text names: where it starts and ends in the text, and the path itself, `:line` cut. */
+/** A path a text names: where it starts and ends in the text, and the path itself, `:line` or `[from:to]` cut. */
 export type Found = { start: number; end: number; target: string }
 
 const TRAILING = /[.,;:!?\]}>'"»”’]$/
-const LINE = /:\d+(?::\d+)?$/
+const LINE = /(?::\d+(?::\d+)?|\[\d+:\d+\])$/
+const RANGE = /\[(\d+):(\d+)\]$/
 // An address other than a file's: never a path, nor the paths inside it.
 const URL = /\b(?!file:)[a-z][a-z0-9+.-]*:\/\/[^\s<>()]+/gi
 const FILE_URL = /\bfile:\/\/(?:localhost)?(\/[^\s<>"'`]+)/gi
 const BEFORE = String.raw`(?<![\w/.~:\\@-])`
-const SUFFIX = String.raw`(?::\d+(?::\d+)?)?`
+const SUFFIX = String.raw`(?::\d+(?::\d+)?|\[\d+:\d+\])?`
 // Paths with no space, in every form.
 const PLAIN = new RegExp(
   [
@@ -40,13 +41,14 @@ const SPAN = /^(?:(?:~|\.{1,2})?[\\/]|[A-Za-z]:[\\/]|\\\\|file:\/\/)[^\n`]*[^\s`
 function trimEnd (text: string) {
   let out = text.replace(/\s+$/, '')
   for (;;) {
+    if (RANGE.test(out)) return out
     if (TRAILING.test(out)) out = out.slice(0, -1)
     else if (out.endsWith(')') && out.split('(').length < out.split(')').length) out = out.slice(0, -1)
     else return out
   }
 }
 
-/** The path a candidate names: `:line` cut, a `file://` address turned into its path. */
+/** The path a candidate names: `:line` or `[from:to]` cut, a `file://` address turned into its path. */
 function clean (text: string) {
   let target = text.replace(LINE, '')
   const url = /^file:\/\/(?:localhost)?(\/.*)$/i.exec(target)
@@ -61,10 +63,16 @@ function clean (text: string) {
   return /[\w~]/.test(target) && target !== '~' ? target : undefined
 }
 
-/** The line a path's text names after it (`src/x.ts:12`, `src/x.ts:12:5`), if it names one. */
+/** The line a path's text names after it (`src/x.ts:12`, `src/x.ts:12:5`, the first of `src/x.ts[12:20]`), if it names one. */
 export function lineOf (text: string) {
-  const match = /:(\d+)(?::\d+)?$/.exec(text)
+  const match = /:(\d+)(?::\d+)?$/.exec(text) ?? RANGE.exec(text)
   return match ? Number(match[1]) : undefined
+}
+
+/** The last line of the range a path's text names after it (`src/x.ts[12:20]`: 20), if it names one. */
+export function lastLineOf (text: string) {
+  const match = RANGE.exec(text)
+  return match ? Number(match[2]) : undefined
 }
 
 /** Every path `text` may name, overlapping candidates included, in the order they start. */

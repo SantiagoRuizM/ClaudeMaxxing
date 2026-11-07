@@ -100,6 +100,14 @@ test('the pointer on a picture opens the Windows window; on code, its card shows
   expect(w.windows).toHaveLength(1)
 })
 
+test('a range after a code path, src/app.ts[2:2], shows those lines alone in its card', async ($, on) => {
+  world(on)
+  await startSession($)
+  const ui = await reply($, 'Mira src/app.ts[2:2] ahí')
+  const code = await ui.find({ type: 'Code' })
+  expect(code?.props).toMatchObject({ source: 'return 1', startLine: 2 })
+})
+
 test('a click shows the path in Explorer; a right click opens it', async ($, on) => {
   const w = world(on)
   await startSession($)

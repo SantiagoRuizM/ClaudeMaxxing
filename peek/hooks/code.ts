@@ -133,15 +133,24 @@ export function tokenize (source: string, grammar: Grammar): Token[][] {
 
 /**
  * The `rows` lines a preview shows of `text`: the first ones, or from a few before `line` when it
- * names one in the file, that one marked. Tabs are spaces, the indent they all share is cut, a
- * long line is cut. None for a file with no text, or with what text never holds (a NUL).
+ * names one in the file, that one marked; with `last`, the lines `line` to `last` alone (at most
+ * `rows`), none marked. Tabs are spaces, the indent they all share is cut, a long line is cut. None for a file with no text, or with what text never holds (a NUL).
  */
-export function excerptOf (text: string, language: Language, line: number | undefined, rows: number): Excerpt | undefined {
+export function excerptOf (text: string, language: Language, line: number | undefined, rows: number, last?: number): Excerpt | undefined {
   if (text.trim() === '' || text.includes('\u0000') || (text.slice(0, 4096).match(/�/g)?.length ?? 0) > 8) return undefined
   const all = text.split(/\r?\n/)
   if (all.length > 1 && all.at(-1) === '') all.pop()
+  if (last !== undefined) {
+    const from = Math.min(Math.max(1, line ?? 1), all.length)
+    return cut(all, from, 0, Math.max(1, Math.min(rows, last - from + 1)), language)
+  }
   const mark = line !== undefined && line >= 1 && line <= all.length ? line : 0
   const first = mark > 0 ? Math.max(1, Math.min(mark - Math.min(CONTEXT, Math.floor(rows / 3)), all.length - rows + 1)) : 1
+  return cut(all, first, mark, rows, language)
+}
+
+/** The excerpt of `rows` lines of `all` from `first`, `mark` the line marked (0 for none). */
+function cut (all: string[], first: number, mark: number, rows: number, language: Language): Excerpt {
   const shown = all.slice(first - 1, first - 1 + rows).map(row => row.replaceAll('\t', TAB).trimEnd())
   while (shown.length > 1 && shown.at(-1) === '' && first + shown.length - 1 !== mark) shown.pop()
   const indent = Math.min(...shown.filter(row => row !== '').map(row => row.length - row.trimStart().length))

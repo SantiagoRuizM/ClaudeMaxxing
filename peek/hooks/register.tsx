@@ -8,7 +8,7 @@ import { excerptOf, languageOf } from './code'
 import type { Excerpt } from './code'
 import { blocks, inline, items, markerOf, widthOf, wrap } from './markdown'
 import type { Item, Row, Run } from './markdown'
-import { lineOf, longest, pathOfSpan, pathsIn, resolve } from './paths'
+import { lastLineOf, lineOf, longest, pathOfSpan, pathsIn, resolve } from './paths'
 import { MACOS } from './window'
 
 type Engine = EngineInterface
@@ -19,10 +19,11 @@ type Platform = 'macos' | 'linux' | 'windows' | 'other'
 type References = 'all' | 'unlinked' | 'off'
 
 /**
- * A path a reply names that leads somewhere: where it lands, what is there, and the line it names;
+ * A path a reply names that leads somewhere: where it lands, what is there, the line it names and,
+ * for a range (`x.ts[12:20]`), its last line;
  * where a card shows it, the lines of code or text the card shows.
  */
-type Target = { path: string; stat: FsStat; line?: number; code?: Excerpt }
+type Target = { path: string; stat: FsStat; line?: number; last?: number; code?: Excerpt }
 /** An item of a list the mod draws: its marker, its runs, the items under it, blank lines before it. */
 type DrawnItem = { marker: string; runs: Run[]; children: DrawnItem[]; gap: number; dim?: boolean }
 /** A part of a reply: drawn by the engine's Markdown, or by the mod, its paths links. */
@@ -123,14 +124,14 @@ async function statOf ($: Engine, path: string) {
  * The `rows` lines a preview shows of the file at `path`, around `line` when it names one: null
  * for a file that is no code nor text, too large, or holds none. Read again once the file changes.
  */
-async function excerptAt ($: Engine, path: string, stat: FsStat, line: number | undefined, rows: number) {
+async function excerptAt ($: Engine, path: string, stat: FsStat, line: number | undefined, rows: number, last?: number) {
   const language = languageOf(path)
   if (!language || stat.kind !== 'file' || stat.size > CODE_BYTES) return null
-  const key = `${path}\n${stat.size}\n${stat.mtimeMs}\n${line ?? 0}\n${rows}`
+  const key = `${path}\n${stat.size}\n${stat.mtimeMs}\n${line ?? 0}\n${last ?? 0}\n${rows}`
   const known = excerpts.get(key)
   if (known !== undefined) return known
   const text = await $.fs.read(path).catch(() => undefined)
-  const excerpt = typeof text === 'string' ? excerptOf(text, language, line, rows) ?? null : null
+  const excerpt = typeof text === 'string' ? excerptOf(text, language, line, rows, last) ?? null : null
   if (excerpts.size >= PLANS) excerpts.delete(excerpts.keys().next().value!)
   excerpts.set(key, excerpt)
   return excerpt
@@ -177,13 +178,14 @@ async function planOf ($: Engine, text: string): Promise<Plan | null> {
 
   const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
   const system = await platformOf($)
-  type Named = { start: number; end: number; paths: string[]; line?: number }
+  type Named = { start: number; end: number; paths: string[]; line?: number; last?: number }
   type Pending = { run: Run; found: Named[] }
   const candidates = (target: string) => [...new Set([cwd, root].flatMap(base => resolve(target, base, home) ?? []))]
   const named = (source: string, start: number, end: number, target: string): Named[] => {
     const paths = candidates(target)
     const line = lineOf(source.slice(start, end))
-    return paths.length > 0 ? [{ start, end, paths, ...(line !== undefined && { line }) }] : []
+    const last = lastLineOf(source.slice(start, end))
+    return paths.length > 0 ? [{ start, end, paths, ...(line !== undefined && { line }), ...(last !== undefined && { last }) }] : []
   }
   const pending: Pending[] = []
   const runsOf = (source: string) =>
@@ -221,9 +223,10 @@ async function planOf ($: Engine, text: string): Promise<Plan | null> {
       return path === undefined ? [] : [{ ...entry, path }]
     }))
   const targets: Target[] = []
+  const lines = ({ line, last }: { line?: number; last?: number }) => ({ ...(line !== undefined && { line }), ...(last !== undefined && { last }) })
   const finish = (runs: Pending[]) =>
     runs.flatMap(({ run, found: inRun }) =>
-      link(run, leading(inRun).map(({ path, ...entry }) => ({ ...entry, link: targets.push({ path, stat: found.get(path)!, ...(entry.line !== undefined && { line: entry.line }) }) - 1 }))))
+      link(run, leading(inRun).map(({ path, ...entry }) => ({ ...entry, link: targets.push({ path, stat: found.get(path)!, ...lines(entry) }) - 1 }))))
   const linked = (runs: Run[]) => runs.some(run => run.link !== undefined)
   const finishItems = (list: DraftItem[]): DrawnItem[] => list.map(item => ({ marker: item.marker, runs: finish(item.runs), children: finishItems(item.children), gap: item.gap }))
   const anyLinked = (list: DrawnItem[]): boolean => list.some(item => linked(item.runs) || anyLinked(item.children))
@@ -248,17 +251,18 @@ async function planOf ($: Engine, text: string): Promise<Plan | null> {
   const linkedPaths = new Set(targets.map(target => target.path))
   const seen = new Set<string>()
   const listedLines: Reference[] = []
-  for (const { path, start, end, line } of leading(listed)) {
+  for (const { path, start, end, ...rest } of leading(listed)) {
     if (seen.has(path) || (references === 'unlinked' && linkedPaths.has(path))) continue
     seen.add(path)
-    listedLines.push({ label: text.slice(start, end), link: targets.push({ path, stat: found.get(path)!, ...(line !== undefined && { line }) }) - 1 })
+    listedLines.push({ label: text.slice(start, end), link: targets.push({ path, stat: found.get(path)!, ...lines(rest) }) - 1 })
   }
 
   // A card shows a file of code or text, its lines read now: everywhere with no window, and on
   // Windows, whose window shows pictures, always.
   if (!windowing || system === 'windows') {
     await Promise.all(targets.map(async target => {
-      const code = await excerptAt($, target.path, target.stat, target.line, CARD_LINES)
+      // A range shows its lines alone, as many as a window holds.
+      const code = await excerptAt($, target.path, target.stat, target.line, target.last === undefined ? CARD_LINES : WINDOW_LINES, target.last)
       if (code) {
         target.code = code
         carded.add(target.path)
