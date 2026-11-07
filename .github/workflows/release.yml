@@ -1,0 +1,36 @@
+name: Release
+
+# Pushing a tag v<version> (the version in lib/common.ps1 and the newest entry of CHANGELOG.md)
+# runs the tests and publishes a GitHub Release with the ZIP to install and that entry as its notes.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tests
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1
+
+      - name: The tag is the version in lib\common.ps1
+        shell: powershell
+        run: |
+          . .\lib\common.ps1
+          if ("v$AppVersion" -ne $env:GITHUB_REF_NAME) { throw "tag $env:GITHUB_REF_NAME, but lib\common.ps1 says $AppVersion" }
+
+      - name: Release with the ZIP and the changelog entry
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          git archive --format=zip --prefix="ClaudeMaxxing-$v/" -o "ClaudeMaxxing-$v.zip" HEAD
+          awk -v v="$v" '/^## /{ f = ($2 == v) } f' CHANGELOG.md | tail -n +2 > notes.md
+          gh release create "$GITHUB_REF_NAME" "ClaudeMaxxing-$v.zip" --title "ClaudeMaxxing $v" --notes-file notes.md

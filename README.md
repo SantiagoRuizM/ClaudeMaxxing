@@ -21,10 +21,14 @@ The user interface is in Spanish, and so are the voices (Latin American neural v
 - Windows Terminal (included with Windows 11).
 - Optional: `winget`, so the installer can add what the voice needs (Python for edge-tts, and FFmpeg for ffplay). Without them, the voice uses the built-in Windows voice.
 - Optional: a bash statusline script plus `jq`, so the tray updates on every Claude Code response. Without them, the tray refreshes from the usage endpoint instead (see [How the tray gets its data](#how-the-tray-gets-its-data)).
+- Optional: Node.js, for Ambientes (its Chrome extension and `env.js`), and Python 3 (`python3` on PATH), for Claude Judge. Everything else works without them.
+- Peek needs Claude Code 2.1.319 or later (it is a plugin mod, early access in Claude Code) and its fullscreen interface (`"tui": "fullscreen"` in `~/.claude/settings.json`, or `/config`).
+
+Nothing personal ships in the repo: your environments, voices, keys, paired PCs and usage data are written on your PC by the installer and the tray (see [What it changes on your PC](#what-it-changes-on-your-pc)).
 
 ## Install
 
-Clone the repo or download it as a ZIP, then run:
+Download the ZIP of the [latest release](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest) and unzip it (or clone the repo), then run, in that folder:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
@@ -36,7 +40,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
   - the other creates the firewall rules for Otros PCs (see below).
 - For Otros PCs the installer downloads the portable [Win32-OpenSSH](https://github.com/PowerShell/Win32-OpenSSH) release from GitHub (about 5 MB). It is pinned: the zip must match a fixed SHA-256, and every program in it must be signed by Microsoft.
 - The menu entry appears after you restart Explorer or sign out and back in.
-- To update, run `install.ps1` again from a newer copy of the repo. It is idempotent, and it keeps your per-PC settings (`voice\config.local.json`).
+- To update, download a newer release (or `git pull`) and run `install.ps1` again. It is idempotent, and it keeps your per-PC settings (`voice\config.local.json`) and all your data.
+- Versions follow [Semantic Versioning](https://semver.org); what each one changed is in [CHANGELOG.md](CHANGELOG.md). The installed version shows in Settings > Apps > ClaudeMaxxing.
 
 | Option | Effect |
 |---|---|
@@ -275,7 +280,7 @@ ClaudeMaxxing reúne estas herramientas para trabajar con Claude Code en Windows
 - **Otros PCs**: los PCs de la misma red con ClaudeMaxxing se encuentran solos. Una vez emparejados (los dos muestran el mismo código de 6 dígitos y confirmas en ambos), desde la bandeja abres una terminal o Claude Code en el otro PC, y desde Claude Code puedes usar `ssh cmx-<pc> "comando"`. El otro PC siempre pregunta antes de dejar entrar (**Permitir**, **Permitir 1 hora** o **Rechazar**) y avisa cuando se abre y se cierra una sesión. Va por SSH, con un `sshd` que corre como tu usuario mientras la bandeja está abierta, solo en redes privadas y solo desde la red local;
 - **Claude Whisper**: un copiloto para llamadas (entrevistas, reuniones, ventas). Se abre desde el menú de la bandeja; al pulsar **Escuchar** transcribe en vivo lo que suena en el PC (**Ellos**) y tu micrófono (**Tú**), detecta cuándo te hacen una pregunta y Claude te propone qué decir, con tu perfil y tus notas de **Contexto**. **Responder** (Ctrl+Alt+Shift+R) pide una respuesta ya, **Pantalla** (Ctrl+Alt+Shift+C) le manda a Claude el monitor donde está el ratón (por ejemplo un ejercicio de programación) y Ctrl+Alt+Shift+W oculta o muestra la ventana. Cada llamada queda guardada en Markdown en `~/.claude/usage-tray/whisper/sessions`. Todo va con tu suscripción de Claude a través de Claude Code: la transcripción usa el mismo servicio que el dictado por voz de Claude Code (no es una API pública: puede cambiar o dejar de funcionar) y las respuestas, un `claude -p` que queda abierto durante la llamada. Cada respuesta cuenta para tus límites de uso. La llamada se envía a Anthropic: avisa a los demás cuando corresponda. Detalles en [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
 
-**Instalar:** clona el repo o descárgalo en ZIP, y ejecuta:
+**Instalar:** descarga el ZIP de la [última versión](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest) y descomprímelo (o clona el repo), y ejecuta en esa carpeta lo de abajo. En el repo no viene nada personal: tus ambientes, voces, claves, PCs emparejados y datos de uso los crean el instalador y la bandeja en tu PC. Para actualizar, baja una versión nueva y vuelve a ejecutar `install.ps1`; tus datos se conservan. Qué cambió en cada versión: [CHANGELOG.md](CHANGELOG.md).
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1

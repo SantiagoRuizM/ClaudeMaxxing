@@ -632,6 +632,9 @@ try {
 
 # --- installer: what gets copied to the install folder
 . (Join-Path $TrayRoot 'lib\installer.ps1')
+# A release is tagged v<AppVersion> and its notes come from CHANGELOG.md: the two must agree.
+$changelog = [IO.File]::ReadAllText((Join-Path $TrayRoot 'CHANGELOG.md'))
+Assert-Equal $AppVersion ([regex]::Match($changelog, '(?m)^## (\d+\.\d+\.\d+)').Groups[1].Value) 'CHANGELOG.md starts with the version in lib\common.ps1'
 $manifest = Get-RuntimeManifest $TrayRoot
 Assert-Equal 0 @($manifest | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot $_)) }).Count 'every runtime file exists in the repo'
 foreach ($needed in 'tray.ps1', 'open-session.ps1', 'uninstall.ps1', 'lib\installer.ps1', 'voice\hooks\speak.ps1', 'voice\plugin\hooks\hooks.json', 'voice\templates\skill-voz.md') {
