@@ -1042,7 +1042,9 @@ try {
 
     $r = Invoke-JudgeWorker 'deny' (Join-Path $workerRoot 'deny')
     Assert-Equal 'error' $r.Status.state 'judge worker: refused writes are an error'
-    Assert-Equal $true ($r.Status.message -like 'Claude no tuvo permiso para Write *case.md (y 1 m*') 'judge worker: the message names the refused file'
+    # On a mismatch the message itself is reported, so a failure on another PC (CI) says what came out.
+    $message = [string]$r.Status.message
+    Assert-Equal 'matches' $(if ($message -like 'Claude no tuvo permiso para Write *case.md (y 1 m*') { 'matches' } else { $message }) 'judge worker: the message names the refused file'
     Assert-Equal $true ($r.Log.Contains('denied: ') -and $r.Log.Contains('denials=2') -and $r.Log.Contains('ning' + [char]0x00FA + 'n')) 'judge worker: log lists every denial'
 
     $r = Invoke-JudgeWorker 'error' (Join-Path $workerRoot 'error')
@@ -1053,7 +1055,8 @@ try {
     Assert-Equal $true ($r.Log.Contains('exit 3')) 'judge worker: log has the exit code'
 
     $r = Invoke-JudgeWorker 'hang' (Join-Path $workerRoot 'hang') 3
-    Assert-Equal $true ($r.Status.state -eq 'error' -and $r.Status.message -like '* y se detuvo.') 'judge worker: a hung claude is stopped at the limit'
+    $outcome = '{0}: {1}' -f $r.Status.state, $r.Status.message
+    Assert-Equal 'matches' $(if ($r.Status.state -eq 'error' -and $r.Status.message -like '* y se detuvo.') { 'matches' } else { $outcome }) 'judge worker: a hung claude is stopped at the limit'
 
     # A folder under .claude fails before claude is called, so no plan is spent.
     $r = Invoke-JudgeWorker 'verdict' (Join-Path $workerRoot '.claude\judge')
