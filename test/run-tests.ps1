@@ -1029,7 +1029,8 @@ function Invoke-JudgeWorker([string]$Mode, [string]$Dir, [int]$Timeout = 60) {
     $log = if ($status -and $status.log -and (Test-Path -LiteralPath $status.log)) { [IO.File]::ReadAllText($status.log, [Text.Encoding]::UTF8) } else { '' }
     [pscustomobject]@{ Status = $status; Log = $log; Called = (Test-Path -LiteralPath (Join-Path $Dir 'fake-claude-called.txt')) }
 }
-$workerRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-judge-worker-{0}' -f [guid]::NewGuid().ToString('N'))
+# A short folder: the refused-file message clips paths at 120 characters, and a CI runner's temp path is long.
+$workerRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-jw-{0}' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
 try {
     $r = Invoke-JudgeWorker 'verdict' (Join-Path $workerRoot 'verdict')
     Assert-Equal 'done' $r.Status.state 'judge worker: a finished trial is done'
