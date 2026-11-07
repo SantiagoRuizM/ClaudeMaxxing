@@ -641,6 +641,27 @@ Assert-Equal 0 @($manifest | Where-Object { $_ -like 'voice\plugin\skills\*' -or
 $stale = Get-StaleFiles @('lib\old.ps1', 'lib\common.ps1', 'voice\config.local.json', 'voice\venv\Scripts\edge-tts.exe', 'voice\plugin\skills\voz\SKILL.md', 'assets\Tray-Win32.ico') @('lib\common.ps1')
 Assert-Equal 'lib\old.ps1' ($stale -join ',') 'update deletes only files dropped from the repo, never user or generated ones'
 Assert-Equal 0 @(Get-StaleFiles @('LIB\Common.ps1') @('lib\common.ps1')).Count 'stale check ignores case'
+Assert-Equal $false ([bool]($manifest | Where-Object { $_ -like '*.stackdump' })) 'runtime never includes Git Bash crash dumps'
+Assert-Equal $false ([bool]((Get-Content -Raw (Join-Path $TrayRoot 'harness\extension\manifest.json')) -match '"icons"')) 'the repo extension names no icons (loadable without them)'
+
+# The installed extension's manifest gets the icons install.ps1 drew, and stays a valid Chrome manifest.
+$extTmp = Join-Path ([IO.Path]::GetTempPath()) ('cmx-ext-test-{0}' -f [guid]::NewGuid().ToString('N'))
+try {
+    $ext = Join-Path $extTmp 'harness\extension'
+    New-Item -ItemType Directory -Force -Path (Join-Path $ext 'icons') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $TrayRoot 'harness\extension\manifest.json') -Destination $ext
+    Assert-Equal $true ((Add-HarnessManifestIcons $extTmp) -like '*none drawn*') 'extension icons: none drawn, manifest untouched'
+    foreach ($size in 16, 32, 48, 128) { [IO.File]::WriteAllBytes((Join-Path $ext "icons\$size.png"), [byte[]](137, 80, 78, 71)) }
+    [void](Add-HarnessManifestIcons $extTmp)
+    $text = [IO.File]::ReadAllText((Join-Path $ext 'manifest.json'))
+    $installed = $text | ConvertFrom-Json
+    # ReadAllText, not Get-Content: PowerShell 5.1 reads a BOM-less file as ANSI.
+    $repo = [IO.File]::ReadAllText((Join-Path $TrayRoot 'harness\extension\manifest.json')) | ConvertFrom-Json
+    Assert-Equal 'icons/16.png icons/128.png icons/32.png' ('{0} {1} {2}' -f $installed.icons.'16', $installed.icons.'128', $installed.action.default_icon.'32') 'extension icons: named in the installed manifest'
+    Assert-Equal $true ($text -match '"host_permissions":\s*\[') 'extension manifest: one-item lists stay lists'
+    Assert-Equal "$($repo.key)|$($repo.description)" "$($installed.key)|$($installed.description)" 'extension manifest: key (the extension id) and text kept'
+    Assert-Equal $false ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) 'extension manifest: no BOM'
+} finally { Remove-Item -LiteralPath $extTmp -Recurse -Force -ErrorAction SilentlyContinue }
 # The repo may be renamed or deleted after installing: no runtime file may point back into it.
 $repoRefs = @($manifest | Where-Object {
     $text = [IO.File]::ReadAllText((Join-Path $TrayRoot $_))

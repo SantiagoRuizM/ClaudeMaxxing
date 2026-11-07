@@ -6,6 +6,11 @@ const time = (secs) => new Date(secs * 1000).toLocaleTimeString('es-CO', { hour:
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 let pending = null;
 
+// The logo exists only in the install (install.ps1 draws it); loaded from the repo, the header goes without it.
+const logo = $('logo');
+logo.onerror = () => logo.remove();
+if (logo.complete && !logo.naturalWidth) logo.remove();
+
 function bar(label, w) {
   const row = el('div', { className: 'bar' });
   if (!w) { row.append(el('span', { className: 'muted' }, label), el('span', { className: 'faint' }, 'sin empezar'), el('b', {}, '–')); return row; }

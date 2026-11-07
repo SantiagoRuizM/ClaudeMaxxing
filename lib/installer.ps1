@@ -310,6 +310,23 @@ function Register-HarnessHost([string]$InstallDir) {
 
 function Unregister-HarnessHost { Remove-Item -Path $HarnessHostKey -Force -ErrorAction SilentlyContinue }
 
+# The extension's icons are drawn into the install (from the Claude app's icon, not in the repo), so only the
+# installed manifest names them: the repo copy stays loadable in Chrome, with its default icon.
+function Add-HarnessManifestIcons([string]$InstallDir) {
+    $extension = Join-Path $InstallDir 'harness\extension'
+    $icons = [ordered]@{}
+    foreach ($size in 16, 32, 48, 128) {
+        if (Test-Path -LiteralPath (Join-Path $extension "icons\$size.png")) { $icons["$size"] = "icons/$size.png" }
+    }
+    if (-not $icons.Count) { return 'extension icons: none drawn (Chrome shows its default icon)' }
+    $file = Join-Path $extension 'manifest.json'
+    $manifest = [IO.File]::ReadAllText($file) | ConvertFrom-Json
+    $manifest | Add-Member -NotePropertyName icons -NotePropertyValue $icons -Force
+    $manifest.action | Add-Member -NotePropertyName default_icon -NotePropertyValue $icons -Force
+    [IO.File]::WriteAllText($file, ($manifest | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding $false))  # Chrome rejects a BOM
+    "extension icons: $(Join-Path $extension 'icons')"
+}
+
 # Peek (peek\): Claude Code loads the installed folder in every session through CLAUDE_CODE_PLUGIN_DIRS in the "env"
 # block of ~/.claude/settings.json, and runs its hooks module only with CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 (mods
 # are early access). The file is edited as text, so the rest keeps its formatting, and written only if the result
