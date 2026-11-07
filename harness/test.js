@@ -41,7 +41,11 @@ assert.equal(classify({ title: 'Admin', url: 'http://localhost:8000/api/v1/admin
 assert.equal(classify(personal('Tablero', 'http://localhost:5180/'), { name: 'X', tabs: { default: 'keep' } }).action, 'keep');
 
 const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourharness-'));
-const env = { ...process.env, YOURHARNESS_RUN_DIR: runDir };
+// A temporary HOME with the test environments and Trabajo on: the extension's questions never read this PC's data.
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'yourharness-home-'));
+fs.cpSync(path.join(__dirname, 'test', 'environments'), path.join(home, 'environments'), { recursive: true });
+fs.writeFileSync(path.join(runDir, 'active.json'), JSON.stringify({ id: 'trabajo', name: 'Trabajo', since: new Date().toISOString() }));
+const env = { ...process.env, YOURHARNESS_HOME: home, YOURHARNESS_RUN_DIR: runDir };
 let tabs = [
   { id: 11, windowId: 1, index: 0, active: true, windowFocused: true, title: 'How to build APIs', url: 'https://www.youtube.com/watch?v=x' },
   { id: 12, windowId: 1, index: 1, active: false, windowFocused: true, title: 'MrBeast challenge', url: 'https://mrbeast.invalid/' }, // .invalid: offline fetch fails fast, no network
@@ -58,12 +62,16 @@ const fake = {
   close: ({ ids }) => { tabs = tabs.filter((t) => !ids.includes(t.id)); return { closed: ids }; },
 };
 let buf = Buffer.alloc(0);
+const answers = new Map();
+// The extension asking the host (ClaudeMaxxing's badge, nudge and popup): { req, ask, args } -> { req, result | error }.
+const ask = (what, args) => new Promise((resolve) => { const req = answers.size + 100; answers.set(req, resolve); host.stdin.write(frame({ req, ask: what, args })); });
 host.stdout.on('data', (c) => {
   buf = Buffer.concat([buf, c]);
   while (buf.length >= 4 && buf.length >= 4 + buf.readUInt32LE(0)) {
     const n = buf.readUInt32LE(0);
     const msg = JSON.parse(buf.subarray(4, 4 + n));
     buf = buf.subarray(4 + n);
+    if (msg.req) { answers.get(msg.req)(msg); continue; }
     host.stdin.write(frame({ id: msg.id, result: fake[msg.cmd](msg.args) }));
   }
 });
@@ -73,7 +81,7 @@ host.stdin.write(frame({ hello: { email: 'test@example.com' } }));
 const cli = (...a) => new Promise((res, rej) => execFile(process.execPath, [path.join(__dirname, 'tabs.js'), ...a], { env }, (e, out) => (e ? rej(e) : res(out))));
 
 (async () => {
-  for (let i = 0; i < 50 && !fs.readdirSync(runDir).length; i++) await new Promise((r) => setTimeout(r, 100));
+  for (let i = 0; i < 50 && !fs.readdirSync(runDir).some((n) => /^\d+\.json$/.test(n)); i++) await new Promise((r) => setTimeout(r, 100));
   const list = await cli();
   assert.match(list, /Perfil test@example.com \(3 pestañas\)/);
   assert.match(list, /\[11\] How to build APIs  <ACTIVA>/);
@@ -89,8 +97,17 @@ const cli = (...a) => new Promise((res, rej) => execFile(process.execPath, [path
   await cli('close', '13');
   assert.deepEqual(tabs.map((t) => t.id), [11]);
 
+  const state = await ask('state');
+  assert.equal(state.result.active.id, 'trabajo');
+  assert.ok(state.result.envs.some((e) => e.id === 'vacio'));
+  assert.ok('session' in state.result.usage);
+  const judged = await ask('judge', { email: 'work@example.com', tabs: [{ id: 1, title: 'Admin', url: 'http://localhost:8000/api/v1/admin/' }, { id: 2, title: 'I Survived 7 Days', url: 'https://www.youtube.com/watch?v=1' }] });
+  assert.deepEqual(judged.result.tabs.map((t) => t.action), ['keep', 'close']);
+  assert.match((await ask('switch', { id: 'nope' })).error, /no existe/);
+  assert.match((await ask('what')).error, /desconocida/);
+
   host.stdin.end(); // Chrome closing the port must unregister the host
   await new Promise((r) => host.on('exit', r));
-  assert.equal(fs.readdirSync(runDir).length, 0);
+  assert.deepEqual(fs.readdirSync(runDir).filter((n) => /^\d+\.json$/.test(n)), []);
   console.log('ok');
 })().catch((e) => { console.error(e); host.kill(); process.exit(1); });

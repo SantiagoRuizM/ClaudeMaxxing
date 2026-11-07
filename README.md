@@ -164,7 +164,8 @@ Nothing global changes. `~/.claude/settings.json`, the scheduled warm-up, sessio
 - **Turning it off** closes only what is its own.
 - **Only one change at a time.**
 
-- Setup: `install.ps1` copies `harness\` and registers its native messaging host for Chrome (needs Node.js). Then, once per Chrome profile: `chrome://extensions` > Developer mode > **Load unpacked** > `%LOCALAPPDATA%\ClaudeMaxxing\harness\extension`.
+- **The ClaudeMaxxing extension** (Chrome, with the ClaudeMaxxing logo): a badge with how many of the profile's tabs the environment on would close, a small bar in the page when you load something off focus (**Cerrar pestaña** / **Mantener**), and a popup with the plan's usage, the environment on, the off-focus tabs, switching environment and a switch for the nudges. See [harness/README.md](harness/README.md#la-extensión-en-chrome).
+- Setup: `install.ps1` copies `harness\`, draws the extension's icons and registers its native messaging host for Chrome (needs Node.js). Then, once per Chrome profile: `chrome://extensions` > Developer mode > **Load unpacked** > `%LOCALAPPDATA%\ClaudeMaxxing\harness\extension`.
 - Your environments are this PC's, never in the repo: `~/.claude/usage-tray/harness/environments/*.json` (**Abrir carpeta** in the section opens it), with the state in `run\` and the Jev key in `.env` next to them.
 - A click asks for confirmation, then runs `node harness\env.js <id> on|off --yes --job` hidden. The window reads `run\active.json` (which environment is on) and `run\job.json` (the current step, or how the last change ended) every 2 seconds.
 - If a change's process dies half-way, the dot shows it as failed instead of busy forever.

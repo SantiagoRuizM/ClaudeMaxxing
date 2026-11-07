@@ -126,7 +126,7 @@ function plan(env, snap, mode = 'on') {
   const launch = off ? [] : (env.openApps || []).filter((a) => !byName(a.process).length);
 
   // Servers: "on" stops stopPorts (and, with stopServers, every listening server of those processes) and starts
-  // missing devServers; "off" stops its own devServers. protectedPids (YourHarness's own hosts) are never stopped.
+  // missing devServers; "off" stops its own devServers. protectedPids (the Chrome hosts) are never stopped.
   const portRules = off ? (env.devServers || []).map((s) => ({ port: s.port, reason: `${s.name} de ${env.name}` })) : (env.stopPorts || []);
   const stopPorts = portRules.filter((s) => snap.ports[s.port]).map((s) => ({ ...s, owner: snap.ports[s.port] }));
   if (!off && env.stopServers) {
@@ -169,6 +169,13 @@ function plan(env, snap, mode = 'on') {
   return { mode, env: env.name, tabs, closeTabs: tabs.filter((t) => t.action === 'close'), apps, launch, closeFolders, openFolder, stopPorts, startServers, docker, wsl, music, open, opens, claude, claimed: [...claimed].map((o) => o.name), warnings };
 }
 
+// One Chrome profile's tabs judged against an environment, for the extension (badge, nudge, popup): the same plan as
+// turning it on (its own tabs and their duplicates included), from just those tabs. emails and gdocs: tabsContext().
+function judgeTabs(env, tabs, { email = '', emails = {}, gdocs = {} } = {}) {
+  const snap = { profiles: [{ email, host: {}, tabs }], emails, gdocs, folders: [], procs: [], player: [], ports: {}, docker: null, listening: [] };
+  return plan(env, snap, 'on').tabs.map((t) => ({ id: t.id, action: t.action, reason: t.reason }));
+}
+
 // Nothing to do: the machine already matches the environment (or, for "off", nothing of it is left).
 function isSatisfied(p) {
   return !p.closeTabs.length && !p.apps.length && !p.launch.length && !p.closeFolders.length && !p.openFolder && !p.stopPorts.length &&
@@ -209,6 +216,13 @@ function claudeSessions() {
   return { launcher, dirs };
 }
 
+// What judgeTabs needs from this PC: Chrome profile directories to emails and the gdocs' ids.
+function tabsContext(env) {
+  const gdocs = {};
+  for (const o of env.tabs.open.filter((x) => x.gdoc)) gdocs[o.gdoc] = readJson(o.gdoc)?.doc_id || null;
+  return { emails: profileEmails(), gdocs };
+}
+
 async function snapshot(env) {
   const profiles = (await collect({ max: 600 })).map((p) => ({ email: p.host.email || p.profile, host: p.host, tabs: p.tabs }));
   const folders = !env.folder && !env.closeAllFolders ? [] : psJson(`(New-Object -ComObject Shell.Application).Windows() | Where-Object { $_.FullName -like '*explorer.exe' } | ForEach-Object { [pscustomobject]@{ hwnd = $_.HWND; path = $_.Document.Folder.Self.Path; name = $_.LocationName } }`);
@@ -230,7 +244,7 @@ async function snapshot(env) {
   return { profiles, emails: profileEmails(), folders, procs, player, ports, listening, protectedPids: protectedPids(), docker, gdocs, claude };
 }
 
-// This process, its parent and every YourHarness host (run/<pid>.json): a "stop every server" must spare them.
+// This process, its parent and every Chrome host (run/<pid>.json): a "stop every server" must spare them.
 function protectedPids() {
   const hosts = fs.existsSync(RUN_DIR) ? fs.readdirSync(RUN_DIR).filter((f) => /^\d+\.json$/.test(f)).map((f) => +f.slice(0, -5)) : [];
   return [process.pid, process.ppid, ...hosts];
@@ -538,7 +552,7 @@ async function judge(state, options, { jev = askJev, claude = askClaude, key = t
 
 // For ClaudeMaxxing's SelfHarness tab, from the same snapshot as the detection: what the environment that is on
 // would close (focus drift, with each reason) and every dev server listening (the processes some environment's
-// stopServers names, or the usual ones), never YourHarness's own hosts.
+// stopServers names, or the usual ones), never the Chrome hosts.
 const DEV_PROCESSES = ['node', 'python', 'python3', 'pythonw', 'py', 'uvicorn', 'deno', 'bun', 'java', 'dotnet', 'php', 'ruby', 'go'];
 function focusOf(envs, snap, active, now = new Date()) {
   const env = envs.find((e) => e.id === active?.id);
@@ -647,4 +661,4 @@ async function main(argv) {
 if (require.main === module) {
   main(process.argv.slice(2)).catch((e) => { console.error(`error: ${e.message}`); process.exitCode = 1; });
 }
-module.exports = { classify, plan, isSatisfied, status, recordSwitch, describe, judge, focusOf };
+module.exports = { classify, plan, isSatisfied, status, recordSwitch, describe, judge, focusOf, judgeTabs, tabsContext, loadEnv, lastDetect: () => readJson(DETECT_FILE), ENV_JS: __filename };

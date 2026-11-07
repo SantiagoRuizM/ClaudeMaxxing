@@ -6,6 +6,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const api = require('./api');
 
 // Per-PC data, never in the install folder or the repo: environments\*.json, run\ (state, history, hosts) and .env.
 const HOME = process.env.YOURHARNESS_HOME || path.join(require('os').homedir(), '.claude', 'usage-tray', 'harness');
@@ -38,6 +39,9 @@ process.stdin.on('data', (chunk) => {
     if (msg.hello) {
       info = { ...info, ...msg.hello };
       if (info.port) writeRunFile();
+    } else if (msg.req) {
+      // The extension asking (ClaudeMaxxing's badge, nudge and popup), not answering one of our commands.
+      api.handle(msg.ask, msg.args).then((result) => send({ req: msg.req, result }), (e) => send({ req: msg.req, error: String(e.message || e) }));
     } else if (pending.has(msg.id)) {
       pending.get(msg.id)(msg);
       pending.delete(msg.id);

@@ -4,7 +4,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { plan, isSatisfied, recordSwitch, describe, judge, focusOf } = require('./env');
+const { plan, isSatisfied, recordSwitch, describe, judge, focusOf, judgeTabs } = require('./env');
 
 const load = (id) => JSON.parse(fs.readFileSync(path.join(__dirname, 'test', 'environments', `${id}.json`), 'utf8'));
 const G = load('trabajo');
@@ -193,7 +193,7 @@ it('StartDay plays only Clair de Lune: other music closes first, its own keeps p
   assert.equal(again.apps.length, 0);
 });
 
-it('Gaming opens Steam once, closes every tab and stops every dev server but YourHarness hosts', () => {
+it('Gaming opens Steam once, closes every tab and stops every dev server but the Chrome hosts', () => {
   const p = plan(GAMING, machine({
     profiles: [profile(LABORAL, tab('Admin', 'http://localhost:8000/')), profile(PERSONAL, tab('Gmail', 'https://mail.google.com/'))],
     listening, protectedPids: [HOST_PID], procs: [{ Id: 31, ProcessName: 'vmmemWSL' }], docker: { up: true, running: [...cliente, 'franquix-api-1'] },
@@ -275,6 +275,15 @@ it('Focus (SelfHarness): what the environment on would close, and dev servers bu
   assert.match(f.tabs[0].reason, /Trabajo/);
   assert.deepEqual(f.servers.map((s) => [s.port, s.label]), [[5173, 'Frontend Vite'], [8765, null]]);
   assert.deepEqual(focusOf(envs, snap, null).tabs, []);
+});
+
+it('Extension: one profile\'s tabs judged like turning the environment on (own tab, duplicate, off focus)', () => {
+  const tabs = [tab('Admin', 'http://localhost:8000/api/v1/admin/'), tab('Admin 2', 'http://localhost:8000/api/v1/admin/'), tab('I Survived 7 Days', 'https://www.youtube.com/watch?v=1')];
+  const j = judgeTabs(G, tabs, { email: LABORAL, emails: { 'Profile 7': LABORAL } });
+  assert.deepEqual(j.map((t) => t.action), ['keep', 'close', 'close']);
+  assert.match(j[1].reason, /duplicado/);
+  assert.match(j[2].reason, /Trabajo/);
+  assert.deepEqual(judgeTabs(G, [tab('Tablero', 'http://localhost:5180/')], { email: PERSONAL }).map((t) => t.action), ['close'], 'the closed profile');
 });
 
 // Async cases (the judge) finish after the sync ones; a failure there sets the exit code.

@@ -29,6 +29,16 @@ Chrome (cada perfil)                 Este PC
 
 Tras actualizar ClaudeMaxxing basta el botón de recargar de la extensión (o `node tabs.js reload`).
 
+## La extensión en Chrome
+
+Se llama **ClaudeMaxxing** y lleva su logo (lo dibuja `install.ps1` con `tray.ps1 -RenderLogoTo` a partir del icono de la app de Claude de este PC; no se sube al repo, así que la extensión solo carga desde la instalación). Además de darle las pestañas a `env.js` y a la bandeja:
+
+- **Número en el icono:** cuántas pestañas de este perfil cerraría el ambiente encendido (las mismas reglas que al encenderlo, duplicados incluidos). El título del icono dice el ambiente.
+- **Aviso al navegar:** cuando la pestaña en la que estás termina de cargar una página que no encaja, sale una barra discreta en la esquina con el motivo, **Cerrar pestaña** y **Mantener** (no vuelve a avisar en esa pestaña y ese sitio hasta cerrar Chrome). Los duplicados de las pestañas del ambiente solo cuentan en el número.
+- **Popup:** el uso del plan (sesión de 5 h y semana, de la statusline de ClaudeMaxxing), el ambiente encendido y lo que sugiere la detección, las pestañas de este perfil fuera de foco con su ✕ y **Cerrar todas**, los ambientes para cambiar (con confirmación) y el interruptor **Avisarme al navegar fuera de foco**.
+
+La extensión pregunta al host (`host/api.js`: `state`, `judge`, `switch`) con mensajes `{ req, ask, args }`, la dirección contraria a los comandos del CLI. El host juzga con `judgeTabs` de `env.js`, que es el mismo `plan`.
+
 ## Uso
 
 ```bash
@@ -105,7 +115,7 @@ Si cambió, se pregunta a un juez: **Jev** (el *decision model* de TypeSafe, una
 ## Pruebas
 
 ```bash
-node test.js   # simula la extensión contra el host real y prueba el CLI (listar, cerrar por id/regex, desregistro)
+node test.js   # simula la extensión contra el host real: el CLI (listar, cerrar por id/regex, desregistro) y las preguntas de la extensión (estado, juicio, cambio)
 ```
 
 ## Límites

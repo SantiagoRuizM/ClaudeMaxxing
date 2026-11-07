@@ -12,9 +12,9 @@ $script:RuntimeFiles = @(
 $script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
 # the Python environment for edge-tts, the icons copied from the Claude app and the native host files that
-# Register-HarnessHost writes (Chrome may be running that launcher).
+# Register-HarnessHost writes (Chrome may be running that launcher) and the extension's icons (install.ps1 draws them).
 $script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets',
-    'harness\host\yourharness-host.bat', 'harness\host\com.yourharness.bridge.json')
+    'harness\host\yourharness-host.bat', 'harness\host\com.yourharness.bridge.json', 'harness\extension\icons')
 
 # Relative paths of every runtime file in $Root.
 function Get-RuntimeManifest([string]$Root) {

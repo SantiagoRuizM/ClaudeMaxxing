@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>ClaudeMaxxing</title>
+<style>
+  :root { --bg: #1f1e1d; --surface: #2a2927; --line: #3a3836; --text: #f5f4ef; --muted: #a3a29d; --faint: #75736f;
+    --accent: #d97757; --ok: #7fae74; --warn: #d9a557; --error: #e06c5a; --track: #3a3836; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #faf9f5; --surface: #f0eee6; --line: #dedbd2; --text: #1f1e1d; --muted: #5f5d58; --faint: #8a8781;
+      --accent: #c15f3c; --ok: #4f8a43; --warn: #a8761c; --error: #b8432f; --track: #dedbd2; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 340px; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, 'Segoe UI', sans-serif; }
+  header { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+  header img { width: 22px; height: 22px; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header small { margin-left: auto; color: var(--faint); }
+  section { margin: 0 10px 10px; padding: 10px 12px; background: var(--surface); border-radius: 10px; }
+  h2 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600;
+    display: flex; justify-content: space-between; }
+  h2 span { text-transform: none; letter-spacing: 0; color: var(--faint); font-weight: 400; }
+  .bar { display: grid; grid-template-columns: 62px 1fr 38px; align-items: center; gap: 8px; margin: 4px 0; }
+  .bar .track { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 3px; background: var(--ok); }
+  .bar .fill.warn { background: var(--warn); } .bar .fill.high { background: var(--error); }
+  .bar b { text-align: right; font-weight: 600; }
+  .muted { color: var(--muted); } .faint { color: var(--faint); } .ok { color: var(--ok); } .accent { color: var(--accent); } .error { color: var(--error); }
+  .env { font-size: 15px; font-weight: 600; }
+  ul { list-style: none; margin: 6px 0 0; padding: 0; }
+  li { display: flex; gap: 6px; align-items: flex-start; padding: 5px 0; border-top: 1px solid var(--line); }
+  li:first-child { border-top: 0; }
+  li div { flex: 1; min-width: 0; }
+  li .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li small { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.x { border: 0; background: none; color: var(--faint); padding: 0 4px; font-size: 14px; }
+  button.x:hover { color: var(--accent); }
+  button.go { background: var(--accent); border-color: var(--accent); color: #1f1e1d; font-weight: 600; }
+  button.on { background: var(--accent); border-color: var(--accent); color: #1f1e1d; }
+  button:disabled { opacity: .5; cursor: default; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 8px; }
+  .confirm { margin-top: 8px; padding: 8px; border: 1px solid var(--accent); border-radius: 8px; }
+  label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header><img src="icons/32.png" alt=""><h1>ClaudeMaxxing</h1><small id="profile"></small></header>
+
+<section id="offline" hidden>
+  <div class="error">No conecta con ClaudeMaxxing.</div>
+  <div class="muted" id="offlineWhy"></div>
+</section>
+
+<div id="main">
+  <section id="usage">
+    <h2>Uso del plan</h2>
+    <div id="bars"></div>
+  </section>
+
+  <section>
+    <h2>Ambiente <span id="since"></span></h2>
+    <div class="env" id="env"></div>
+    <div class="muted" id="job"></div>
+    <div class="accent" id="detect"></div>
+  </section>
+
+  <section id="driftBox">
+    <h2>Fuera de foco aquí <span id="driftCount"></span></h2>
+    <div class="muted" id="driftEmpty"></div>
+    <ul id="drift"></ul>
+    <div class="row" id="driftActions" hidden><span class="faint">Vuelven con Ctrl+Shift+T</span><button class="go" id="closeAll">Cerrar todas</button></div>
+  </section>
+
+  <section>
+    <h2>Cambiar de ambiente</h2>
+    <div class="chips" id="envs"></div>
+    <div class="confirm" id="confirm" hidden>
+      <div id="confirmText"></div>
+      <div class="row"><button id="cancel">Cancelar</button><button class="go" id="doSwitch">Encender</button></div>
+    </div>
+  </section>
+
+  <section>
+    <label><input type="checkbox" id="nudges"> Avisarme al navegar fuera de foco</label>
+  </section>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>

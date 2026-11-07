@@ -1,10 +1,37 @@
 {
   "manifest_version": 3,
-  "name": "YourHarness",
-  "version": "0.1.0",
-  "description": "Exposes open tabs (title, URL, page content) to the local YourHarness CLI and closes them on request.",
+  "name": "ClaudeMaxxing",
+  "version": "0.2.0",
+  "description": "El ambiente encendido, el uso del plan y lo que se sale de foco, con un aviso al navegar. Le da a ClaudeMaxxing tus pestañas.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8dTo5Upf2Q1Ua2l6Vk5RrIrxLPACMNjPZYnWMEGuU26cvneUf2JaXDaNpm1sfjKN9oB+fowmM+QhNTIbt/rXNfW7sL3PZF84b85NqTtEP/KMGTneXxYi1Xm8KfpOHs/cIIRgmIqx5IBlrmvgI9AB6MO51CEZiAsGbNLeh9e6RLG6sZfwQxVV1BvscAvZNTOrp0h499QDLLGjSFwIFntFznEgFrHr9ABS9WzjYosmi8P6gmuf20np0DIUtwsXbN6f20IyiIMSF6PI7SI7znUPorE1AxjZe4784drz7GgEIQjgzAIAScutQTgDKmGCy/E2S7pKiOaF+TomldLJpHm55wIDAQAB",
-  "permissions": ["tabs", "tabGroups", "scripting", "nativeMessaging", "alarms", "identity", "identity.email"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "background.js" }
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "action": {
+    "default_title": "ClaudeMaxxing",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "scripting",
+    "nativeMessaging",
+    "alarms",
+    "identity",
+    "identity.email",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
 }

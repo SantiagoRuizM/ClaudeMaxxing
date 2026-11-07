@@ -5,8 +5,9 @@
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
 # -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, self, usage, stats, code, pcs, whisper, voice; stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
+# -RenderLogoTo <folder> writes the ClaudeMaxxing logo as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
-    [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home')
+    [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home', [string]$RenderLogoTo)
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
@@ -32,7 +33,7 @@ Clear-ClaudeSessionEnv
 if ($UsagePath) { $UsageFile = $UsagePath }
 if ($ExtrasPath) { $ExtrasFile = $ExtrasPath }
 
-$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo -or $RenderHubTo)
+$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo -or $RenderHubTo -or $RenderLogoTo)
 if (-not $Rendering) {
     $createdNew = $false
     $script:TrayMutex = New-Object System.Threading.Mutex($true, 'Local\ClaudeTray', [ref]$createdNew)
@@ -419,6 +420,17 @@ Update-UsageState
 $script:BridgeTimer = New-Object System.Windows.Forms.Timer
 $script:BridgeTimer.Interval = 400
 $script:BridgeTimer.Add_Tick({ Invoke-BridgeTick })
+
+if ($RenderLogoTo) {
+    New-Item -ItemType Directory -Force -Path $RenderLogoTo | Out-Null
+    foreach ($size in 16, 32, 48, 128) {
+        $logo = New-AppLogoBitmap $size -Fallback
+        $logo.Save((Join-Path $RenderLogoTo "$size.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        $logo.Dispose()
+    }
+    $Notify.Dispose()
+    exit 0
+}
 
 if ($RenderHubTo) {
     Show-HubDialog $HubSection $RenderHubTo

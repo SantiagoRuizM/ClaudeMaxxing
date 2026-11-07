@@ -101,7 +101,9 @@ function Get-TrayIcon {
 function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
     $path = Get-ClaudeIconPath 'Tray-Win32.ico'
     if (-not $path) { return $null }
-    $icon = New-Object System.Drawing.Icon($path, 64, 64)
+    # The .ico frame closest to the size asked for (at least 64): a 128 px logo is not scaled up from 64.
+    $frame = [Math]::Max(64, $Size)
+    $icon = New-Object System.Drawing.Icon($path, $frame, $frame)
     $source = $icon.ToBitmap()
     $bitmap = New-Object System.Drawing.Bitmap($Size, $Size)
     $g = [System.Drawing.Graphics]::FromImage($bitmap)
@@ -117,24 +119,42 @@ function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
     $bitmap
 }
 
-# Window and taskbar icon: the Claude spark in Claude orange with a dark "max" badge (two up chevrons).
-# Built once from the Claude app's icon (not redistributed); falls back to the tray icon.
-function Get-AppIcon {
-    if ($script:AppIcon) { return $script:AppIcon }
-    $size = 64
-    $bitmap = New-TintedLogo (New-Rgb 217 119 87) $size
-    if (-not $bitmap) { if ($script:Notify) { return $script:Notify.Icon }; return $null }
+# The ClaudeMaxxing logo at any size: the Claude spark in Claude orange with a dark "max" badge (two up chevrons),
+# drawn for 64 px and scaled. Built from the Claude app's icon (not redistributed); $null without it. -Fallback draws
+# an orange disc with the badge instead (the Chrome extension needs some icon). Below 32 px the badge is left out.
+function New-AppLogoBitmap([int]$Size, [switch]$Fallback) {
+    $bitmap = New-TintedLogo (New-Rgb 217 119 87) $Size
+    if (-not $bitmap -and -not $Fallback) { return $null }
+    if (-not $bitmap) { $bitmap = New-Object System.Drawing.Bitmap($Size, $Size) }
     $g = [System.Drawing.Graphics]::FromImage($bitmap)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $badge = New-Object System.Drawing.RectangleF(34, 34, 30, 30)
-    $back = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
-    $g.FillEllipse($back, $badge)
-    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 4)
-    $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-    foreach ($y in 47, 56) { $g.DrawLines($pen, [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF(42, $y)), (New-Object System.Drawing.PointF(49, ($y - 7))), (New-Object System.Drawing.PointF(56, $y)))) }
-    $pen.Dispose(); $back.Dispose(); $g.Dispose()
+    $k = $Size / 64.0
+    if ($Fallback -and -not (Get-ClaudeIconPath 'Tray-Win32.ico')) {
+        $orange = New-Object System.Drawing.SolidBrush((New-Rgb 217 119 87))
+        $g.FillEllipse($orange, [single](2 * $k), [single](2 * $k), [single](60 * $k), [single](60 * $k))
+        $orange.Dispose()
+    }
+    if ($Size -ge 32) {
+        $back = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
+        $g.FillEllipse($back, (New-Object System.Drawing.RectangleF((34 * $k), (34 * $k), (30 * $k), (30 * $k))))
+        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, [single](4 * $k))
+        $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+        foreach ($y in 47, 56) {
+            $g.DrawLines($pen, [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF((42 * $k), ($y * $k))), (New-Object System.Drawing.PointF((49 * $k), (($y - 7) * $k))), (New-Object System.Drawing.PointF((56 * $k), ($y * $k)))))
+        }
+        $pen.Dispose(); $back.Dispose()
+    }
+    $g.Dispose()
+    $bitmap
+}
+
+# Window and taskbar icon: the logo above at 64 px, built once; falls back to the tray icon.
+function Get-AppIcon {
+    if ($script:AppIcon) { return $script:AppIcon }
+    $bitmap = New-AppLogoBitmap 64
+    if (-not $bitmap) { if ($script:Notify) { return $script:Notify.Icon }; return $null }
     # shortcut: the HICON from GetHicon is never destroyed; fine for one icon per process.
     $script:AppIcon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
     $bitmap.Dispose()

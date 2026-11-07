@@ -1,4 +1,5 @@
-// Bridges this Chrome profile's tabs to the local YourHarness host over native messaging.
+// ClaudeMaxxing in Chrome: bridges this profile's tabs to the local host over native messaging (for env.js and the
+// tray) and, the other way, shows the environment on, its badge, a nudge when a page is off focus and the popup.
 // An open native port keeps the service worker alive; the alarm revives it if the host dies.
 const HOST = 'com.yourharness.bridge';
 let port = null;
@@ -117,6 +118,8 @@ async function connect() {
   if (port) return;
   port = chrome.runtime.connectNative(HOST);
   port.onMessage.addListener(async (msg) => {
+    // An answer to something this extension asked (ask below), not a command from the host.
+    if (msg.req) { asks.get(msg.req)?.(msg); asks.delete(msg.req); return; }
     let reply;
     try {
       const fn = handlers[msg.cmd];
@@ -128,15 +131,130 @@ async function connect() {
     port?.postMessage(reply);
   });
   port.onDisconnect.addListener(() => {
-    console.warn('YourHarness host disconnected:', chrome.runtime.lastError?.message);
+    console.warn('ClaudeMaxxing host disconnected:', chrome.runtime.lastError?.message);
     port = null;
   });
   const info = await chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' }).catch(() => ({}));
-  port?.postMessage({ hello: { email: info.email || '', extensionId: chrome.runtime.id } });
+  profileEmail = info.email || '';
+  port?.postMessage({ hello: { email: profileEmail, extensionId: chrome.runtime.id } });
 }
 
+// ---------------------------------------------------------------- ClaudeMaxxing in Chrome
+// The extension asks the host ({ req, ask, args } -> { req, result | error }; see host/api.js): the popup's state,
+// this profile's tabs judged against the environment on (badge, nudge, popup) and switching environment.
+const asks = new Map();
+let nextReq = 1;
+let profileEmail = '';
+
+async function ask(what, args = {}, ms = 8000) {
+  await connect();
+  if (!port) throw new Error('sin conexión con ClaudeMaxxing');
+  return new Promise((resolve, reject) => {
+    const req = nextReq++;
+    const timer = setTimeout(() => { asks.delete(req); reject(new Error('ClaudeMaxxing no respondió')); }, ms);
+    asks.set(req, (msg) => { clearTimeout(timer); if (msg.error) reject(new Error(msg.error)); else resolve(msg.result); });
+    port.postMessage({ req, ask: what, args });
+  });
+}
+
+const tabInfo = (t) => ({ id: t.id, title: t.title || '', url: t.url || t.pendingUrl || '' });
+const judgeProfile = async () => ask('judge', { tabs: (await chrome.tabs.query({})).filter((t) => !t.incognito).map(tabInfo), email: profileEmail });
+
+// Badge: how many of this profile's tabs the environment on would close. Debounced: tab events come in bursts.
+let badgeTimer = null;
+function refreshBadge() {
+  clearTimeout(badgeTimer);
+  badgeTimer = setTimeout(async () => {
+    try {
+      const r = await judgeProfile();
+      const n = r.active ? r.tabs.filter((t) => t.action === 'close').length : 0;
+      await chrome.action.setBadgeBackgroundColor({ color: '#D97757' });
+      await chrome.action.setBadgeText({ text: n ? String(n) : '' });
+      await chrome.action.setTitle({ title: r.active ? `ClaudeMaxxing · ${r.active.name}${n ? ` · ${n} fuera de foco` : ''}` : 'ClaudeMaxxing · ningún ambiente encendido' });
+    } catch {
+      await chrome.action.setBadgeText({ text: '' });
+      await chrome.action.setTitle({ title: 'ClaudeMaxxing · sin conexión (¿está instalado?)' });
+    }
+  }, 1500);
+}
+
+// Runs inside the page (isolated world): a small bar, in a shadow root so the page's CSS cannot reach it.
+function banner(envName, reason, key) {
+  if (document.getElementById('claudemaxxing-nudge')) return;
+  const host = document.createElement('div');
+  host.id = 'claudemaxxing-nudge';
+  host.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647';
+  const root = host.attachShadow({ mode: 'closed' });
+  root.innerHTML = `<style>
+    .bar{font:13px/1.35 system-ui,'Segoe UI',sans-serif;background:#1f1e1d;color:#f5f4ef;border:1px solid #3a3836;border-left:4px solid #D97757;
+      border-radius:10px;padding:10px 12px;max-width:360px;box-shadow:0 6px 24px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:8px}
+    b{color:#D97757;font-weight:600} small{color:#a3a29d}
+    .row{display:flex;gap:8px;justify-content:flex-end}
+    button{font:inherit;border-radius:7px;padding:4px 10px;cursor:pointer;border:1px solid #3a3836;background:#2a2927;color:#f5f4ef}
+    button.go{background:#D97757;border-color:#D97757;color:#1f1e1d;font-weight:600}
+    button:focus-visible{outline:2px solid #D97757;outline-offset:2px}</style>
+    <div class="bar" role="alert"><div><b>ClaudeMaxxing</b> · Esto no es de ${envName.replace(/</g, '&lt;')}<br><small></small></div>
+    <div class="row"><button class="keep">Mantener</button><button class="go">Cerrar pestaña</button></div></div>`;
+  root.querySelector('small').textContent = reason;
+  const done = (what) => { chrome.runtime.sendMessage({ cmx: what, key }); host.remove(); };
+  root.querySelector('.keep').onclick = () => done('keep');
+  root.querySelector('.go').onclick = () => done('closeSelf');
+  document.documentElement.appendChild(host);
+}
+
+// Nudge: when the tab you are on finishes loading a page the environment on would close, say so in the page.
+// "Mantener" quiets it for that tab and site until the browser closes. Duplicates of the environment's own tabs
+// are left to the badge and the popup.
+async function nudge(tab) {
+  if (!tab?.active || !/^https?:/.test(tab.url || '')) return;
+  const { nudges = true } = await chrome.storage.local.get('nudges');
+  if (!nudges) return;
+  const key = `${tab.id}|${new URL(tab.url).host}`;
+  const { kept = [] } = await chrome.storage.session.get('kept');
+  if (kept.includes(key)) return;
+  const [content] = await handlers.content({ ids: [tab.id], max: 0 }); // YouTube title and channel decide like env.js
+  let r;
+  try { r = await ask('judge', { tabs: [{ ...tabInfo(tab), content }], email: profileEmail }); } catch { return; }
+  const j = r.active && r.tabs[0];
+  if (!j || j.action !== 'close' || j.reason.startsWith('duplicado')) return;
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: banner, args: [r.active.name, j.reason, key] }).catch(() => {});
+}
+
+chrome.tabs.onUpdated.addListener((id, change, tab) => {
+  if (change.status === 'complete') nudge(tab);
+  if (change.url || change.title || change.status === 'complete') refreshBadge();
+});
+chrome.tabs.onCreated.addListener(refreshBadge);
+chrome.tabs.onRemoved.addListener(refreshBadge);
+
+// The page's bar and the popup talk to this worker; the popup cannot reach the native port itself.
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  const run = {
+    async keep() {
+      const { kept = [] } = await chrome.storage.session.get('kept');
+      await chrome.storage.session.set({ kept: [...kept, msg.key].slice(-200) });
+    },
+    async closeSelf() { await handlers.close({ ids: [sender.tab.id] }); },
+    async popup() {
+      const [state, judged] = await Promise.all([ask('state'), judgeProfile().catch(() => null)]);
+      const tabs = await chrome.tabs.query({});
+      const byId = Object.fromEntries(tabs.map((t) => [t.id, t]));
+      const drift = (judged?.tabs || []).filter((t) => t.action === 'close' && byId[t.id]).map((t) => ({ ...t, title: byId[t.id].title, url: byId[t.id].url }));
+      const { nudges = true } = await chrome.storage.local.get('nudges');
+      return { state, drift, nudges, email: profileEmail };
+    },
+    async closeTabs() { const r = await handlers.close({ ids: msg.ids }); refreshBadge(); return r; },
+    async switch() { return ask('switch', { id: msg.id }); },
+    async nudges() { await chrome.storage.local.set({ nudges: !!msg.on }); },
+  }[msg.cmx];
+  if (!run) return false;
+  run().then((result) => reply({ result }), (e) => reply({ error: String(e.message || e) }));
+  return true; // answered asynchronously
+});
+
 chrome.alarms.create('keepalive', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(connect);
+// The alarm also refreshes the badge: the environment may have changed from the tray or the CLI.
+chrome.alarms.onAlarm.addListener(() => { connect(); refreshBadge(); });
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(connect);
-connect();
+connect().then(refreshBadge);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// YourHarness CLI: every Chrome tab in every profile, with URL and page content; closes tabs on request.
+// Ambientes CLI: every Chrome tab in every profile, with URL and page content; closes tabs on request.
 //   node tabs.js                 list all tabs with a one-line context per tab
 //   node tabs.js --json          full dump (list + content) for agents
 //   node tabs.js show <id>       full content of one tab
@@ -28,7 +28,8 @@ async function rpc(host, cmd, args) {
 // One host per Chrome profile; drop run files whose host is gone.
 async function hosts() {
   if (!fs.existsSync(RUN_DIR)) return [];
-  const all = fs.readdirSync(RUN_DIR).filter((f) => f.endsWith('.json')).map((f) => {
+  // Only <pid>.json: the same folder holds active.json, history.json... which are not hosts (and must never be dropped).
+  const all = fs.readdirSync(RUN_DIR).filter((f) => /^\d+\.json$/.test(f)).map((f) => {
     const file = path.join(RUN_DIR, f);
     try { return { file, ...JSON.parse(fs.readFileSync(file, 'utf8')) }; } catch { return null; }
   }).filter(Boolean);
@@ -90,7 +91,7 @@ function context(t) {
 
 function printList(profiles) {
   if (!profiles.length) {
-    console.log('No hay perfiles conectados. ¿Está Chrome abierto y la extensión YourHarness cargada? (ver README)');
+    console.log('No hay perfiles conectados. ¿Está Chrome abierto y la extensión de ClaudeMaxxing cargada? (ver README)');
     return;
   }
   for (const p of profiles) {

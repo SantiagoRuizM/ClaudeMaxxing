@@ -150,6 +150,9 @@ if (-not $NoHotkeys) {
 # ---------------------------------------------------------------- Ambientes
 Write-Step 'Ambientes (Chrome extension and its native host)'
 Write-Host (Register-HarnessHost $InstallDir)
+# The extension's icons: the ClaudeMaxxing logo, drawn from the Claude app's icon on this PC (not in the repo).
+& $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderLogoTo (Join-Path $InstallDir 'harness\extension\icons')
+Write-Host "extension icons: $(Join-Path $InstallDir 'harness\extension\icons')"
 Write-Host "extension: load it once per Chrome profile (chrome://extensions > Developer mode > Load unpacked > $(Join-Path $InstallDir 'harness\extension')); updates only need its reload button"
 Write-Host "environments and state (per PC): $(Join-Path $TrayHome 'harness')"
 
