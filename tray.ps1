@@ -404,6 +404,8 @@ $timer.Add_Tick({
     if (-not $script:HubDialog) { Complete-HubStatsScan }
     Invoke-AutoSchedule
     Test-MeetingStarted
+    # Ambientes (lib\harness.ps1): which environment what is open belongs to, and the offer to switch.
+    try { Invoke-HarnessWatch } catch { }
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }
 })

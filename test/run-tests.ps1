@@ -327,6 +327,33 @@ try {
     Assert-Equal $true ((Start-HarnessJob $yh 'alfa' 'off') -like 'Ya hay un cambio en curso*') 'harness: one change at a time'
     Assert-Equal $true ([bool](Start-HarnessJob $yh 'a b' 'on')) 'harness: invalid environment id refused'
     Assert-Equal $true ([bool](Start-HarnessJob (Join-Path $harnessTmp 'nope') 'alfa' 'on')) 'harness: missing YourHarness refused'
+
+    # The graph: switches per direction and time per environment, the one on counting until now (12 h at most).
+    $now = [datetime]'2026-11-07T10:00:00'
+    [IO.File]::WriteAllText((Join-Path $yh 'run\history.json'), '{"last":"alfa","edges":{"alfa>zeta":3,"zeta>alfa":1,"alfa>gone":2},"time":{"2026-11-07":{"zeta":600},"2026-11-01":{"alfa":3600,"zeta":60}}}')
+    [IO.File]::WriteAllText((Join-Path $yh 'run\active.json'), ('{"id":"alfa","name":"Alfa","since":"' + $now.AddMinutes(-30).ToString('s') + '"}'))
+    $hs = Get-HarnessState $yh
+    $graph = Get-HarnessGraph $hs $now
+    Assert-Equal 'alfa>zeta=3,zeta>alfa=1' ((@($graph.Edges | Sort-Object From | ForEach-Object { "$($_.From)>$($_.To)=$($_.Count)" })) -join ',') 'harness graph: one edge per direction, unknown environments left out'
+    Assert-Equal '1800 5400' ('{0} {1}' -f $graph.Time['alfa'].Today, $graph.Time['alfa'].Total) 'harness graph: the one on counts until now'
+    Assert-Equal '600 660' ('{0} {1}' -f $graph.Time['zeta'].Today, $graph.Time['zeta'].Total) 'harness graph: today and total from history'
+    [IO.File]::WriteAllText((Join-Path $yh 'run\active.json'), ('{"id":"alfa","name":"Alfa","since":"' + $now.AddDays(-2).ToString('s') + '"}'))
+    Assert-Equal (3600 + 12 * 3600) (Get-HarnessGraph (Get-HarnessState $yh) $now).Time['alfa'].Total 'harness graph: a stint left on counts 12 h at most'
+
+    # The offer: only a fresh verdict for another environment, about the one on now, never twice, never mid-change.
+    [IO.File]::WriteAllText((Join-Path $yh 'run\job.json'), '{"id":"zeta","name":"Zeta","action":"on","state":"done"}')
+    $detect = { param($Suggestion, $Active, $At) ('{"at":"' + $At + '","active":"' + $Active + '","suggestion":"' + $Suggestion + '","name":"Zeta","confidence":0.9,"judge":"jev","offer":true}') }
+    $fresh = $now.AddMinutes(-1).ToString('s')
+    [IO.File]::WriteAllText((Join-Path $yh 'run\detect.json'), (& $detect 'zeta' 'alfa' $fresh))
+    $hs = Get-HarnessState $yh
+    Assert-Equal $true (Test-HarnessOffer $hs '' $now) 'harness offer: another environment fits'
+    Assert-Equal $false (Test-HarnessOffer $hs $fresh $now) 'harness offer: the same verdict is asked once'
+    Assert-Equal $false (Test-HarnessOffer $hs '' $now.AddMinutes(30)) 'harness offer: a stale verdict is not asked'
+    [IO.File]::WriteAllText((Join-Path $yh 'run\detect.json'), (& $detect 'zeta' 'zeta' $fresh))
+    Assert-Equal $false (Test-HarnessOffer (Get-HarnessState $yh) '' $now) 'harness offer: a verdict from before a switch is not asked'
+    [IO.File]::WriteAllText((Join-Path $yh 'run\detect.json'), (& $detect 'gone' 'alfa' $fresh))
+    Assert-Equal $false (Test-HarnessOffer (Get-HarnessState $yh) '' $now) 'harness offer: an environment that no longer exists is not offered'
+    Assert-Equal 'Jev' (Format-HarnessJudge 'jev') 'harness: judge shown by name'
 } finally { Remove-Item -LiteralPath $harnessTmp -Recurse -Force -ErrorAction SilentlyContinue }
 
 # --- Ahorro de tokens (lib\maxx.ps1): context-mode state from Claude Code's own files

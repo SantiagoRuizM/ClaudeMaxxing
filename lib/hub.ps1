@@ -488,6 +488,20 @@ function Switch-HubHarness([string]$Id) {
     Update-HubNow
 }
 
+# "Detectar ahora": the detection the tray runs every 3 minutes, now and even if nothing changed. Its offer,
+# if any, comes from the tray's next tick.
+function Invoke-HubHarnessDetect {
+    if ($script:Hub.Preview) { return }
+    $state = $script:Hub.Cache.Harness
+    if (-not $state -or -not $state.Dir) { return }
+    $w = $script:HarnessWatch
+    if ($w.Process -and -not $w.Process.HasExited) { return }
+    $w.LastRun = Get-Date
+    $w.Process = Start-HarnessDetect $state.Dir -Force
+    if ($w.Process) { Set-HubMessage (Tx 'Detectando qu\u00e9 ambiente encaja\u2026') } else { Set-HubMessage 'No se pudo detectar: falta Node.js o YourHarness.' -Failed }
+    Update-HubNow
+}
+
 function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "stats-hours", "stats-models-all"...: a tab (and the all-time range) of Estadisticas.
     $statsTab = 'summary'; $statsRange = 'recent'
@@ -989,27 +1003,69 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         return
     }
 
-    # Up to 4 dots per row, centered in equal cells.
-    $perRow = [Math]::Min(4, [Math]::Max(3, $envs.Count))
-    $cellW = [int]($Inner / $perRow)
-    $size = Px 84
-    $cellH = Px 176
+    # A graph: the environments on an ellipse, one arrow per direction you have switched (with how many times)
+    # and, under each one, the time spent there today and in total. Hovering one lights its arrows.
+    # Each node's name and time sit outside the ellipse (left, right, above or below), so the arrows inside stay clear.
+    $graph = Get-HarnessGraph $hs
+    $size = Px 46
+    $textW = Px 128
+    $cx = $X0 + [int]($Inner / 2)
+    $cy = $y + (Px 172)
+    $rx = [Math]::Min((Px 190), [int](($Inner / 2 - $textW - $size / 2 - (Px 10)) / 0.87))
+    $ry = Px 108
+    $pos = @{}
     for ($i = 0; $i -lt $envs.Count; $i++) {
-        $e = $envs[$i]
-        $cx = $X0 + ($i % $perRow) * $cellW + [int]($cellW / 2)
-        $top = $y + [Math]::Floor($i / $perRow) * $cellH
-        $dot = New-Rect ($cx - [int]($size / 2)) ($top + (Px 8)) $size $size
+        $angle = -[Math]::PI / 2 + 2 * [Math]::PI * $i / $envs.Count
+        $pos[$envs[$i].Id] = @{ X = $cx + $rx * [Math]::Cos($angle); Y = $cy + $ry * [Math]::Sin($angle); Cos = [Math]::Cos($angle); Sin = [Math]::Sin($angle) }
+    }
+    $hoverId = if ($Hover -like 'env-*') { $Hover.Substring(4) } else { '' }
+    $suggested = if ($hs.Detect -and $hs.Detect.offer) { [string]$hs.Detect.suggestion } else { '' }
+    $most = [Math]::Max(1, [int](@($graph.Edges | ForEach-Object { $_.Count }) + 0 | Measure-Object -Maximum).Maximum)
+    $labels = @()
+    foreach ($edge in @($graph.Edges)) {
+        $a = $pos[$edge.From]; $b = $pos[$edge.To]
+        $dx = $b.X - $a.X; $dy = $b.Y - $a.Y
+        $len = [Math]::Sqrt($dx * $dx + $dy * $dy)
+        if ($len -lt 1) { continue }
+        $ux = $dx / $len; $uy = $dy / $len
+        # Each direction to the right of its travel, so A->B and B->A are two arrows side by side.
+        $ox = -$uy * (Px 5); $oy = $ux * (Px 5)
+        $gap = $size / 2 + (Px 5)
+        $x1 = $a.X + $ux * $gap + $ox; $y1 = $a.Y + $uy * $gap + $oy
+        $x2 = $b.X - $ux * $gap + $ox; $y2 = $b.Y - $uy * $gap + $oy
+        $lit = $hoverId -and ($edge.From -eq $hoverId -or $edge.To -eq $hoverId)
+        $pen = New-HubPen $(if ($lit) { $P.Accent } else { $P.Faint }) (1.5 + 2 * $edge.Count / $most)
+        $pen.CustomEndCap = New-Object System.Drawing.Drawing2D.AdjustableArrowCap(3, 3)
+        $G.DrawLine($pen, [single]$x1, [single]$y1, [single]$x2, [single]$y2)
+        $pen.Dispose()
+        # Its count near the arrow head, on its own side: drawn after every arrow so no line crosses it.
+        $labels += @{ X = $x1 + ($x2 - $x1) * 0.66 + $ox * 2.4; Y = $y1 + ($y2 - $y1) * 0.66 + $oy * 2.4; Text = [string]$edge.Count; Lit = $lit }
+    }
+    foreach ($l in $labels) {
+        $lw = (Measure-TextWidth $l.Text $F.Small) + (Px 10)
+        $box = New-Rect ([int]($l.X - $lw / 2)) ([int]($l.Y - (Px 9))) $lw (Px 18)
+        Fill-Round $G $box (Px 9) $P.Surface
+        Draw-Text $G $l.Text $F.Small $(if ($l.Lit) { $P.Accent } else { $P.Muted }) $box.X $box.Y $box.Width $box.Height 'Center'
+    }
+
+    foreach ($e in $envs) {
+        $c = $pos[$e.Id]
+        $dot = New-Rect ([int]($c.X - $size / 2)) ([int]($c.Y - $size / 2)) $size $size
         $hitId = "env-$($e.Id)"
         $busy = $running -and $job.id -eq $e.Id
         $on = $activeId -eq $e.Id
         $failed = -not $running -and $job -and $job.id -eq $e.Id -and $job.state -eq 'error'
 
         if (-not $running -and $Hover -eq $hitId) {
-            $halo = New-Rect ($dot.X - (Px 7)) ($dot.Y - (Px 7)) ($size + (Px 14)) ($size + (Px 14))
-            Draw-HubDot $G $halo.X $halo.Y $halo.Width $P.SurfaceHover
+            Draw-HubDot $G ($dot.X - (Px 6)) ($dot.Y - (Px 6)) ($size + (Px 12)) $P.SurfaceHover
         }
-        $fill = if ($busy) { $P.Accent } elseif ($on) { $P.Ok } else { $P.Track }
-        Draw-HubDot $G $dot.X $dot.Y $size $fill
+        if ($e.Id -eq $suggested) {
+            # The detection says you are here: a dashed ring until you switch.
+            $pen = New-HubPen $P.Accent 2 'Dash'
+            $G.DrawEllipse($pen, $dot.X - (Px 5), $dot.Y - (Px 5), $size + (Px 10), $size + (Px 10))
+            $pen.Dispose()
+        }
+        Draw-HubDot $G $dot.X $dot.Y $size $(if ($busy) { $P.Accent } elseif ($on) { $P.Ok } else { $P.Track })
         if ($failed) {
             $pen = New-Object System.Drawing.Pen($P.Error, (Px 3))
             $G.DrawEllipse($pen, $dot.X - (Px 2), $dot.Y - (Px 2), $size + (Px 4), $size + (Px 4))
@@ -1017,25 +1073,30 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         }
         Draw-Text $G (Tx '\ue7e8') $HF.NodeLarge $(if ($busy -or $on) { $P.AccentText } else { $P.Muted }) $dot.X $dot.Y $dot.Width $dot.Height 'Center'
 
-        $textX = $cx - [int]($cellW / 2) + (Px 8)
-        $textW = $cellW - (Px 16)
-        $ty = $dot.Bottom + (Px 10)
-        Draw-Text $G $e.Name $F.BodyStrong $P.Text $textX $ty $textW (Px 22) 'Center'
+        $t = $graph.Time[$e.Id]
         if ($busy) {
             $line = if ($job.step) { [string]$job.step } elseif ($job.action -eq 'off') { Tx 'Apagando\u2026' } else { Tx 'Encendiendo\u2026' }
             $color = $P.Accent
         } elseif ($failed) { $line = (Tx 'Fall\u00f3: ') + [string]$job.message; $color = $P.Error }
-        elseif ($on) { $line = 'Encendido desde ' + (Format-HubHarnessTime $hs.Active.since); $color = $P.Ok }
-        else { $line = 'Apagado'; $color = $P.Faint }
-        Draw-Text $G $line $F.Small $color $textX ($ty + (Px 22)) $textW (Px 18) 'Center'
-        Draw-Text $G $e.Focus $F.Small $P.Muted $textX ($ty + (Px 40)) $textW (Px 18) 'Center'
+        elseif ($t.Total -lt 60) { $line = $(if ($on) { 'Encendido' } else { 'Sin tiempo' }); $color = $(if ($on) { $P.Ok } else { $P.Faint }) }
+        else { $line = 'hoy ' + (Format-HubDuration $t.Today) + ' ' + (Tx '\u00b7') + ' ' + (Format-HubDuration $t.Total); $color = $(if ($on) { $P.Ok } else { $P.Muted }) }
+        $textH = Px 37
+        if ($c.Cos -gt 0.3) { $textX = $dot.Right + (Px 8); $ty = [int]($c.Y - $textH / 2); $align = 'Left' }
+        elseif ($c.Cos -lt -0.3) { $textX = $dot.X - (Px 8) - $textW; $ty = [int]($c.Y - $textH / 2); $align = 'Right' }
+        elseif ($c.Sin -lt 0) { $textX = [int]($c.X - $textW / 2); $ty = $dot.Y - (Px 4) - $textH; $align = 'Center' }
+        else { $textX = [int]($c.X - $textW / 2); $ty = $dot.Bottom + (Px 4); $align = 'Center' }
+        Draw-Text $G ([string]$e.Name) $F.BodyStrong $P.Text $textX $ty $textW (Px 20) $align
+        Draw-Text $G $line $F.Small $color $textX ($ty + (Px 20)) $textW (Px 17) $align
 
         if (-not $running) {
             $tip = if ($on) { "Apagar $($e.Name)" } else { "Encender $($e.Name)" }
-            Add-Hit $Map $hitId (New-Rect $textX $dot.Y $textW ($ty + (Px 58) - $dot.Y)) ([scriptblock]::Create("Switch-HubHarness '$($e.Id)'")) $tip
+            if ($e.Focus) { $tip += ': ' + $e.Focus }
+            $left = [Math]::Min($dot.X, $textX); $top = [Math]::Min($dot.Y, $ty)
+            $hit = New-Rect $left $top ([Math]::Max($dot.Right, $textX + $textW) - $left) ([Math]::Max($dot.Bottom, $ty + $textH) - $top)
+            Add-Hit $Map $hitId $hit ([scriptblock]::Create("Switch-HubHarness '$($e.Id)'")) $tip
         }
     }
-    $y += [Math]::Ceiling($envs.Count / $perRow) * $cellH + (Px 8)
+    $y += Px 350
 
     # The last change, in full: its step while it runs, what failed, or when it ended.
     $card = New-Rect $X0 $y $Inner (Px 64)
@@ -1059,8 +1120,33 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
     Draw-Text $G $title $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) $tw (Px 22)
     Draw-Text $G $sub $F.Small $subColor ($card.X + (Px 16)) ($card.Y + (Px 36)) $tw (Px 18)
-    $y = $card.Bottom + (Px 12)
-    Draw-Wrapped $G ('Encender un ambiente cierra lo que no es suyo, cada cierre con su motivo y con apagado suave, y abre lo suyo. Apagarlo cierra solo lo suyo. Un cambio a la vez. YourHarness en ' + $hs.Dir + '.') $F.Small $P.Faint $X0 $y $Inner (Px 40)
+    $y = $card.Bottom + (Px 10)
+
+    # The detection: which environment what is open fits (env.js detect, every 3 minutes from the tray).
+    $card = New-Rect $X0 $y $Inner (Px 64)
+    Draw-HubCard $G $card
+    $bw = Get-PillWidth 'Detectar ahora'
+    $w = $script:HarnessWatch
+    $detecting = $w -and $w.Process -and -not $w.Process.HasExited
+    if (-not $detecting) { Draw-PillButton $G $Map $Hover 'envs-detect' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 18)) $bw (Px 26)) 'Detectar ahora' { Invoke-HubHarnessDetect } }
+    $tw = $card.Width - $bw - (Px 48)
+    $d = $hs.Detect
+    if ($d -and $d.at) {
+        $when = ' ' + (Tx '\u00b7') + ' ' + (Format-HubHarnessTime $d.at)
+        if ($d.error) { $title = (Tx 'Detecci\u00f3n') + $when; $sub = (Tx 'Fall\u00f3: ') + [string]$d.error; $subColor = $P.Error }
+        else {
+            $title = $(if ($d.suggestion) { 'Parece ' + $d.name } else { Tx 'No encaja en ning\u00fan ambiente' }) + $when
+            $sub = (Tx 'Seg\u00fan ') + (Format-HarnessJudge $d.judge) + ', ' + [int]([double]$d.confidence * 100) + ' %' + $(if ($d.reason) { ': ' + $d.reason } else { '' })
+            $subColor = if ($d.offer) { $P.Accent } else { $P.Muted }
+        }
+    } else {
+        $title = (Tx 'Sin detecci\u00f3n todav\u00eda')
+        $sub = (Tx 'Cada 3 minutos se mira qu\u00e9 tienes abierto; si es de otro ambiente, te pregunta si quieres pasarte.')
+        $subColor = $P.Muted
+    }
+    if ($detecting) { $sub = (Tx 'Mirando qu\u00e9 tienes abierto\u2026'); $subColor = $P.Accent }
+    Draw-Text $G $title $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) $tw (Px 22)
+    Draw-Text $G $sub $F.Small $subColor ($card.X + (Px 16)) ($card.Y + (Px 36)) $(if ($detecting) { $card.Width - (Px 32) } else { $tw }) (Px 18)
 }
 
 # ---------------------------------------------------------------- Inicio
@@ -1770,17 +1856,25 @@ function Set-HubPreview {
     # Ambientes: -HubSection envs, envs-busy, envs-error or envs-none (YourHarness not chosen yet).
     $sampleEnvs = @(
         [pscustomobject]@{ Id = 'atlas'; Name = 'Atlas'; Focus = 'Modulo: Libro 1 y Libro 2, con el Tablero' },
+        [pscustomobject]@{ Id = 'endday'; Name = 'EndDay'; Focus = (Tx 'terminar el d\u00eda: se apaga el trabajo') },
+        [pscustomobject]@{ Id = 'gaming'; Name = 'Gaming'; Focus = (Tx 'jugar: Steam y nada m\u00e1s') },
         [pscustomobject]@{ Id = 'trabajo'; Name = 'Trabajo'; Focus = 'Cliente: backend Django + frontend React/Vite' },
-        [pscustomobject]@{ Id = 'startday'; Name = 'StartDay'; Focus = (Tx 'planear el d\u00eda: mensajes, correo y agenda') }
+        [pscustomobject]@{ Id = 'startday'; Name = 'StartDay'; Focus = (Tx 'planear el d\u00eda: agenda, correo, mensajes y Claude') },
+        [pscustomobject]@{ Id = 'vacio'; Name = (Tx 'Vac\u00edo'); Focus = (Tx 'nada abierto: la m\u00ednima RAM') }
     )
     $sampleActive = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; since = $now.AddMinutes(-48).ToString('o') }
+    $day = $now.ToString('yyyy-MM-dd')
+    $sampleHistory = [pscustomobject]@{ last = 'trabajo'
+        edges = [pscustomobject]@{ 'startday>trabajo' = 9; 'trabajo>atlas' = 4; 'atlas>trabajo' = 3; 'trabajo>endday' = 6; 'endday>gaming' = 2; 'gaming>vacio' = 1; 'vacio>startday' = 1; 'endday>startday' = 5 }
+        time = [pscustomobject]@{ $day = [pscustomobject]@{ startday = 1500; atlas = 2400 }; '2026-11-01' = [pscustomobject]@{ trabajo = 61200; atlas = 9000; endday = 3600; gaming = 7200; startday = 5400 } } }
+    $sampleDetect = [pscustomobject]@{ at = $now.AddMinutes(-2).ToString('o'); active = 'trabajo'; suggestion = 'atlas'; name = 'Atlas'; confidence = 0.86; judge = 'jev'; reason = 'probabilidades: atlas 86 %, trabajo 9 %, startday 3 %'; offer = $true }
     $c.Harness = switch ($script:Hub.EnvsPreview) {
         'none'  { @{ Dir = $null; Envs = @(); Active = $null; Job = $null } }
-        'busy'  { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive
+        'busy'  { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect
                      Job = [pscustomobject]@{ id = 'atlas'; name = 'Atlas'; action = 'on'; state = 'running'; step = 'Parando 5 contenedores de Cliente'; message = '' } } }
-        'error' { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $null
+        'error' { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $null; History = $sampleHistory; Detect = $null
                      Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'error'; step = ''; message = (Tx 'Docker Desktop no respondi\u00f3 en 2 minutos'); endedAt = $now.AddMinutes(-3).ToString('o') } } }
-        default { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive
+        default { @{ Dir = 'D:\herramientas\YourHarness'; Envs = $sampleEnvs; Active = $sampleActive; History = $sampleHistory; Detect = $sampleDetect
                      Job = [pscustomobject]@{ id = 'trabajo'; name = 'Trabajo'; action = 'on'; state = 'done'; step = ''; message = ''; endedAt = $now.AddMinutes(-48).ToString('o') } } }
     }
     # Planear sesion: -HubSection plan, plan-running, plan-error or plan-empty.
