@@ -82,6 +82,19 @@ Assert-Equal 'high' (Get-UsageLevel 86) 'level high'
 Assert-Equal ('Claude PRO - ' + (Tx 'Sesi\u00f3n') + ' 72% - Semanal 86%') (Format-TrayTooltip $usage 'PRO') 'tooltip'
 Assert-Equal 'Claude PRO - sin datos de uso' (Format-TrayTooltip (Get-UsageView $null $now) 'PRO') 'tooltip without data'
 Assert-Equal $true ((Format-TrayTooltip $usage ('X' * 80)).Length -le 63) 'tooltip stays within 63 chars'
+
+# --- Warnings before a limit (session 72 %, weekly 86 %)
+$alerts = @(Get-UsageAlerts $usage @())
+Assert-Equal 'Weekly:80' (($alerts | ForEach-Object { "$($_.Window):$($_.Threshold)" }) -join ',') 'alerts: only the weekly window crossed a threshold'
+Assert-Equal 0 @(Get-UsageAlerts $usage @($alerts[0].Key)).Count 'alerts: a threshold already warned of in this window stays quiet'
+Assert-Equal $true ((Format-UsageAlert $alerts $now) -like 'Semana al 86 %: se reinicia *') 'alerts: the balloon says the window, the percent and the reset'
+$high = [pscustomobject]@{ HasData = $true; Weekly = [pscustomobject]@{ Active = $false }
+    Session = [pscustomobject]@{ Active = $true; Percent = 97; ResetsAt = $now.AddHours(1) } }
+$jump = @(Get-UsageAlerts $high @())
+Assert-Equal '95|2' ('{0}|{1}' -f $jump[0].Threshold, $jump[0].Keys.Count) 'alerts: a jump past both thresholds warns once, at the higher, and marks both'
+$high.Session.ResetsAt = $now.AddHours(5)
+Assert-Equal 1 @(Get-UsageAlerts $high @($jump[0].Keys)).Count 'alerts: a new window warns again'
+Assert-Equal 0 @(Get-UsageAlerts (Get-UsageView $null $now) @()).Count 'alerts: no data, no warning'
 Assert-Equal 'Actualizado hace 3 min' (Format-Age 3.4) 'age text'
 Assert-Equal 'Actualizado hace 2 h' (Format-Age 150) 'age text in hours'
 Assert-Equal 'Agendar sesi' (Tx 'Agendar sesi\u00f3n').Substring(0, 12) 'Tx decodes escapes'

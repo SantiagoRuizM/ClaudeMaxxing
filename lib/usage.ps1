@@ -80,6 +80,35 @@ function Get-UsageLevel([double]$Percent) {
     'low'
 }
 
+# Warnings before a limit: the windows that crossed a threshold not yet warned of in this window (one key per
+# window, its reset and the threshold, so a new window warns again). Only the highest new threshold of each
+# window is returned. $Sent holds the keys already warned of.
+$script:UsageAlertThresholds = @(80, 95)
+
+function Get-UsageAlerts($View, [string[]]$Sent, [int[]]$Thresholds = $script:UsageAlertThresholds) {
+    $alerts = @()
+    if (-not $View -or -not $View.HasData) { return $alerts }
+    foreach ($name in 'Session', 'Weekly') {
+        $window = $View.$name
+        if (-not $window.Active) { continue }
+        $crossed = @($Thresholds | Where-Object { $window.Percent -ge $_ } | Sort-Object -Descending)
+        if (-not $crossed.Count) { continue }
+        $key = '{0}|{1}|{2}' -f $name, $window.ResetsAt.ToString('o'), $crossed[0]
+        if ($Sent -contains $key) { continue }
+        $alerts += [pscustomobject]@{ Key = $key; Window = $name; Percent = $window.Percent; Threshold = $crossed[0]; ResetsAt = $window.ResetsAt
+            Keys = @($crossed | ForEach-Object { '{0}|{1}|{2}' -f $name, $window.ResetsAt.ToString('o'), $_ }) }
+    }
+    $alerts
+}
+
+# The balloon's text: one line per window, "Sesion al 82 %: se reinicia hoy 1:59 p. m. (en 2h 11m)".
+function Format-UsageAlert($Alerts, [datetime]$Now) {
+    @($Alerts | ForEach-Object {
+        $label = if ($_.Window -eq 'Session') { Tx 'Sesi\u00f3n de 5 horas' } else { 'Semana' }
+        '{0} al {1} %: se reinicia {2}' -f $label, $_.Percent, (Format-ResetText $_.ResetsAt $Now)
+    }) -join "`n"
+}
+
 # Tooltip text; NotifyIcon.Text throws above 63 characters on .NET Framework.
 function Format-TrayTooltip($View, [string]$Plan) {
     $head = 'Claude'

@@ -83,6 +83,21 @@ function Update-UsageState {
     Set-PopupSize
     $script:Notify.Text = Format-TrayTooltip $script:View $script:Plan
     Update-Footer
+    if (-not $Rendering) { Invoke-UsageAlerts }
+}
+
+# A balloon when the 5-hour or weekly window crosses 80 % or 95 %, once per threshold and window; the keys
+# warned of are kept in alerts.json so a restarted tray does not warn again.
+$script:AlertsFile = Join-Path $TrayHome 'alerts.json'
+function Invoke-UsageAlerts {
+    $saved = Read-JsonFile $script:AlertsFile
+    $sent = @(if ($saved -and $saved.sent) { $saved.sent })
+    $alerts = @(Get-UsageAlerts $script:View $sent)
+    if (-not $alerts.Count) { return }
+    $script:Notify.ShowBalloonTip(10000, (Tx 'Claude: te est\u00e1s acercando al l\u00edmite'), (Format-UsageAlert $alerts (Get-Date)),
+        [System.Windows.Forms.ToolTipIcon]::Warning)
+    $keep = @($sent + @($alerts | ForEach-Object { $_.Keys }) | Select-Object -Unique | Select-Object -Last 40)
+    try { Write-JsonFile $script:AlertsFile ([ordered]@{ sent = $keep }) } catch { }
 }
 
 # Querying Task Scheduler takes ~0.7 s, so the task list is cached and refreshed only
