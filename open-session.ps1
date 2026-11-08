@@ -7,8 +7,9 @@
 # only and completes the title with the role on the first prompt.
 # With FreeLLMAPI switched on in the ClaudeMaxxing window (lib\freellm.ps1), the session talks to it instead
 # of the Claude plan; if it cannot be reached, the session opens on the plan and says why.
+# -Prompt is the session's first prompt (the ClaudeMaxxing window's "Nueva skill..."); without it, /color.
 # -Run and -StatePath are for testing: run another command, keep a separate session list.
-param([string]$Dir, [string]$Run = 'claude', [string]$StatePath)
+param([string]$Dir, [string]$Run = 'claude', [string]$StatePath, [string]$Prompt)
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
@@ -91,12 +92,12 @@ try {
     }
     $pluginDir = Join-Path $TrayRoot 'voice\plugin'
     if (-not (Test-Path -LiteralPath (Join-Path $pluginDir '.claude-plugin\plugin.json'))) { $pluginDir = '' }
-    $command = Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name
+    $command = Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name '' $Prompt
     $backend = 'plan'
     try {
         $free = Get-FreeLlmLaunch
         $freeNotice = $free.Notice
-        if ($free.Prefix) { $command = $free.Prefix + (Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name $free.Settings); $backend = 'freellm' }
+        if ($free.Prefix) { $command = $free.Prefix + (Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name $free.Settings $Prompt); $backend = 'freellm' }
     } catch {
         Write-SessionLog "freellm: $($_.Exception.Message)"
     }

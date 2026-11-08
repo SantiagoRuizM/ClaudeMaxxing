@@ -1,6 +1,8 @@
 # Background job for "Ahorro de tokens" (lib\maxx.ps1): installs, enables or disables context-mode with the
-# claude CLI, and reports in maxx-status.json. Started hidden from the ClaudeMaxxing window.
-param([Parameter(Mandatory = $true)][ValidateSet('contextmode-on', 'contextmode-off')][string]$Action)
+# claude CLI, and installs the skill and MCP creation packages of "Skills y MCP" (pack-install -Plugin, from
+# Anthropic's official marketplace); reports in maxx-status.json. Started hidden from the ClaudeMaxxing window.
+param([Parameter(Mandatory = $true)][ValidateSet('contextmode-on', 'contextmode-off', 'pack-install')][string]$Action,
+    [ValidatePattern('^[a-z0-9-]+@claude-plugins-official$')][string]$Plugin)
 
 $TrayRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path $TrayRoot 'lib\common.ps1')
@@ -8,7 +10,7 @@ $TrayRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Clear-ClaudeSessionEnv
 
 function Set-Status([string]$State, [string]$Message) {
-    Write-JsonFile $MaxxStatusFile ([ordered]@{ action = $Action; state = $State; message = $Message; at = (Get-Date).ToString('o') })
+    Write-JsonFile $MaxxStatusFile ([ordered]@{ action = $Action; plugin = $Plugin; state = $State; message = $Message; at = (Get-Date).ToString('o') })
 }
 
 function Invoke-Claude([string[]]$Arguments) {
@@ -22,6 +24,16 @@ $mutex = New-Object System.Threading.Mutex($false, 'Local\ClaudeTrayMaxx')
 try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 if (-not $owned) { exit 0 }
 try {
+    if ($Action -eq 'pack-install') {
+        if (-not $Plugin) { throw 'no plugin given' }
+        $r = Invoke-Claude @('plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official')
+        if (-not $r.Ok -and $r.Output -notmatch 'already') { throw "marketplace: $($r.Output)" }
+        $r = Invoke-Claude @('plugin', 'install', $Plugin)
+        if (-not $r.Ok -and $r.Output -match 'already') { $r = Invoke-Claude @('plugin', 'enable', $Plugin) }
+        if (-not $r.Ok -and $r.Output -notmatch 'already') { throw "install: $($r.Output)" }
+        Set-Status 'done' ($Plugin.Split('@')[0] + ' instalado: se usa en las sesiones nuevas.')
+        return
+    }
     $state = Get-ContextModeState
     if ($Action -eq 'contextmode-on') {
         if (-not $state.Installed) {
@@ -44,7 +56,8 @@ try {
 } catch {
     $message = $_.Exception.Message
     if ($message.Length -gt 200) { $message = $message.Substring(0, 200) }
-    Set-Status 'error' ('No se pudo cambiar context-mode: ' + $message)
+    $what = if ($Action -eq 'pack-install') { 'instalar ' + $Plugin.Split('@')[0] } else { 'cambiar context-mode' }
+    Set-Status 'error' ('No se pudo ' + $what + ': ' + $message)
 } finally {
     $mutex.ReleaseMutex()
 }

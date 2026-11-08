@@ -34,9 +34,12 @@ function Get-MaxxStatus {
     $status
 }
 
-# Runs lib\maxx-worker.ps1 hidden. Actions: contextmode-on, contextmode-off.
-function Start-MaxxJob([string]$Action, [string]$Root = $TrayRoot) {
-    Write-JsonFile $MaxxStatusFile ([ordered]@{ action = $Action; state = 'running'; message = ''; at = (Get-Date).ToString('o') })
+# Runs lib\maxx-worker.ps1 hidden. Actions: contextmode-on, contextmode-off, pack-install (-Plugin, one of
+# the packages of "Skills y MCP", lib\hubskills.ps1).
+function Start-MaxxJob([string]$Action, [string]$Root = $TrayRoot, [string]$Plugin) {
+    Write-JsonFile $MaxxStatusFile ([ordered]@{ action = $Action; plugin = $Plugin; state = 'running'; message = ''; at = (Get-Date).ToString('o') })
     $worker = Join-Path $Root 'lib\maxx-worker.ps1'
-    Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -Action {1}' -f $worker, $Action) -WindowStyle Hidden
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Action {1}' -f $worker, $Action
+    if ($Plugin) { $arguments += ' -Plugin ' + $Plugin }
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden
 }

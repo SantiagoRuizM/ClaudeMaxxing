@@ -4,7 +4,7 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, self, usage, stats, code, pcs, whisper, voice; stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, self, usage, stats, code, skills, pcs, whisper, voice; stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
 # -RenderLogoTo <folder> writes the ClaudeMaxxing logo as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
     [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home', [string]$RenderLogoTo)
@@ -51,6 +51,7 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\hubauto.ps1')
 . (Join-Path $TrayRoot 'lib\judge.ps1')
 . (Join-Path $TrayRoot 'lib\hubplan.ps1')
+. (Join-Path $TrayRoot 'lib\hubskills.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 # Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.
 [void][ClaudeTray.Native]::SetCurrentProcessExplicitAppUserModelID('ClaudeMaxxing.Tray')

@@ -37,6 +37,7 @@ $script:HubSections = @(
     @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
     @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
+    @{ Id = 'skills'; Label = 'Skills y MCP'; Glyph = '\uea86' },
     @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968' },
     @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720' },
     @{ Id = 'voice'; Label = 'Voz'; Glyph = '\ue767' }
@@ -173,6 +174,7 @@ function Update-HubCache([switch]$Full) {
     try { Update-HubJudge } catch { }
     try { $c.Harness = Get-HarnessState } catch { $c.Harness = $null }
     try { $c.SelfHarness = Get-SelfHarnessSettings } catch { $c.SelfHarness = $null }
+    try { Update-HubSkills } catch { }
     if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
@@ -963,6 +965,7 @@ function Draw-Hub($Form, $G) {
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
         'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
+        'skills'  { Draw-HubSkillsSection $G $map $hover $x0 $inner }
         'pcs'     { Draw-HubPcsSection $G $map $hover $x0 $inner }
         'whisper' { Draw-HubWhisperSection $G $map $hover $x0 $inner }
         'voice'   { Draw-HubVoiceSection $G $map $hover $x0 $inner }
@@ -2055,6 +2058,22 @@ function Set-HubPreview {
     $c.Screens = 2
     $c.ContextMode = [pscustomobject]@{ Installed = $true; Enabled = $true }
     $c.MaxxStatus = $null
+    # Skills y MCP: one package installed, one installing, one not.
+    $c.MaxxStatus = [pscustomobject]@{ action = 'pack-install'; plugin = 'mcp-server-dev@claude-plugins-official'; state = 'running'; message = ''; at = $now.ToString('o') }
+    $c.Packs = @([pscustomobject]@{ Id = 'skill-creator'; Installed = $true }, [pscustomobject]@{ Id = 'mcp-server-dev'; Installed = $false }, [pscustomobject]@{ Id = 'plugin-dev'; Installed = $false })
+    $c.Skills = @(
+        [pscustomobject]@{ Name = 'ship'; Description = 'Commit y push de los cambios pendientes en commits l\u00f3gicos, sin PR ni merge.'; Source = 'tuyas' },
+        [pscustomobject]@{ Name = 'opciones-diseno'; Description = 'Varias direcciones de dise\u00f1o en un artifact para elegir antes de implementar.'; Source = 'tuyas' },
+        [pscustomobject]@{ Name = 'informe-semanal'; Description = 'Resume la semana de trabajo a partir de los commits y las notas.'; Source = 'tuyas' },
+        [pscustomobject]@{ Name = 'skill-creator'; Description = 'Create new skills, improve existing skills, and measure skill performance.'; Source = 'plugin skill-creator' },
+        [pscustomobject]@{ Name = 'context-mode'; Description = 'Keeps big tool outputs out of the context window.'; Source = 'plugin context-mode' },
+        [pscustomobject]@{ Name = 'docx'; Description = 'Create, read and edit Word documents.'; Source = 'claude.ai' },
+        [pscustomobject]@{ Name = 'pdf'; Description = 'Read, fill and create PDF files.'; Source = 'claude.ai' })
+    foreach ($skill in $c.Skills) { $skill.Description = Tx $skill.Description }
+    $c.Mcp = @(
+        [pscustomobject]@{ Name = 'playwright'; Kind = 'stdio'; Target = 'npx.cmd'; Source = 'tuyos' },
+        [pscustomobject]@{ Name = 'github'; Kind = 'http'; Target = 'api.githubcopilot.com'; Source = 'plugin github' },
+        [pscustomobject]@{ Name = 'context-mode'; Kind = 'stdio'; Target = 'node.exe'; Source = 'plugin context-mode' })
     $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true

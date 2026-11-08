@@ -409,6 +409,46 @@ try {
     Assert-Equal $true (Get-ContextModeState $cmHome).Enabled 'context-mode: enabled'
 } finally { Remove-Item -LiteralPath $cmHome -Recurse -Force -ErrorAction SilentlyContinue }
 
+# --- Skills y MCP (lib\hubskills.ps1): read from a fake ~/.claude, every place and shape Claude Code uses
+. (Join-Path $TrayRoot 'lib\hubskills.ps1')
+$skHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-skills-{0}' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+function Write-SkillFixture([string]$Path, [string]$Text) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+    [IO.File]::WriteAllText($Path, $Text, $utf8)
+}
+try {
+    Write-SkillFixture "$skHome\skills\ship\SKILL.md" "---`nname: ship`ndescription: Commit and push.`n---`nBody"
+    Write-SkillFixture "$skHome\skills\folded\SKILL.md" "---`nname: folded`ndescription: >`n  First line`n  second line`n---"
+    Write-SkillFixture "$skHome\skills\.trash\old\SKILL.md" "---`nname: old`n---"
+    Write-SkillFixture "$skHome\skills\synced\bucket-1\docx\SKILL.md" "---`nname: docx`ndescription: 'Word files'`n---"
+    Write-SkillFixture "$skHome\plugins\cache\on\skills\helper\SKILL.md" "---`nname: helper`ndescription: From a plugin`n---"
+    Write-SkillFixture "$skHome\plugins\cache\on\.mcp.json" '{ "mcpServers": { "fromfile": { "command": "C:\\tools\\srv.exe" } } }'
+    Write-SkillFixture "$skHome\plugins\cache\on\.claude-plugin\plugin.json" '{ "name": "on", "mcpServers": { "frommanifest": { "type": "sse", "url": "https://mcp.example.com/sse" } } }'
+    Write-SkillFixture "$skHome\plugins\cache\off\skills\hidden\SKILL.md" "---`nname: hidden`n---"
+    Write-SkillFixture "$skHome\plugins\cache\proj\.mcp.json" '{ "flat": { "type": "http", "url": "https://api.example.com/mcp/" } }'
+    $cache = "$skHome\plugins\cache" -replace '\\', '\\'
+    Write-SkillFixture "$skHome\plugins\installed_plugins.json" ('{ "version": 2, "plugins": { ' +
+        '"on@m": [{ "scope": "user", "installPath": "' + $cache + '\\on" }], ' +
+        '"off@m": [{ "scope": "user", "installPath": "' + $cache + '\\off" }], ' +
+        '"proj@m": [{ "scope": "project", "projectPath": "C:\\work\\shop", "installPath": "' + $cache + '\\proj" }], ' +
+        '"skill-creator@claude-plugins-official": [{ "scope": "project", "projectPath": "C:\\work\\shop", "installPath": "' + $cache + '\\sc" }], ' +
+        '"plugin-dev@claude-plugins-official": [{ "scope": "user", "installPath": "' + $cache + '\\pd" }] } }')
+    New-Item -ItemType Directory -Force -Path "$skHome\plugins\cache\sc", "$skHome\plugins\cache\pd" | Out-Null
+    Write-SkillFixture "$skHome\settings.json" '{ "enabledPlugins": { "on@m": true, "off@m": false } }'
+    Write-SkillFixture "$skHome\claude.json" '{ "mcpServers": { "mine": { "type": "stdio", "command": "npx.cmd" } }, "projects": { "C:\\work\\shop": { "mcpServers": { "db": { "command": "uvx" } } }, "C:\\work\\empty": {} } }'
+
+    Assert-Equal 'folded|First line second line' ('{0}|{1}' -f (Read-SkillHeader "$skHome\skills\folded\SKILL.md").Name, (Read-SkillHeader "$skHome\skills\folded\SKILL.md").Description) 'skills: a folded description reads as one line'
+    $list = @(Get-SkillList $skHome)
+    Assert-Equal 'folded/tuyas, ship/tuyas, helper/plugin on, docx/claude.ai' (($list | ForEach-Object { "$($_.Name)/$($_.Source)" }) -join ', ') 'skills: yours first, then plugins and claude.ai; trash and disabled plugins left out'
+    Assert-Equal 'Word files' @($list | Where-Object { $_.Name -eq 'docx' })[0].Description 'skills: quotes around a description go'
+    $servers = @(Get-McpList $skHome "$skHome\claude.json")
+    Assert-Equal 'mine/stdio/npx.cmd/tuyos, fromfile/stdio/srv.exe/plugin on, frommanifest/sse/mcp.example.com/plugin on, flat/http/api.example.com/plugin proj (shop), db/stdio/uvx/proyecto shop' (($servers | ForEach-Object { "$($_.Name)/$($_.Kind)/$($_.Target)/$($_.Source)" }) -join ', ') 'mcp: yours, the plugins (.mcp.json in both shapes, plugin.json) and each project'
+    Assert-Equal 'skill-creator=False, mcp-server-dev=False, plugin-dev=True' ((Get-SkillPackState $skHome | ForEach-Object { "$($_.Id)=$($_.Installed)" }) -join ', ') 'packs: installed means installed for the user, not for one project'
+    Assert-Equal 0 @(Get-SkillList (Join-Path $skHome 'nothing')).Count 'skills: no ~/.claude, no rows'
+} finally { Remove-Item -LiteralPath $skHome -Recurse -Force -ErrorAction SilentlyContinue }
+Assert-Equal 'claude --session-id 1111 "Usa la skill skill-creator: crea una skill"' (Format-ClaudeCommand 'claude' '1111' '' 'green' '' 'Usa la skill "skill-creator": crea una skill') 'claude command: a first prompt takes the place of /color, without its double quotes'
+
 # --- Consumo (lib\forecast.ps1, prices in lib\stats.cs)
 . (Join-Path $TrayRoot 'lib\forecast.ps1')
 $js = "const OPUS = [5, 6.25, 10, 0.5, 25];`nconst PRICES = {`n  'claude-opus-5-5': [4, 5, 8, 0.2, 20],`n  'claude-opus-4-8': OPUS,`n  'bad': [1, 2],`n};"
