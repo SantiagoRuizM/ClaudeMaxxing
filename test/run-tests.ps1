@@ -648,6 +648,9 @@ try {
 # A release is tagged v<AppVersion> and its notes come from CHANGELOG.md: the two must agree.
 $changelog = [IO.File]::ReadAllText((Join-Path $TrayRoot 'CHANGELOG.md'))
 Assert-Equal $AppVersion ([regex]::Match($changelog, '(?m)^## (\d+\.\d+\.\d+)').Groups[1].Value) 'CHANGELOG.md starts with the version in lib\common.ps1'
+$package = [IO.File]::ReadAllText((Join-Path $TrayRoot 'package.json')) | ConvertFrom-Json
+Assert-Equal $AppVersion $package.version 'package.json (npx github:...) has the version in lib\common.ps1'
+Assert-Equal $true (Test-Path -LiteralPath (Join-Path $TrayRoot $package.bin.claudemaxxing)) 'package.json points npx at bin\claudemaxxing.js'
 $manifest = Get-RuntimeManifest $TrayRoot
 Assert-Equal 0 @($manifest | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot $_)) }).Count 'every runtime file exists in the repo'
 foreach ($needed in 'tray.ps1', 'open-session.ps1', 'uninstall.ps1', 'lib\installer.ps1', 'voice\hooks\speak.ps1', 'voice\plugin\hooks\hooks.json', 'voice\templates\skill-voz.md') {

@@ -25,12 +25,14 @@ jobs:
           . .\lib\common.ps1
           if ("v$AppVersion" -ne $env:GITHUB_REF_NAME) { throw "tag $env:GITHUB_REF_NAME, but lib\common.ps1 says $AppVersion" }
 
-      - name: Release with the ZIP and the changelog entry
+      # get.ps1 (the one-command installer) downloads the ZIP and checks it against SHA256SUMS.txt.
+      - name: Release with the ZIP, its SHA-256, get.ps1 and the changelog entry
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${GITHUB_REF_NAME#v}"
           git archive --format=zip --prefix="ClaudeMaxxing-$v/" -o "ClaudeMaxxing-$v.zip" HEAD
+          sha256sum "ClaudeMaxxing-$v.zip" > SHA256SUMS.txt
           awk -v v="$v" '/^## /{ f = ($2 == v) } f' CHANGELOG.md | tail -n +2 > notes.md
-          gh release create "$GITHUB_REF_NAME" "ClaudeMaxxing-$v.zip" --title "ClaudeMaxxing $v" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" "ClaudeMaxxing-$v.zip" SHA256SUMS.txt get.ps1 --title "ClaudeMaxxing $v" --notes-file notes.md
