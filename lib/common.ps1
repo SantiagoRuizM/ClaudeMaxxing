@@ -1,7 +1,7 @@
 # Shared paths and small helpers. Keep this file ASCII: PowerShell 5.1 reads BOM-less scripts as ANSI.
 
 $AppName       = 'ClaudeMaxxing'
-$AppVersion    = '1.0.0'
+$AppVersion    = '1.1.0'
 # install.ps1 copies the runtime here; nothing runs from the repo.
 $DefaultInstallDir = Join-Path $env:LOCALAPPDATA $AppName
 $TrayHome      = Join-Path $env:USERPROFILE '.claude\usage-tray'

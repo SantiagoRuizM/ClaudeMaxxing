@@ -4,7 +4,7 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, self, usage, stats, code, skills, pcs, whisper, voice; stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
 # -RenderLogoTo <folder> writes the ClaudeMaxxing logo as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
     [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home', [string]$RenderLogoTo)
@@ -24,6 +24,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\voiceengine.ps1')
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
 . (Join-Path $TrayRoot 'lib\forecast.ps1')
+. (Join-Path $TrayRoot 'lib\business.ps1')
 # Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
 # prompts) to everything it starts, including remote sessions on this PC.
 if ($env:CLAUDECODE) {
@@ -54,6 +55,7 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\hubskills.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 # Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.
+. (Join-Path $TrayRoot 'lib\hubbusiness.ps1')
 [void][ClaudeTray.Native]::SetCurrentProcessExplicitAppUserModelID('ClaudeMaxxing.Tray')
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
@@ -70,6 +72,8 @@ $script:View = $null
 $script:Extras = [pscustomobject]@{ ExtraUsage = $null; LimitReset = $null }
 $script:Plan = Get-PlanName $CredsFile
 $script:FooterRight = ''
+# Personal or business edition and the company policy (lib\business.ps1); Otros PCs and Whisper follow it from start.
+$script:Business = Get-BusinessState
 $script:PendingTasks = @()
 $script:LastHidden = [datetime]::MinValue
 $script:Refresh = $null
@@ -374,12 +378,12 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
 [void]$menu.Items.Add('-')
 # Claude Whisper: live call copilot in its own process (whisper.ps1).
-[void]$menu.Items.Add('Claude Whisper...', $null, { Start-WhisperWindow $TrayRoot })
+if (Test-HubModule 'whisper') { [void]$menu.Items.Add('Claude Whisper...', $null, { Start-WhisperWindow $TrayRoot }) }
 # Otros PCs: terminals on paired PCs and the incoming sessions, rebuilt each time the submenu opens.
 $script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PCs')
 [void]$script:BridgeMenu.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
 $script:BridgeMenu.Add_DropDownOpening({ Update-BridgeMenu $script:BridgeMenu })
-[void]$menu.Items.Add($script:BridgeMenu)
+if (Test-HubModule 'bridge') { [void]$menu.Items.Add($script:BridgeMenu) }
 [void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Salir', $null, {
     # Leaving stops the SSH server, which ends what other PCs have open here.
@@ -424,6 +428,7 @@ $timer.Add_Tick({
     Invoke-AutoSchedule
     Test-MeetingStarted
     # Ambientes (lib\harness.ps1): which environment what is open belongs to, and the offer to switch.
+    if (-not (Test-HubModule 'whisper')) { return }
     try { Invoke-HarnessWatch } catch { }
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }
@@ -447,6 +452,8 @@ if ($RenderLogoTo) {
     $Notify.Dispose()
     exit 0
 }
+    # Business edition (lib\hubbusiness.ps1): calibrate the seat and send the weekly report, every 5 minutes.
+    if ($script:Ticks % 20 -eq 1) { try { Invoke-BusinessTick } catch { } }
 
 if ($RenderHubTo) {
     Show-HubDialog $HubSection $RenderHubTo
@@ -480,7 +487,8 @@ if ($RenderTo) {
 }
 
 $timer.Start()
-$script:BridgeTimer.Start()
+# A company policy without Otros PCs: no SSH server and no discovery on this PC.
+if (Test-HubModule 'bridge') { $script:BridgeTimer.Start() }
 Start-UsageRefresh
 try {
     [System.Windows.Forms.Application]::Run()

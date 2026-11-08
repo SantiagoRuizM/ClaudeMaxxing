@@ -6,7 +6,7 @@
 # Whisper (settings and call history) and Voz. The longer flows keep their own windows: the schedule dialog,
 # pairing in Otros PCs (pairing is only accepted while that window is open) and the Whisper context dialog.
 # Owner-drawn like the rest of the tray; Paint only reads $script:Hub.Cache, which a timer refreshes.
-# Needs theme.ps1, usage.ps1, schedule.ps1, sessions.ps1, bridgeui.ps1, whisper.ps1, whisperui.ps1, freellm.ps1 and harness.ps1.
+# Needs theme.ps1, usage.ps1, schedule.ps1, sessions.ps1, bridgeui.ps1, whisper.ps1, whisperui.ps1, freellm.ps1, harness.ps1 and hubbusiness.ps1 (Empresa, business edition).
 # Keep this file ASCII: non-ASCII text is written as \uXXXX and decoded with Tx.
 
 $script:HubDialog = $null
@@ -29,8 +29,10 @@ $script:HubFonts = @{
     Key       = New-UiFont 'Consolas' 9
 }
 
+# Business: only in the business edition (lib\hubbusiness.ps1). Module: hidden when the company policy turns it off.
 $script:HubSections = @(
     @{ Id = 'home'; Label = 'Inicio'; Glyph = '\ue80f' },
+    @{ Id = 'business'; Label = 'Empresa'; Glyph = '\ue821'; Business = $true },
     @{ Id = 'plan'; Label = (Tx 'Planear sesi\u00f3n'); Glyph = '\uea80' },
     @{ Id = 'envs'; Label = 'Ambientes'; Glyph = '\ue7e8' },
     @{ Id = 'self'; Label = 'SelfHarness'; Glyph = '\ue83d' },
@@ -38,8 +40,8 @@ $script:HubSections = @(
     @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
     @{ Id = 'skills'; Label = 'Skills y MCP'; Glyph = '\uea86' },
-    @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968' },
-    @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720' },
+    @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968'; Module = 'bridge' },
+    @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720'; Module = 'whisper' },
     @{ Id = 'voice'; Label = 'Voz'; Glyph = '\ue767' }
 )
 
@@ -175,6 +177,7 @@ function Update-HubCache([switch]$Full) {
     try { $c.Harness = Get-HarnessState } catch { $c.Harness = $null }
     try { $c.SelfHarness = Get-SelfHarnessSettings } catch { $c.SelfHarness = $null }
     try { Update-HubSkills } catch { }
+    try { Update-HubBusiness } catch { }
     if ($slow) {
         $hub.SlowAt = $now
         $c.Calls = Get-WhisperCalls 5
@@ -515,6 +518,8 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "envs-busy", "envs-error", "envs-none": the preview's sample state of Ambientes.
     $envsPreview = ''
     if ($Section -match '^envs-([a-z]+)$') { $envsPreview = $Matches[1]; $Section = 'envs' }
+    # "home-business": Inicio as the business edition draws it (the preview of Empresa itself is "business").
+    if ($Section -eq 'home-business') { $script:BusinessPreview = $true; $Section = 'home' }
     if ($script:HubDialog) {
         if ($Section) { Set-HubSection $Section }
         Update-HubNow
@@ -923,7 +928,7 @@ function Draw-Hub($Form, $G) {
     if ($hub.Logo) { $G.DrawImage($hub.Logo, (Px 18), (Px 19)) }
     Draw-Text $G $AppName $HF.Brand $P.Text (Px 48) (Px 14) ($navW - (Px 52)) (Px 32)
     $y = Px 70
-    foreach ($section in $script:HubSections) {
+    foreach ($section in (Get-HubVisibleSections)) {
         $item = New-Rect (Px 10) $y ($navW - (Px 20)) (Px 36)
         $active = $hub.Section -eq $section.Id
         $hitId = "nav-$($section.Id)"
@@ -965,6 +970,7 @@ function Draw-Hub($Form, $G) {
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
         'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
+        'business' { Draw-HubBusinessSection $G $map $hover $x0 $inner }
         'skills'  { Draw-HubSkillsSection $G $map $hover $x0 $inner }
         'pcs'     { Draw-HubPcsSection $G $map $hover $x0 $inner }
         'whisper' { Draw-HubWhisperSection $G $map $hover $x0 $inner }
@@ -1416,50 +1422,54 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $bw = Get-PillWidth 'Agendar'
     Draw-PillButton $G $Map $Hover 'home-schedule' (New-Rect ($card.Right - (Px 12) - $bw) ($card.Y + (Px 50)) $bw (Px 24)) 'Agendar' { Open-HubSchedule } -Accent
 
-    # nearby PCs and Claude Whisper
+    # nearby PCs and Claude Whisper; in the business edition, the company card in their place
     $y = Px 168
-    $netW = [int]($Inner * 0.6)
-    $net = New-Rect $X0 $y $netW (Px 262)
-    Draw-HubCard $G $net
-    Draw-HubNetwork $G $Map $Hover $net $false 'section'
+    if (Test-HubBusiness) {
+        Draw-HubBusinessHome $G $Map $Hover (New-Rect $X0 $y $Inner (Px 262))
+    } else {
+        $netW = [int]($Inner * 0.6)
+        $net = New-Rect $X0 $y $netW (Px 262)
+        Draw-HubCard $G $net
+        Draw-HubNetwork $G $Map $Hover $net $false 'section'
 
-    $wcard = New-Rect ($X0 + $netW + $gap) $y ($Inner - $netW - $gap) (Px 262)
-    Draw-HubCard $G $wcard
-    $wx = $wcard.X + (Px 14)
-    $ww = $wcard.Width - (Px 28)
-    Draw-Text $G 'CLAUDE WHISPER' $F.Caps $P.Muted $wx ($wcard.Y + (Px 10)) $ww (Px 18)
-    $running = [bool]$c.WhisperRunning
-    Draw-HubDot $G $wx ($wcard.Y + (Px 37)) (Px 8) $(if ($running) { $P.Ok } else { $P.Faint })
-    Draw-Text $G $(if ($running) { 'Abierto' } else { 'Cerrado' }) $F.BodyStrong $P.Text ($wx + (Px 14)) ($wcard.Y + (Px 30)) (Px 90) (Px 22)
-    $label = if ($running) { 'Mostrar' } else { 'Abrir' }
-    $bw = Get-PillWidth $label
-    Draw-PillButton $G $Map $Hover 'home-whisper' (New-Rect ($wcard.Right - (Px 12) - $bw) ($wcard.Y + (Px 29)) $bw (Px 24)) $label { Open-HubWhisper } -Accent
-    $settings = $c.WhisperSettings
-    if ($settings) {
-        $model = $script:WhisperModels[$settings.model] -replace ' \(.*\)$', ''
-        Draw-Text $G ($script:WhisperLanguages[$settings.language] + '  ' + (Tx '\u00b7') + '  ' + $model) $F.Small $P.Muted $wx ($wcard.Y + (Px 54)) $ww (Px 18)
+        $wcard = New-Rect ($X0 + $netW + $gap) $y ($Inner - $netW - $gap) (Px 262)
+        Draw-HubCard $G $wcard
+        $wx = $wcard.X + (Px 14)
+        $ww = $wcard.Width - (Px 28)
+        Draw-Text $G 'CLAUDE WHISPER' $F.Caps $P.Muted $wx ($wcard.Y + (Px 10)) $ww (Px 18)
+        $running = [bool]$c.WhisperRunning
+        Draw-HubDot $G $wx ($wcard.Y + (Px 37)) (Px 8) $(if ($running) { $P.Ok } else { $P.Faint })
+        Draw-Text $G $(if ($running) { 'Abierto' } else { 'Cerrado' }) $F.BodyStrong $P.Text ($wx + (Px 14)) ($wcard.Y + (Px 30)) (Px 90) (Px 22)
+        $label = if ($running) { 'Mostrar' } else { 'Abrir' }
+        $bw = Get-PillWidth $label
+        Draw-PillButton $G $Map $Hover 'home-whisper' (New-Rect ($wcard.Right - (Px 12) - $bw) ($wcard.Y + (Px 29)) $bw (Px 24)) $label { Open-HubWhisper } -Accent
+        $settings = $c.WhisperSettings
+        if ($settings) {
+            $model = $script:WhisperModels[$settings.model] -replace ' \(.*\)$', ''
+            Draw-Text $G ($script:WhisperLanguages[$settings.language] + '  ' + (Tx '\u00b7') + '  ' + $model) $F.Small $P.Muted $wx ($wcard.Y + (Px 54)) $ww (Px 18)
+        }
+        Draw-Text $G (Tx '\u00daLTIMAS LLAMADAS') $F.Caps $P.Muted $wx ($wcard.Y + (Px 82)) $ww (Px 18)
+        $calls = @($c.Calls)
+        $cy = $wcard.Y + (Px 102)
+        if (-not $calls.Count) {
+            Draw-Wrapped $G (Tx 'A\u00fan no hay llamadas. \u00c1brelo en una llamada y pulsa Escuchar.') $F.Small $P.Faint $wx $cy $ww (Px 36)
+        }
+        for ($i = 0; $i -lt [Math]::Min(3, $calls.Count); $i++) {
+            $call = $calls[$i]
+            $row = New-Rect ($wx - (Px 6)) $cy ($ww + (Px 12)) (Px 40)
+            $hitId = "home-call-$i"
+            if ($Hover -eq $hitId) { Fill-Round $G $row (Px 6) $P.SurfaceHover }
+            $when = if ($call.Started) { Format-DialogDateTime $call.Started (Get-Date) } else { $call.Name }
+            Draw-Text $G $when $F.Body $P.Text $wx ($cy + (Px 2)) $ww (Px 18)
+            $answers = if ($call.Answers -eq 1) { '1 respuesta' } else { "$($call.Answers) respuestas" }
+            Draw-Text $G ((Format-CallDuration $call.Minutes) + '  ' + (Tx '\u00b7') + '  ' + $answers) $F.Small $P.Muted $wx ($cy + (Px 20)) $ww (Px 16)
+            Add-Hit $Map $hitId $row ([scriptblock]::Create("Open-HubCall $i"))
+            $cy += Px 44
+        }
+        $more = New-Rect ($wcard.Right - (Px 110)) ($wcard.Bottom - (Px 28)) (Px 96) (Px 20)
+        Draw-Text $G (Tx 'Ver todo \u203a') $F.Small $(if ($Hover -eq 'home-whisper-more') { $P.AccentHover } else { $P.Accent }) $more.X $more.Y $more.Width $more.Height 'Right'
+        Add-Hit $Map 'home-whisper-more' $more { Set-HubSection 'whisper' }
     }
-    Draw-Text $G (Tx '\u00daLTIMAS LLAMADAS') $F.Caps $P.Muted $wx ($wcard.Y + (Px 82)) $ww (Px 18)
-    $calls = @($c.Calls)
-    $cy = $wcard.Y + (Px 102)
-    if (-not $calls.Count) {
-        Draw-Wrapped $G (Tx 'A\u00fan no hay llamadas. \u00c1brelo en una llamada y pulsa Escuchar.') $F.Small $P.Faint $wx $cy $ww (Px 36)
-    }
-    for ($i = 0; $i -lt [Math]::Min(3, $calls.Count); $i++) {
-        $call = $calls[$i]
-        $row = New-Rect ($wx - (Px 6)) $cy ($ww + (Px 12)) (Px 40)
-        $hitId = "home-call-$i"
-        if ($Hover -eq $hitId) { Fill-Round $G $row (Px 6) $P.SurfaceHover }
-        $when = if ($call.Started) { Format-DialogDateTime $call.Started (Get-Date) } else { $call.Name }
-        Draw-Text $G $when $F.Body $P.Text $wx ($cy + (Px 2)) $ww (Px 18)
-        $answers = if ($call.Answers -eq 1) { '1 respuesta' } else { "$($call.Answers) respuestas" }
-        Draw-Text $G ((Format-CallDuration $call.Minutes) + '  ' + (Tx '\u00b7') + '  ' + $answers) $F.Small $P.Muted $wx ($cy + (Px 20)) $ww (Px 16)
-        Add-Hit $Map $hitId $row ([scriptblock]::Create("Open-HubCall $i"))
-        $cy += Px 44
-    }
-    $more = New-Rect ($wcard.Right - (Px 110)) ($wcard.Bottom - (Px 28)) (Px 96) (Px 20)
-    Draw-Text $G (Tx 'Ver todo \u203a') $F.Small $(if ($Hover -eq 'home-whisper-more') { $P.AccentHover } else { $P.Accent }) $more.X $more.Y $more.Width $more.Height 'Right'
-    Add-Hit $Map 'home-whisper-more' $more { Set-HubSection 'whisper' }
 
     # Claude Code sessions and the voice
     $y = Px 442
@@ -1631,7 +1641,8 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $screensText = if ($screens -eq 1) { '1 pantalla' } else { "$screens pantallas" }
     Draw-Text $G ((Tx 'Cada sesi\u00f3n ocupa media pantalla, con su color, nombre y voz: ') + "$screensText, hasta $slots a la vez.") $F.Small $P.Muted $tx ($card.Y + (Px 56)) ($card.Width - (Px 32)) (Px 18)
 
-    Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 (Px 166) $Inner (Px 84))
+    if (Test-HubModule 'freellm') { Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 (Px 166) $Inner (Px 84)) }
+    else { Draw-HubPolicyNote $G (New-Rect $X0 (Px 166) $Inner (Px 84)) 'Modelos gratis con FreeLLMAPI' (Tx 'Apagado por la pol\u00edtica de la empresa: las sesiones usan solo el plan de Claude, sin enviar prompts a proveedores de terceros.') }
 
     # Ahorro de tokens: context-mode
     $mcard = New-Rect $X0 (Px 260) $Inner (Px 56)
@@ -2148,3 +2159,5 @@ function Set-HubPreview {
     }
     $c.JudgeProgress = 'Jurado: 4 de 6 votos'
 }
+    # Empresa: -HubSection business, or home-business for Inicio in that edition.
+    if ($script:Hub.Section -eq 'business' -or $script:BusinessPreview) { Set-BusinessPreview }

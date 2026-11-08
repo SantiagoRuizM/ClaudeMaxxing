@@ -1,7 +1,8 @@
 # Background job for "Ahorro de tokens" (lib\maxx.ps1): installs, enables or disables context-mode with the
 # claude CLI, and installs the skill and MCP creation packages of "Skills y MCP" (pack-install -Plugin, from
-# Anthropic's official marketplace); reports in maxx-status.json. Started hidden from the ClaudeMaxxing window.
-param([Parameter(Mandatory = $true)][ValidateSet('contextmode-on', 'contextmode-off', 'pack-install')][string]$Action,
+# Anthropic's official marketplace) and the team kit of the business edition (team-install: the marketplaces and
+# plugins of the company policy, lib\business.ps1); reports in maxx-status.json. Started hidden from the window.
+param([Parameter(Mandatory = $true)][ValidateSet('contextmode-on', 'contextmode-off', 'pack-install', 'team-install')][string]$Action,
     [ValidatePattern('^[a-z0-9-]+@claude-plugins-official$')][string]$Plugin)
 
 $TrayRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -24,6 +25,26 @@ $mutex = New-Object System.Threading.Mutex($false, 'Local\ClaudeTrayMaxx')
 try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 if (-not $owned) { exit 0 }
 try {
+    if ($Action -eq 'team-install') {
+        # Read here, not passed in: only what the policy file says gets installed.
+        . (Join-Path $TrayRoot 'lib\business.ps1')
+        $policy = (Get-BusinessState).Policy
+        foreach ($source in @($policy.marketplaces)) {
+            if (-not (Test-MarketplaceSource $source)) { throw "marketplace no v$([char]0x00E1)lido en la pol$([char]0x00ED)tica: $source" }
+            $r = Invoke-Claude @('plugin', 'marketplace', 'add', $source)
+            if (-not $r.Ok -and $r.Output -notmatch 'already') { throw "marketplace $source`: $($r.Output)" }
+        }
+        $count = 0
+        foreach ($ref in @($policy.plugins)) {
+            if (-not (Test-PluginRef $ref)) { throw "plugin no v$([char]0x00E1)lido en la pol$([char]0x00ED)tica: $ref" }
+            $r = Invoke-Claude @('plugin', 'install', $ref)
+            if (-not $r.Ok -and $r.Output -match 'already') { $r = Invoke-Claude @('plugin', 'enable', $ref) }
+            if (-not $r.Ok -and $r.Output -notmatch 'already') { throw "$ref`: $($r.Output)" }
+            $count++
+        }
+        Set-Status 'done' "Kit del equipo: $count plugin(s) listos para las sesiones nuevas."
+        return
+    }
     if ($Action -eq 'pack-install') {
         if (-not $Plugin) { throw 'no plugin given' }
         $r = Invoke-Claude @('plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official')
@@ -56,7 +77,7 @@ try {
 } catch {
     $message = $_.Exception.Message
     if ($message.Length -gt 200) { $message = $message.Substring(0, 200) }
-    $what = if ($Action -eq 'pack-install') { 'instalar ' + $Plugin.Split('@')[0] } else { 'cambiar context-mode' }
+    $what = if ($Action -eq 'pack-install') { 'instalar ' + $Plugin.Split('@')[0] } elseif ($Action -eq 'team-install') { 'instalar el kit del equipo' } else { 'cambiar context-mode' }
     Set-Status 'error' ('No se pudo ' + $what + ': ' + $message)
 } finally {
     $mutex.ReleaseMutex()

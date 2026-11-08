@@ -1,6 +1,6 @@
 {
   "name": "claudemaxxing",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Claude Code on Windows: plan usage in the tray, sessions from the Explorer menu, voice, Peek, and more. npx github:SantiagoRuizM/ClaudeMaxxing installs it.",
   "repository": "github:SantiagoRuizM/ClaudeMaxxing",

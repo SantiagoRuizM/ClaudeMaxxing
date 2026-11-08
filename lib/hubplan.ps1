@@ -35,7 +35,9 @@ function Open-HubJudgeIdea([string]$Text = '') {
     $request = Show-JudgeIdeaDialog $Text $script:Palette $script:HubDialog
     if (-not $request) { return }
     try {
-        Start-JudgeJob $request.Idea $request.Jury
+        # Business edition: the jury also weighs the company's objectives (lib\business.ps1).
+        $idea = if (Test-HubBusiness) { Add-JudgeObjectives $request.Idea (Get-BusinessObjectives) } else { $request.Idea }
+        Start-JudgeJob $idea $request.Jury
         Set-HubMessage ((Tx 'Claude Judge est\u00e1 deliberando') + '...')
     } catch { Set-HubMessage ('No se pudo empezar: ' + $_.Exception.Message) }
     Update-HubNow
@@ -52,7 +54,8 @@ function Open-HubJudgeTrial([int]$Index) {
     $trial = @($script:Hub.Cache.JudgeTrials)[$Index]
     if (-not $trial) { return }
     $choice = Show-JudgeVerdictDialog $trial $script:Palette $script:HubDialog
-    if ($choice -eq 'retry') { Open-HubJudgeIdea $trial.Case }
+    # Without the objectives block it was judged with: the current objectives go in again when it starts.
+    if ($choice -eq 'retry') { Open-HubJudgeIdea (Add-JudgeObjectives $trial.Case '') }
 }
 
 # ---------------------------------------------------------------- section

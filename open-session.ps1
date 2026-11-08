@@ -16,6 +16,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
 . (Join-Path $TrayRoot 'lib\winapi.ps1')
 . (Join-Path $TrayRoot 'lib\freellm.ps1')
+. (Join-Path $TrayRoot 'lib\business.ps1')
 # wt.exe hands its caller's environment to the new window. Started from a Claude Code shell (a test
 # run), that environment turns colors off and changes git prompts; the Explorer menu starts clean.
 if ($env:CLAUDECODE) {
@@ -95,7 +96,8 @@ try {
     $command = Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name '' $Prompt
     $backend = 'plan'
     try {
-        $free = Get-FreeLlmLaunch
+        # A company policy can turn FreeLLMAPI off (lib\business.ps1): every session then stays on the Claude plan.
+        $free = if (Test-ModuleAllowed (Get-BusinessState) 'freellm') { Get-FreeLlmLaunch } else { [pscustomobject]@{ Prefix = ''; Notice = ''; Settings = '' } }
         $freeNotice = $free.Notice
         if ($free.Prefix) { $command = $free.Prefix + (Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name $free.Settings $Prompt); $backend = 'freellm' }
     } catch {

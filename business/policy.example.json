@@ -1,0 +1,11 @@
+{
+  "company": "Acme",
+  "disabled": ["freellm", "bridge", "whisper"],
+  "seatName": "Premium",
+  "seatMonthlyUsd": 150,
+  "reportDir": "\\\\files\\claude\\informes",
+  "autoReport": true,
+  "reportProjects": true,
+  "marketplaces": ["anthropics/claude-plugins-official", "acme/claude-kit"],
+  "plugins": ["skill-creator@claude-plugins-official", "acme-standards@acme-kit"]
+}

@@ -1150,3 +1150,113 @@ if ($script:Failures -gt 0) {
     exit 1
 }
 Write-Host "all $script:Count tests passed" -ForegroundColor Green
+# --- business edition (lib\business.ps1)
+. (Join-Path $TrayRoot 'lib\business.ps1')
+Assert-Equal 'business' (Resolve-Edition $true $false '' $false) 'edition: -Business'
+Assert-Equal 'personal' (Resolve-Edition $false $true 'business' $false) 'edition: -Personal switches a business install back'
+Assert-Equal 'business' (Resolve-Edition $false $false 'business' $false) 'edition: an update without a flag keeps business'
+Assert-Equal 'personal' (Resolve-Edition $false $false '' $false) 'edition: personal by default'
+Assert-Equal 'business' (Resolve-Edition $false $true '' $true) "edition: IT's policy wins over -Personal"
+$threw = $false; try { [void](Resolve-Edition $true $true '' $false) } catch { $threw = $true }
+Assert-Equal $true $threw 'edition: -Personal and -Business together are refused'
+foreach ($script in 'install.ps1', 'get.ps1') {
+    $params = (Get-Command (Join-Path $TrayRoot $script)).Parameters
+    Assert-Equal $true ($params['Business'].Aliases -contains 'Bussines') "$script takes --bussines as --business"
+    Assert-Equal $true $params.ContainsKey('Personal') "$script takes --personal"
+}
+
+$policy = Merge-BusinessPolicy $null
+Assert-Equal 'bridge,freellm,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs and Whisper off by default'
+$policy = Merge-BusinessPolicy ([pscustomobject]@{ disabled = @('whisper'); seatMonthlyUsd = '150'; autoReport = 1; unknown = 'x'; plugins = 'one@kit' })
+Assert-Equal 'whisper' (@($policy.disabled) -join ',') 'policy: a list replaces the default'
+Assert-Equal 150 $policy.seatMonthlyUsd 'policy: the seat price is a number'
+Assert-Equal $true $policy.autoReport 'policy: switches are booleans'
+Assert-Equal 1 @($policy.plugins).Count 'policy: a single plugin stays a list'
+Assert-Equal $null $policy.PSObject.Properties['unknown'] 'policy: unknown fields are ignored'
+
+$bizRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-biz-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$machine = Join-Path $bizRoot 'machine'
+$editionPath = Join-Path $bizRoot 'edition.json'
+$userPolicy = Join-Path $bizRoot 'policy.json'
+New-Item -ItemType Directory -Force $machine | Out-Null
+try {
+    $state = Get-BusinessState $machine $editionPath $userPolicy
+    Assert-Equal $false $state.Business 'state: no edition file is personal'
+    Assert-Equal $true (Test-ModuleAllowed $state 'freellm') 'state: personal allows every module'
+    Write-JsonFile $editionPath @{ edition = 'business' }
+    $state = Get-BusinessState $machine $editionPath $userPolicy
+    Assert-Equal $true $state.Business 'state: edition file says business'
+    Assert-Equal $false (Test-ModuleAllowed $state 'bridge') 'state: business defaults turn Otros PCs off'
+    Write-JsonFile $userPolicy @{ disabled = @() }
+    Assert-Equal $true (Test-ModuleAllowed (Get-BusinessState $machine $editionPath $userPolicy) 'bridge') "state: the user's policy can allow a module"
+    [IO.File]::WriteAllText((Join-Path $machine 'policy.json'), '{ broken')
+    Write-JsonFile $editionPath @{ edition = 'personal' }
+    $state = Get-BusinessState $machine $editionPath $userPolicy
+    Assert-Equal $true $state.Managed "state: IT's policy file is found"
+    Assert-Equal $true $state.Business "state: IT's policy makes the PC business"
+    Assert-Equal $false (Test-ModuleAllowed $state 'whisper') "state: a damaged IT policy falls back to the safe defaults"
+
+    Assert-Equal $true (Test-PluginRef 'acme-standards@acme-kit') 'kit: name@marketplace is valid'
+    Assert-Equal $false (Test-PluginRef 'x@y; rm -rf') 'kit: a plugin with shell text is refused'
+    Assert-Equal $false (Test-PluginRef '--force') 'kit: an option is not a plugin'
+    Assert-Equal $true (Test-MarketplaceSource 'acme/claude-kit') 'kit: owner/repo is valid'
+    Assert-Equal $true (Test-MarketplaceSource 'https://git.acme.com/kit.git') 'kit: an https URL is valid'
+    Assert-Equal $false (Test-MarketplaceSource 'http://acme.com/kit') 'kit: plain http is refused'
+
+    $userObjectives = Join-Path $bizRoot 'objetivos.md'
+    [IO.File]::WriteAllText($userObjectives, (Get-ObjectivesTemplate), [Text.Encoding]::UTF8)
+    Assert-Equal '' (Get-BusinessObjectives $machine $userObjectives) 'objectives: the template alone has none'
+    [IO.File]::WriteAllText($userObjectives, "- Lanzar la app`n<!-- nota -->", [Text.Encoding]::UTF8)
+    Assert-Equal '- Lanzar la app' (Get-BusinessObjectives $machine $userObjectives) "objectives: the user's file, without comments"
+    [IO.File]::WriteAllText((Join-Path $machine 'objetivos.md'), '- Bajar costes', [Text.Encoding]::UTF8)
+    Assert-Equal '- Bajar costes' (Get-BusinessObjectives $machine $userObjectives) "objectives: IT's file wins"
+    $judged = Add-JudgeObjectives 'Vender velas' '- Bajar costes'
+    Assert-Equal $true ($judged.StartsWith('Vender velas') -and $judged.Contains('- Bajar costes')) 'objectives: added after the idea'
+    $again = Add-JudgeObjectives $judged '- Otro objetivo'
+    Assert-Equal 1 ([regex]::Matches($again, [regex]::Escape($script:ObjectivesMarker)).Count) 'objectives: a retrial replaces the block'
+    Assert-Equal $false ($again.Contains('Bajar costes')) 'objectives: the old objectives go'
+    Assert-Equal 'Vender velas' (Add-JudgeObjectives $judged '') 'objectives: none leaves the idea alone'
+
+    $mkStats = { param([double[]]$Costs) [pscustomobject]@{ scannedAt = '2026-11-08T10:00:00'; recent = [pscustomobject]@{ seconds = 36000; activeDays = 9; prompts = 120; sessions = 14
+        projects = @([pscustomobject]@{ name = 'tienda'; seconds = 7200; prompts = 30 })
+        usage = [pscustomobject]@{ cost = 300; windows = @($Costs | ForEach-Object { [pscustomobject]@{ cost = $_ } }) } } } }
+    $seatPolicy = Merge-BusinessPolicy ([pscustomobject]@{ seatMonthlyUsd = 100; company = 'Acme' })
+    $now = Get-Date -Year 2026 -Month 11 -Day 8 -Hour 12 -Minute 0 -Second 0
+    $report = Get-SeatReport (& $mkStats @(10, 9.5, 9.2, 4, 4, 4, 4, 4, 4, 4)) $seatPolicy 10 20 $now
+    Assert-Equal 'up' $report.recommendation 'seat: 3 of 10 windows at the limit fall short'
+    Assert-Equal 3 $report.roi 'seat: return is API-equivalent cost over the seat price'
+    Assert-Equal 10 $report.hours 'seat: hours from active seconds'
+    Assert-Equal 'down' (Get-SeatReport (& $mkStats @(1, 1, 2, 2, 3, 3, 1, 2)) $seatPolicy 10 20 $now).recommendation 'seat: windows under 35 % have room'
+    Assert-Equal 'fit' (Get-SeatReport (& $mkStats @(5, 6, 7, 5, 6, 8, 5)) $seatPolicy 10 20 $now).recommendation 'seat: in between fits'
+    Assert-Equal 'up' (Get-SeatReport (& $mkStats @(1, 1, 1, 1, 1)) $seatPolicy 10 96 $now).recommendation 'seat: the weekly limit at 95 % falls short'
+    Assert-Equal 'unknown' (Get-SeatReport (& $mkStats @(5, 6, 7, 5, 6)) $seatPolicy 0 20 $now).recommendation 'seat: uncalibrated without a capacity'
+    Assert-Equal 'unknown' (Get-SeatReport (& $mkStats @(9, 9)) $seatPolicy 10 20 $now).recommendation 'seat: too few windows to decide'
+    Assert-Equal $null (Get-SeatReport $null (Merge-BusinessPolicy $null) 0 0 $now).roi 'seat: no return without a seat price'
+    Assert-Equal 'tienda' @($report.projects)[0].name 'seat: projects go in when the policy allows'
+    Assert-Equal 0 @((Get-SeatReport (& $mkStats @(1)) (Merge-BusinessPolicy ([pscustomobject]@{ reportProjects = $false })) 0 0 $now).projects).Count 'seat: and stay out when it does not'
+
+    $reports = Join-Path $bizRoot 'informes'
+    $old = $report.PSObject.Copy(); $old.at = $now.AddDays(-7).ToString('o'); $old.apiCostUsd = 1
+    [void](Export-SeatReport $old $reports)
+    $path = Export-SeatReport $report $reports
+    Assert-Equal $true ((Split-Path -Leaf $path) -like '2026-11-08_*.json') 'report: named by date, PC and user'
+    $other = $report.PSObject.Copy(); $other.user = 'ana'; $other.apiCostUsd = 900; $other.recommendation = 'down'
+    [void](Export-SeatReport $other $reports)
+    $rows = @(Get-TeamReport $reports)
+    Assert-Equal 2 $rows.Count 'team: one row per person, the newest report'
+    Assert-Equal 'ana' $rows[0].user 'team: most expensive first'
+    $total = Measure-TeamReport $rows
+    Assert-Equal 1200 $total.ApiCostUsd 'team: total API-equivalent cost'
+    Assert-Equal 6 $total.Roi 'team: return over every seat'
+    Assert-Equal 1 $total.Up 'team: seats that fall short'
+    $csv = Export-TeamCsv $rows (Join-Path $bizRoot 'equipo.csv')
+    Assert-Equal 3 @(Get-Content -LiteralPath $csv).Count 'team: the CSV has a header and a row per person'
+    Assert-Equal 0 @(Get-TeamReport (Join-Path $bizRoot 'missing')).Count 'team: a missing folder has no rows'
+
+    $due = [pscustomobject]@{ Business = $true; Policy = (Merge-BusinessPolicy ([pscustomobject]@{ autoReport = $true })) }
+    Assert-Equal $true (Test-ReportDue $due $null $now) 'auto report: due the first time'
+    Assert-Equal $false (Test-ReportDue $due ([pscustomobject]@{ lastReportAt = $now.AddDays(-2).ToString('o') }) $now) 'auto report: not again within 7 days'
+    Assert-Equal $true (Test-ReportDue $due ([pscustomobject]@{ lastReportAt = $now.AddDays(-8).ToString('o') }) $now) 'auto report: due after 7 days'
+    Assert-Equal $false (Test-ReportDue ([pscustomobject]@{ Business = $true; Policy = (Merge-BusinessPolicy $null) }) $null $now) 'auto report: only when the policy asks'
+} finally { Remove-Item -LiteralPath $bizRoot -Recurse -Force -ErrorAction SilentlyContinue }
+

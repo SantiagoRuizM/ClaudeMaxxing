@@ -10,6 +10,8 @@ Tools for working with several Claude Code sessions at once on Windows 11:
 - **Peek**: in every Claude Code session, each path Claude writes (Windows or Linux, with or without backticks, spaces included) becomes a link. Hover it to preview it: an image, a video's frame, a PDF's first page, an audio file's length, a folder, or the first lines of code or text. Click it to show it in Explorer. Each reply ends with its **Referencias**, every path it named, code blocks and tables included. See [`peek/README.md`](peek/README.md) (Spanish).
 - **Claude Whisper**: a live copilot for calls (job interviews, meetings, sales calls). It transcribes the call as it happens, spots the questions the other side asks, and shows an answer from Claude written for you to say, using your profile and notes. It can also read your screen (for example a coding exercise). Everything runs on your Claude subscription through Claude Code. See [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
 
+There are two editions, picked at install: **personal** (the default, everything above) and **business** (`-Business`): the same tools under a company policy, plus the **Empresa** section with the seat report, team reports, the company's objectives and the team kit. See [Business edition](#business-edition).
+
 The user interface is in Spanish, and so are the voices (Latin American neural voices).
 
 *Versión en español más abajo: [Español](#español).*
@@ -64,6 +66,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 | `-NoStart` | Don't start the tray now (it still starts when you sign in) |
 | `-BuildMenu` | Rebuild the menu DLL from source first (needs Visual Studio with C++) |
 | `-SkipBridge` | Don't set up Otros PCs (no OpenSSH download, no firewall rules, no `~/.ssh/config` change) |
+| `-Business` / `-Personal` | The edition (also `--business` / `--personal`). Personal is the default; the choice is kept for the next update. See [Business edition](#business-edition) |
+| `-PolicyFile <json>` | Copies a company policy for this user (implies `-Business`) |
 
 ### What it changes on your PC
 
@@ -83,6 +87,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 | Windows Defender Firewall | Otros PCs: two inbound rules in the `ClaudeMaxxing` group, TCP 41022 for that `sshd.exe` and UDP 41021 for PowerShell, **Private networks only, from the local subnet only** |
 | `~/.ssh/config` | Otros PCs: a marked block at the top that includes `~/.claude/usage-tray/bridge/ssh_config` (a backup of the file is kept the first time) |
 | `%LOCALAPPDATA%\ClaudeJudge` | Claude Judge (Planear sesión): every trial in `.court`, the logs in `logs`, the last status in `status.json`. Removed with `-RemoveData` |
+| `~/.claude/usage-tray\edition.json`, `~/.claude/usage-tray\business` | The edition, and in the business edition the user's policy, objectives and seat calibration. `%ProgramData%\ClaudeMaxxing` (IT's policy and objectives) is only read, never written |
 | `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, voice history, Otros PCs keys and paired PCs (`bridge\`), Claude Whisper's settings and call history (`whisper\`), and the Estadísticas result and its per-transcript cache (`stats.json`, `stats-cache.json`) |
 
 ## Uninstall
@@ -258,6 +263,38 @@ Open **Claude Whisper** from the tray menu and press **Escuchar** when the call 
 - **It doesn't hide.** Some copilots are made to be invisible in screen sharing. This one isn't, on purpose: the window shows in screen sharing and in the taskbar like any other.
 - **The call is sent to Anthropic.** Audio goes to the speech service and the transcript to Claude, under your Claude account. Tell the people in the call when that matters, and follow the rules that apply to recording or transcribing calls where you are.
 
+### Business edition
+
+For a company whose people use Claude Code on their seats (Team or Enterprise plans). Install it with:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1))) -Business -PolicyFile \\files\claude\policy.json
+```
+
+(`npx github:SantiagoRuizM/ClaudeMaxxing --business` and `install.ps1 -Business` work too.) Updates keep the edition; `-Personal` switches back.
+
+**The policy.** A JSON file; [`business/policy.example.json`](business/policy.example.json) has every field:
+
+| Field | Meaning |
+|---|---|
+| `company` | The name shown in Empresa |
+| `disabled` | Modules turned off: `freellm`, `bridge` (Otros PCs), `whisper`. Default: all three, because FreeLLMAPI sends prompts to free third-party providers, Otros PCs gives a shell over SSH, and Claude Whisper sends calls to an undocumented service. `[]` allows all |
+| `seatName`, `seatMonthlyUsd` | The seat and what it costs per month, for the return on it |
+| `reportDir` | A folder the team shares (`\\server\share\...`, environment variables allowed) for the reports. Empty: `Documents\ClaudeMaxxing\informes` |
+| `autoReport` | `true` sends the report there every 7 days, without asking |
+| `reportProjects` | `false` leaves project names out of the report |
+| `marketplaces`, `plugins` | The team kit: plugin marketplaces (`owner/repo` or an `https` URL) and plugins (`name@marketplace`) |
+
+Where it is read from: `%ProgramData%\ClaudeMaxxing\policy.json` when IT puts one there (it then wins, makes the PC business whatever the flag says, and only an administrator can change it), else the user's `~/.claude/usage-tray/business/policy.json` (what `-PolicyFile` copies, or **Política** in Empresa creates from the defaults). A damaged file falls back to the defaults. A module that is off disappears from the tray menu and the window, and does not start: no SSH server or discovery for Otros PCs (the install also removes its firewall rules and `~/.ssh/config` block, with one UAC prompt), no FreeLLMAPI for new sessions, and `whisper.ps1` refuses to open.
+
+**Empresa** (second in the window's side menu; in Inicio its tiles and the objectives take the place of Otros PCs and Claude Whisper):
+- **The seat**: hours in the last 30 days, the API-equivalent cost (the same figure as Estadísticas > Consumo), the return on the seat (that cost over `seatMonthlyUsd`), and whether the seat **falls short**, **fits** or **has room**. It falls short when a quarter or more of the last 30 windows reach 90 % of the plan, or the weekly limit reaches 95 %, and it has room when 9 of 10 windows use under 35 %. A full window's cost is calibrated from the open window once it is at 10 % or more; until then it says *Sin calibrar*.
+- **Informes**: **Exportar mi informe** writes `<date>_<PC>_<user>.json` (hours, active days, prompts, sessions, cost, seat, return, the recommendation, and the top 10 projects with their hours unless `reportProjects` is false; never prompts or paths) to `reportDir`, after asking when that is a shared folder. **Informe del equipo** reads everyone's newest report there and opens a CSV in Excel (`Documents\ClaudeMaxxing\equipo-<date>.csv`), one row per person; the window says the team's total cost and return.
+- **Objetivos de la empresa**: a Markdown file, IT's `%ProgramData%\ClaudeMaxxing\objetivos.md` or the user's `business\objetivos.md` (**Editar** creates it from a template). Claude Judge (Planear sesión) gets them after every idea and also weighs whether the idea moves one; one that moves none counts against it.
+- **Kit del equipo**: the policy's plugins, each marked installed or not; **Instalar lo que falta** adds the marketplaces and installs the plugins with `claude plugin` for the user, for new sessions.
+
+What it does not do: it is not a security boundary against the user, who can still edit their own files (enforce Claude Code itself with its managed settings), and it has no server: team data only travels as the JSON files in the folder you choose.
+
 ## Development
 
 The repo is only the installer. After editing anything, run `install.ps1` again to deploy it.
@@ -291,6 +328,8 @@ ClaudeMaxxing reúne estas herramientas para trabajar con Claude Code en Windows
 - **modelos gratis con FreeLLMAPI**, para cuando se acaba la cuota. Es opcional y de terceros. Desde ClaudeMaxxing > Claude Code, **Instalar** descarga su app oficial (una versión fija, comprobada con SHA-512). Después creas tu cuenta y añades claves de proveedores en su ventana, copias tu clave unificada y pulsas **Pegar clave**. Con el interruptor activado, las sesiones **nuevas** van a FreeLLMAPI en vez de a tu plan; las abiertas, la agenda y `settings.json` no cambian. La calidad depende del modelo gratuito que toque. Detalles en [Free models with FreeLLMAPI](#free-models-with-freellmapi-when-the-quota-runs-out);
 - **Otros PCs**: los PCs de la misma red con ClaudeMaxxing se encuentran solos. Una vez emparejados (los dos muestran el mismo código de 6 dígitos y confirmas en ambos), desde la bandeja abres una terminal o Claude Code en el otro PC, y desde Claude Code puedes usar `ssh cmx-<pc> "comando"`. El otro PC siempre pregunta antes de dejar entrar (**Permitir**, **Permitir 1 hora** o **Rechazar**) y avisa cuando se abre y se cierra una sesión. Va por SSH, con un `sshd` que corre como tu usuario mientras la bandeja está abierta, solo en redes privadas y solo desde la red local;
 - **Claude Whisper**: un copiloto para llamadas (entrevistas, reuniones, ventas). Se abre desde el menú de la bandeja; al pulsar **Escuchar** transcribe en vivo lo que suena en el PC (**Ellos**) y tu micrófono (**Tú**), detecta cuándo te hacen una pregunta y Claude te propone qué decir, con tu perfil y tus notas de **Contexto**. **Responder** (Ctrl+Alt+Shift+R) pide una respuesta ya, **Pantalla** (Ctrl+Alt+Shift+C) le manda a Claude el monitor donde está el ratón (por ejemplo un ejercicio de programación) y Ctrl+Alt+Shift+W oculta o muestra la ventana. Cada llamada queda guardada en Markdown en `~/.claude/usage-tray/whisper/sessions`. Todo va con tu suscripción de Claude a través de Claude Code: la transcripción usa el mismo servicio que el dictado por voz de Claude Code (no es una API pública: puede cambiar o dejar de funcionar) y las respuestas, un `claude -p` que queda abierto durante la llamada. Cada respuesta cuenta para tus límites de uso. La llamada se envía a Anthropic: avisa a los demás cuando corresponda. Detalles en [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
+
+**Edición Empresa:** instala con `-Business` (o `--business`; `-Personal` es la de siempre y vuelve a ella). Una política en JSON (`-PolicyFile`, o la que TI deja en `%ProgramData%\ClaudeMaxxing\policy.json`, que manda) apaga módulos (por defecto FreeLLMAPI, Otros PCs y Claude Whisper) y define el asiento, la carpeta de informes del equipo y el kit de plugins. La sección **Empresa** muestra el retorno del asiento (consumo equivalente en API frente a su precio) y si se queda corto, encaja o sobra; exporta tu informe a la carpeta del equipo y junta los de todos en un CSV; guarda los objetivos de la empresa, que Claude Judge usa en cada juicio; e instala el kit del equipo con un clic. Detalles en [Business edition](#business-edition).
 
 **Instalar:** un solo comando en cualquier ventana de PowerShell. Baja la [última versión](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest), comprueba su SHA-256 y la instala; el mismo comando la actualiza. Con Node.js también vale `npx github:SantiagoRuizM/ClaudeMaxxing`, y a mano, descomprimir el ZIP y ejecutar `install.ps1`. En el repo no viene nada personal: tus ambientes, voces, claves, PCs emparejados y datos de uso los crean el instalador y la bandeja en tu PC, y se conservan al actualizar. Qué cambió en cada versión: [CHANGELOG.md](CHANGELOG.md).
 

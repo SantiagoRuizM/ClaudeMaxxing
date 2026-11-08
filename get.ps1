@@ -2,6 +2,7 @@
 #   irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
 # With install.ps1's options:
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1))) -SkipBridge
+# The business edition: the same with -Business (and -PolicyFile <json> for the company policy).
 # It downloads the newest release (or the branch -Ref names; main when there is no release yet), checks the ZIP
 # against the release's SHA256SUMS.txt, unzips it to a temporary folder, runs its install.ps1 and deletes the
 # folder: everything runs from %LOCALAPPDATA%\ClaudeMaxxing afterwards. Run it again to update. Keep this file ASCII.
@@ -12,7 +13,10 @@ param(
     [switch]$SkipMenu,
     [switch]$SkipVoiceDeps,
     [switch]$NoHotkeys,
-    [switch]$SkipBridge
+    [switch]$SkipBridge,
+    [switch]$Personal,
+    [Alias('Bussines')][switch]$Business,
+    [string]$PolicyFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,9 +61,11 @@ try {
     if (-not $installer) { throw 'The download has no install.ps1.' }
     $options = @()
     if ($InstallDir) { $options += @('-InstallDir', $InstallDir) }
-    foreach ($name in 'NoStart', 'SkipMenu', 'SkipVoiceDeps', 'NoHotkeys', 'SkipBridge') {
+    foreach ($name in 'NoStart', 'SkipMenu', 'SkipVoiceDeps', 'NoHotkeys', 'SkipBridge', 'Personal', 'Business') {
         if ((Get-Variable $name -ValueOnly).IsPresent) { $options += "-$name" }
     }
+    # The installer runs from a temporary folder: a relative path must not change meaning.
+    if ($PolicyFile) { $options += @('-PolicyFile', $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PolicyFile)) }
     $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
     & $powershell -NoProfile -ExecutionPolicy Bypass -File $installer @options
     if ($LASTEXITCODE) { throw "install.ps1 ended with code $LASTEXITCODE." }

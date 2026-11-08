@@ -14,6 +14,10 @@
 #      first time),
 #   8. startup shortcut, an entry in Settings > Apps (its uninstall runs the installed uninstall.ps1), and
 #      starts the tray.
+# Edition: -Personal (the default) or -Business (--personal / --business work too, and --bussines). The choice is
+# kept for the next update; a policy in %ProgramData%\ClaudeMaxxing (IT) makes it business. -PolicyFile <json> copies
+# a company policy for this user (and implies -Business). See lib\business.ps1 and business\policy.example.json.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$InstallDir,
     [switch]$NoStart,
@@ -21,7 +25,10 @@ param(
     [switch]$BuildMenu,
     [switch]$SkipVoiceDeps,
     [switch]$NoHotkeys,
-    [switch]$SkipBridge
+    [switch]$SkipBridge,
+    [switch]$Personal,
+    [Alias('Bussines')][switch]$Business,
+    [string]$PolicyFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +39,7 @@ $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $RepoRoot 'lib\installer.ps1')
 . (Join-Path $RepoRoot 'lib\bridge.ps1')
 . (Join-Path $RepoRoot 'lib\bridgeinstall.ps1')
+. (Join-Path $RepoRoot 'lib\business.ps1')
 if (-not $InstallDir) { $InstallDir = $DefaultInstallDir }
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
 if ($InstallDir -eq $RepoRoot.TrimEnd('\')) { throw 'The install folder cannot be the repo itself.' }
@@ -70,6 +78,28 @@ if (-not (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
 }
 if ([Environment]::OSVersion.Version.Build -lt 22000) {
     Add-Warning 'This is not Windows 11 (untested): the "Abrir con Claude Code" entry may not show, or only under "Show more options".'
+}
+
+# ---------------------------------------------------------------- edition
+Write-Step 'Edition'
+$managed = Test-Path -LiteralPath (Join-Path $MachinePolicyDir 'policy.json')
+$saved = Read-JsonFile $EditionFile
+$edition = Resolve-Edition ($Business.IsPresent -or [bool]$PolicyFile) $Personal.IsPresent $(if ($saved) { [string]$saved.edition } else { '' }) $managed
+if ($Personal -and $managed) { Add-Warning "-Personal ignored: IT's policy in $MachinePolicyDir makes this PC business." }
+if ($PolicyFile) {
+    $policyPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PolicyFile)
+    if (-not (Read-JsonFile $policyPath)) { throw "The policy file is missing or is not valid JSON: $policyPath" }
+    New-Item -ItemType Directory -Force -Path $BusinessHome | Out-Null
+    Copy-Item -LiteralPath $policyPath -Destination $UserPolicyFile -Force
+    Write-Host "policy copied to $UserPolicyFile"
+}
+Write-JsonFile $EditionFile ([ordered]@{ edition = $edition; at = (Get-Date).ToString('o') })
+$businessState = Get-BusinessState
+Write-Host "edition: $edition"
+if ($businessState.Business) {
+    Write-Host "policy: $(if ($businessState.Source) { $businessState.Source } else { 'defaults (FreeLLMAPI, Otros PCs and Claude Whisper off)' })"
+    $off = @($businessState.Policy.disabled)
+    Write-Host "turned off by the policy: $(if ($off.Count) { $off -join ', ' } else { 'nothing' })"
 }
 
 # ---------------------------------------------------------------- 2. previous install
@@ -163,7 +193,18 @@ Write-Host "environments and state (per PC): $(Join-Path $TrayHome 'harness')"
 
 # ---------------------------------------------------------------- 7. Otros PCs
 Write-Step 'Otros PCs (terminals between PCs over SSH)'
-if ($SkipBridge) {
+if (-not (Test-ModuleAllowed $businessState 'bridge')) {
+    # Turned off by the company policy: what an earlier personal install set up goes too (one UAC prompt).
+    Write-Host 'skipped (company policy)'
+    Write-Host (Uninstall-SshInclude)
+    if (@(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count) {
+        Write-Host 'removing the Otros PCs firewall rules (accept the UAC prompt)...'
+        [void](Invoke-Elevated (Get-BridgeFirewallRemovalScript))
+        if (@(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count) {
+            Add-Warning "The Otros PCs firewall rules are still there (UAC declined): remove the '$BridgeFirewallGroup' group in Windows Defender Firewall."
+        }
+    }
+} elseif ($SkipBridge) {
     Write-Host 'skipped (-SkipBridge)'
 } else {
     try {
@@ -204,5 +245,6 @@ Write-Host "Everything runs from $InstallDir; this repo is no longer needed (run
 if (-not $NoStart) {
     Write-Host 'Next: find the Claude icon in the notification area (it may be under the ^ arrow with the hidden icons).'
     Write-Host '  Left-click shows your usage; "Entrar a ClaudeMaxxing" opens the window with every tool.'
+    if ($businessState.Business) { Write-Host '  Business edition: its Empresa section has the seat report, team reports, objectives and the team kit.' }
 }
 Write-Host 'Menu sessions that were already open keep the previous paths until you close and reopen them.'

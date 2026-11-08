@@ -11,7 +11,13 @@ param([string]$RenderTo, [string]$Theme, [string]$SimulateWav, [int]$ExitAfter =
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
+. (Join-Path $TrayRoot 'lib\business.ps1')
 Clear-ClaudeSessionEnv
+# A company policy can turn Claude Whisper off: then it never starts (the tray hides it as well).
+if (-not $RenderTo -and -not (Test-ModuleAllowed (Get-BusinessState) 'whisper')) {
+    [Console]::Error.WriteLine('Claude Whisper is turned off by the company policy.')
+    exit 1
+}
 
 $Rendering = [bool]$RenderTo
 $Testing = [bool]$SimulateWav

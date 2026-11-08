@@ -2,6 +2,15 @@
 
 ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major** version changes how it installs or what it keeps on your PC in a way that needs you to act, a **minor** one adds tools or options, a **patch** one fixes things. The version lives in `lib/common.ps1` (`$AppVersion`) and must match the newest entry here; pushing the tag `v<version>` publishes a GitHub Release with the ZIP to install (`.github/workflows/release.yml`).
 
+## 1.1.0 - 2026-11-08
+
+- **Business edition**: `install.ps1 -Business` (or `--business`; `-Personal` is the default and switches back). The choice is kept on update, and a policy that IT puts in `%ProgramData%\ClaudeMaxxing\policy.json` makes the PC business. A new **Empresa** section shows:
+  - the seat report: 30-day use, the API-equivalent cost against the seat price, and whether the seat falls short, fits or has room;
+  - reports for a shared folder (by hand, or every 7 days) and the team's summary as a CSV;
+  - the company's objectives, which Claude Judge weighs in every trial;
+  - the team kit of plugins and marketplaces, installed with one click.
+- The company policy (`business\policy.example.json`) turns modules off: FreeLLMAPI, Otros PCs and Claude Whisper are off by default. A module that is off disappears from the tray and the window and does not start; turning Otros PCs off also removes its firewall rules and `~/.ssh/config` block.
+
 ## 1.0.0 - 2026-11-07
 
 First public release. Install with one command: `irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex` (or `npx github:SantiagoRuizM/ClaudeMaxxing`, or the ZIP and `install.ps1`; see the README).
