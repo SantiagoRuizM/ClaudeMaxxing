@@ -2,7 +2,7 @@
   "name": "ClaudeMaxxing (claro)",
   "base": "light",
   "overrides": {
-    "userMessageBackground": "rgb(215,119,87)",
-    "userMessageBackgroundHover": "rgb(232,150,120)"
+    "userMessageBackground": "rgb(247,186,156)",
+    "userMessageBackgroundHover": "rgb(251,208,186)"
   }
 }
