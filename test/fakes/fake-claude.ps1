@@ -5,6 +5,8 @@
 #   error    an is_error answer (max turns)
 #   crash    no answer, a message on stderr and exit code 3
 #   hang     never answers (the worker must stop it at its time limit)
+#   debate   a debate turn (lib\debate-worker.ps1): appends the prompt from stdin to fake-claude-prompts.txt and answers
+#            with a line that carries a fake API key, so the worker's secret filter has something to hide
 # Every call leaves fake-claude-called.txt with its arguments in the current folder. Keep this file ASCII.
 [IO.File]::WriteAllText((Join-Path (Get-Location) 'fake-claude-called.txt'), ($args -join ' '))
 $utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -34,5 +36,14 @@ switch ($env:FAKE_CLAUDE_MODE) {
     'error' { Send '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":50,"result":"Reached the maximum number of turns","permission_denials":[]}' }
     'crash' { [Console]::Error.WriteLine('boom: the fake claude crashed'); exit 3 }
     'hang'  { Start-Sleep -Seconds 60 }
+    'debate' {
+        [Console]::InputEncoding = $utf8
+        $prompt = [Console]::In.ReadToEnd()
+        [IO.File]::AppendAllText((Join-Path (Get-Location) 'fake-claude-prompts.txt'), $prompt + "`n=====`n", $utf8)
+        $who = Split-Path -Leaf (Get-Location)
+        $kind = if ($prompt -match 'You moderate') { 'Resultado' } else { 'Postura' }
+        $text = "$kind de $who con acci$o" + 'n. Clave: sk-fakefakefakefakefake1234'
+        Send ('{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total_cost_usd":0.01,"result":"' + $text + '","permission_denials":[]}')
+    }
 }
 exit 0

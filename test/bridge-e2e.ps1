@@ -122,11 +122,90 @@ try {
     Check ($r.Code -ne 0 -and $r.Err -match 'HOST IDENTIFICATION|host key') 'changed host key is refused' "code $($r.Code) err [$($r.Err)]"
     [IO.File]::WriteAllText($A.KnownHosts, $forged)
 
+    # ---- debates (lib\debate.ps1): the gate's mailbox mode, then a whole debate between two workers on A and B
+    . (Join-Path $Root 'lib\judge.ps1')
+    . (Join-Path $Root 'lib\debate.ps1')
+    $gateA = Import-BridgeGate $A
+    $serverA = Start-BridgeServer $A $gateA
+    Start-Sleep -Seconds 2
+    Check (-not $serverA.HasExited) 'A server running' (Get-BridgeServerError $A)
+    function Get-Base64([string]$Text) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Text)) }
+    $post = Get-Base64 '{"debate":"x","name":"turn0","text":"hola"}'
+    $sshTo = @('-n', '-F', "`"$include`"", '-o', 'BatchMode=yes', $alias)
+    $fakeId = New-DebateId
+    $r = Invoke-Client $clients.portable ($sshTo + "cmx-debate $fakeId turn0 $post") 'allow'
+    Check ($r.Code -ne 0 -and $r.Err -match 'no hay un debate abierto' -and -not (Test-Path -LiteralPath (Join-Path $B.Home "debates\$fakeId"))) 'debate: a message for a debate B does not hold is refused' "code $($r.Code) err [$($r.Err)]"
+    $r = Invoke-Client $clients.portable ($sshTo + "`"cmx-debate $fakeId turn0 $post & echo pwned`"") 'allow'
+    Check ($r.Code -ne 0 -and $r.Out -notmatch 'pwned' -and $r.Err -match 'invalido') 'debate: a malformed debate command is refused, never run' "code $($r.Code) out [$($r.Out)] err [$($r.Err)]"
+    $r = Invoke-Client $clients.portable ($sshTo + "cmx-debate $fakeId open $post") 'deny'
+    Check ($r.Code -ne 0 -and -not (Test-Path -LiteralPath (Join-Path $B.Home "debates\$fakeId"))) 'debate: a denied open leaves nothing' "code $($r.Code) err [$($r.Err)]"
+    $r = Invoke-Client $clients.portable ($sshTo + "cmx-debate $fakeId open $(Get-Base64 ('x' * 17000))") 'allow'
+    Check ($r.Code -ne 0 -and $r.Err -match '16 KB' -and -not (Test-Path -LiteralPath (Join-Path $B.Home "debates\$fakeId"))) 'debate: a message over 16 KB is refused before asking' "code $($r.Code) err [$($r.Err)]"
+
+    # Plays B's tray: allows the debate's open and starts the guest worker with $GuestFolder ('' declines), like
+    # Complete-DebateAccept. Returns once both sides stopped running.
+    function Invoke-Debate([string]$GuestFolder) {
+        $fake = '-ClaudePath "{0}" -WaitSeconds 60 -TurnTimeoutSeconds 60' -f (Join-Path $Root 'test\fakes\claude.cmd')
+        $dirA = Join-Path (Get-DebateRoot $A) (New-DebateId)
+        $env:FAKE_CLAUDE_MODE = 'debate'
+        [void](Start-DebateWorker $A $dirA 'host' $recordB.id 'Redis o Postgres para la cola de notificaciones' $folderA $Root ($fake + ' -Me PC-A'))
+        $kinds = @(); $dirB = $null; $request = $null; $sa = $null; $sb = $null
+        $deadline = (Get-Date).AddSeconds(120)
+        while ((Get-Date) -lt $deadline) {
+            foreach ($req in @(Get-ChildItem -LiteralPath $B.RequestsDir -Filter '*.json' -ErrorAction SilentlyContinue)) {
+                $answerFile = $req.FullName -replace '\.json$', '.answer'
+                if (Test-Path -LiteralPath $answerFile) { continue }
+                $record = Read-JsonFile $req.FullName
+                if (-not $record) { continue }
+                $kinds += [string]$record.kind
+                [IO.File]::WriteAllText($answerFile, 'allow')
+                $request = [pscustomobject]@{ Command = [string]$record.command; Message = [string]$record.message }
+            }
+            if ($request -and -not $dirB) {
+                $dirB = Join-Path (Get-DebateRoot $B) (Get-DebateIdFromCommand $request.Command)
+                $openBy = (Get-Date).AddSeconds(10)
+                while (-not (Test-Path -LiteralPath (Join-Path $dirB 'in\open.json')) -and (Get-Date) -lt $openBy) { Start-Sleep -Milliseconds 100 }
+                [void](Start-DebateWorker $B $dirB 'guest' $recordA.id (Get-DebateTopic $request) $GuestFolder $Root ($fake + ' -Me PC-B'))
+            }
+            $sa = Get-DebateStatus $dirA
+            $sb = if ($dirB) { Get-DebateStatus $dirB } else { $null }
+            if ($sa -and $sb -and $sa.state -ne 'running' -and $sb.state -ne 'running') { break }
+            Start-Sleep -Milliseconds 200
+        }
+        Remove-Item Env:FAKE_CLAUDE_MODE
+        [pscustomobject]@{ A = $sa; B = $sb; DirA = $dirA; DirB = $dirB; Kinds = ($kinds -join ',') }
+    }
+    function Read-Utf8([string]$Path) { if ($Path -and (Test-Path -LiteralPath $Path)) { [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) } else { '' } }
+    $folderA = Join-Path $work 'proyecto-a'; $folderB = Join-Path $work 'proyecto-b'
+    New-Item -ItemType Directory -Force $folderA, $folderB | Out-Null
+    $d = Invoke-Debate $folderB
+    $logs = (Read-Utf8 (Join-Path $d.DirA 'debate.log')) + "`n" + $(if ($d.DirB) { Read-Utf8 (Join-Path $d.DirB 'debate.log') })
+    Check ($d.Kinds -eq 'debate') 'debate: the open asks B once, as a debate' "[$($d.Kinds)]"
+    Check ("$($d.A.state)/$($d.B.state)" -eq 'done/done') 'debate: both sides finish' "$($d.A.state): $($d.A.message) / $($d.B.state): $($d.B.message)`n$logs"
+    $ta = Read-Utf8 (Join-Path $d.DirA 'transcript.md')
+    $tb = if ($d.DirB) { Read-Utf8 (Join-Path $d.DirB 'transcript.md') } else { '' }
+    $accent = 'acci' + [char]0x00F3 + 'n'
+    Check ($ta.Contains('Ronda 3') -and $ta.Contains("Postura de proyecto-b con $accent") -and $ta.Contains('## Resultado')) 'debate: A has every round, the words of B (accents intact) and the result'
+    Check ($tb.Contains("Postura de proyecto-a con $accent") -and $tb.Contains('Resultado de ')) 'debate: B has the words of A and the result of the moderator'
+    $sent = @(foreach ($dir in @($d.DirA, $d.DirB | Where-Object { $_ })) { Get-ChildItem -LiteralPath (Join-Path $dir 'in') -Filter '*.json' -ErrorAction SilentlyContinue | ForEach-Object { [IO.File]::ReadAllText($_.FullName) } })
+    Check ($sent.Count -eq 8 -and -not ($sent -match 'sk-fake') -and $ta.Contains('[oculto]')) 'debate: 8 messages crossed and no key left either PC' "$($sent.Count) messages"
+    $prompts = @((Read-Utf8 (Join-Path $folderA 'fake-claude-prompts.txt')) -split '=====')
+    Check ($prompts.Count -ge 3 -and -not $prompts[0].Contains('<debate_history>') -and $prompts[1].Contains('Postura de proyecto-b')) 'debate: the first round is blind, the next ones see the other side'
+    $turnArgs = Read-Utf8 (Join-Path $folderA 'fake-claude-called.txt')
+    $modArgs = Read-Utf8 (Join-Path $d.DirA 'fake-claude-called.txt')
+    Check ($turnArgs.Contains('--restricted') -and $turnArgs.Contains('--strict-mcp-config') -and $turnArgs.Contains('Read,Glob,Grep') -and $modArgs.Contains('--restricted') -and -not $modArgs.Contains('Read,Glob')) 'debate: turns read only, the moderator gets no tools' "turn [$turnArgs] moderator [$modArgs]"
+    $r = Invoke-Client $clients.portable ($sshTo + "cmx-debate $(if ($d.DirB) { Split-Path -Leaf $d.DirB } else { $fakeId }) close $post") 'allow'
+    Check ($r.Code -ne 0 -and $r.Err -match 'no hay un debate abierto') 'debate: a finished debate takes nothing more' "code $($r.Code) err [$($r.Err)]"
+
+    $d = Invoke-Debate ''
+    Check ($d.A.state -eq 'error' -and $d.A.message -like '*no acept*' -and $d.B.state -eq 'error') 'debate: when B declines, A stops and says so' "$($d.A.state): $($d.A.message)"
+
     Check (@(Get-ChildItem -LiteralPath $B.SessionsDir -File).Count -eq 0) 'no session records left behind'
 } finally {
     if ($udpA) { $udpA.Close() }
     if ($udpB) { $udpB.Close() }
     $stopped = Stop-BridgeServer $B
+    [void](Stop-BridgeServer $A)
     Start-Sleep -Milliseconds 500
     $left = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*$work*" })
     Check ($left.Count -eq 0) 'stopping the server leaves no process behind' (($left | ForEach-Object { $_.Name }) -join ',')

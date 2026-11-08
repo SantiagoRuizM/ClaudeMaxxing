@@ -372,7 +372,7 @@ function Update-BridgeRequests {
         }
         $b.Requests[$id] = [pscustomobject]@{
             Id = $id; Peer = $peer; Kind = [string]$record.kind; Command = [string]$record.command
-            Client = [string]$record.client; Seen = (Get-Date)
+            Client = [string]$record.client; Message = [string]$record.message; Seen = (Get-Date)
         }
         if (-not $script:ApprovalForm) { [System.Media.SystemSounds]::Asterisk.Play() }
     }
@@ -403,13 +403,16 @@ function Send-BridgeAnswer([string]$RequestId, [string]$Answer, [switch]$ForAnHo
     $answered = @($request)
     if ($ForAnHour) {
         Set-BridgeGrant $b.Ctx $request.Peer.id ((Get-UnixNow) + $BridgeGrantSeconds)
-        $answered = @($b.Requests.Values | Where-Object { $_.Peer.id -eq $request.Peer.id })
+        # A debate is never allowed in passing: accepting one is where the user picks the folder.
+        $answered = @($request) + @($b.Requests.Values | Where-Object { $_.Peer.id -eq $request.Peer.id -and $_.Id -ne $request.Id -and $_.Kind -ne 'debate' })
     }
     foreach ($item in $answered) {
         Write-AnswerFile (Join-Path $b.Ctx.RequestsDir "$($item.Id).answer") $Answer
         $b.Requests.Remove($item.Id)
     }
     Write-BridgeLog $b.Ctx ("answered {0}{1} to {2}: {3} [{4}]" -f $Answer, $(if ($ForAnHour) { ' (1 hour)' } else { '' }), $request.Peer.name, $request.Kind, $request.Command)
+    # The folder is picked once this dialog has closed (Complete-DebateAccept, lib\debateui.ps1).
+    if ($Answer -eq 'allow' -and $request.Kind -eq 'debate') { $script:DebateAccepted = $request }
     $b.Dirty = $true
 }
 
@@ -567,6 +570,7 @@ function Update-BridgeMenu($Item) {
         $suffix = if ($online) { '' } else { ' (sin verlo en la red)' }
         [void]$Item.DropDownItems.Add("Terminal en $($peer.name)$suffix", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)'"))
         [void]$Item.DropDownItems.Add("Claude Code en $($peer.name)$suffix", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)' -Claude"))
+        [void]$Item.DropDownItems.Add("Debatir con $($peer.name)...$suffix", $null, [scriptblock]::Create("Start-DebateWith '$($peer.id)'"))
     }
     $sessions = @($b.Sessions.Values)
     if ($sessions.Count) {
@@ -1109,6 +1113,7 @@ function Get-RequestView($Request) {
     switch ($Request.Kind) {
         'shell' { return @{ Title = 'Abrir una terminal (PowerShell) en este PC'; Detail = '' } }
         'sftp'  { return @{ Title = 'Copiar archivos de o a este PC (SFTP)'; Detail = '' } }
+        'debate' { return @{ Title = 'Debatir: su Claude con el tuyo, sobre:'; Detail = (Format-CommandPreview (Get-DebateTopic $Request)) } }
     }
     # Only the exact command "claude" is shown as Claude Code; anything longer is shown as the command it is.
     if ($Request.Command.Trim() -ceq 'claude') { return @{ Title = 'Abrir Claude Code en este PC'; Detail = '' } }
@@ -1173,7 +1178,9 @@ function Draw-ApprovalForm($Form, $G) {
 
     $card = New-Rect $left ((Px 174) + $dy) $inner (Px 56)
     Fill-Round $G $card (Px 10) $P.AccentTint
-    Draw-Wrapped $G (Tx 'Tendr\u00e1 los mismos permisos que tu usuario de Windows: tus archivos, tus programas y tu sesi\u00f3n de Claude Code. Permite solo PCs tuyos o de confianza.') $F.Small $P.Text ($card.X + (Px 12)) ($card.Y + (Px 8)) ($card.Width - (Px 24)) ($card.Height - (Px 12))
+    $cardText = if ($request.Kind -eq 'debate') { 'Al permitir eliges la carpeta que tu Claude puede leer. Solo lee: no ejecuta nada ni usa internet, y al otro PC solo le llega lo que escribe en el debate.' }
+        else { 'Tendr\u00e1 los mismos permisos que tu usuario de Windows: tus archivos, tus programas y tu sesi\u00f3n de Claude Code. Permite solo PCs tuyos o de confianza.' }
+    Draw-Wrapped $G (Tx $cardText) $F.Small $P.Text ($card.X + (Px 12)) ($card.Y + (Px 8)) ($card.Width - (Px 24)) ($card.Height - (Px 12))
 
     $remaining = $BridgeApprovalSeconds - [int]((Get-Date) - $request.Seen).TotalSeconds
     Draw-Text $G ("Se rechaza sola en $([Math]::Max(0, $remaining)) s") $F.Small $P.Faint $left ((Px 238) + $dy) $inner (Px 18)
@@ -1185,13 +1192,15 @@ function Draw-ApprovalForm($Form, $G) {
 
     $id = $request.Id
     $right = $left + $inner
-    foreach ($button in @(@{ Id = 'allow'; Label = 'Permitir'; Action = "Send-BridgeAnswer '$id' 'allow'"; Accent = $true },
-                          @{ Id = 'hour'; Label = 'Permitir 1 hora'; Action = "Send-BridgeAnswer '$id' 'allow' -ForAnHour"; Accent = $false },
-                          @{ Id = 'deny'; Label = 'Rechazar'; Action = "Send-BridgeAnswer '$id' 'deny'"; Accent = $false })) {
+    $buttons = @(@{ Id = 'allow'; Label = 'Permitir'; Action = "Send-BridgeAnswer '$id' 'allow'"; Accent = $true },
+                 @{ Id = 'hour'; Label = 'Permitir 1 hora'; Action = "Send-BridgeAnswer '$id' 'allow' -ForAnHour"; Accent = $false },
+                 @{ Id = 'deny'; Label = 'Rechazar'; Action = "Send-BridgeAnswer '$id' 'deny'"; Accent = $false })
+    if ($request.Kind -eq 'debate') { $buttons = @($buttons | Where-Object { $_.Id -ne 'hour' }) }
+    foreach ($button in $buttons) {
         $bw = [Math]::Max((Px 84), (Get-PillWidth $button.Label))
         $rect = New-Rect ($right - $bw) ((Px 262) + $dy) $bw (Px 32)
         if ($armed) {
-            Draw-PillButton $G $map $hover $button.Id $rect $button.Label ([scriptblock]::Create($button.Action + '; Update-BridgeRequests')) -Accent:$button.Accent
+            Draw-PillButton $G $map $hover $button.Id $rect $button.Label ([scriptblock]::Create($button.Action + '; Update-BridgeRequests; Complete-DebateAccept')) -Accent:$button.Accent
         } else {
             Fill-Round $G $rect (Px 7) $P.Surface
             Draw-Text $G $button.Label $F.Small $P.Faint $rect.X $rect.Y $rect.Width $rect.Height 'Center'
@@ -1200,6 +1209,7 @@ function Draw-ApprovalForm($Form, $G) {
     }
     $hourNote = 'Permitir 1 hora: ese PC entra sin preguntar durante una hora'
     if ($others -gt 0) { $hourNote += ', incluidas sus solicitudes en espera' }
+    if ($request.Kind -eq 'debate') { $hourNote = 'Un debate se permite uno a uno' }
     Draw-Wrapped $G ($hourNote + '. Esc rechaza.') $F.Small $P.Faint $left ((Px 302) + $dy) $inner (Px 32)
 
     $border = New-Object System.Drawing.Pen($P.Border)

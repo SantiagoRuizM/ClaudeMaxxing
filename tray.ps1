@@ -52,6 +52,8 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\hubauto.ps1')
 . (Join-Path $TrayRoot 'lib\judge.ps1')
 . (Join-Path $TrayRoot 'lib\hubplan.ps1')
+. (Join-Path $TrayRoot 'lib\debate.ps1')
+. (Join-Path $TrayRoot 'lib\debateui.ps1')
 . (Join-Path $TrayRoot 'lib\hubskills.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 # Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.

@@ -10,6 +10,7 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
   - the company's objectives, which Claude Judge weighs in every trial;
   - the team kit of plugins and marketplaces, installed with one click.
 - The company policy (`business\policy.example.json`) turns modules off: FreeLLMAPI, Otros PCs and Claude Whisper are off by default. A module that is off disappears from the tray and the window and does not start; turning Otros PCs off also removes its firewall rules and `~/.ssh/config` block.
+- **Debates** in Otros PCs: **Debatir con <PC>...** has your Claude and the other person's argue a decision, each from its own project, and gives you both one recommendation. A blind first round, two replies, and a moderator with no files on the PC that started it. Each Claude only reads the folder its person picks (`claude -p --restricted`, Read/Glob/Grep, no `.env` or keys); only text crosses, through a new mailbox mode of the gate that runs nothing; keys are hidden before anything is sent. The other PC accepts each debate on its own: an hour grant does not open one.
 
 ## 1.0.0 - 2026-11-07
 

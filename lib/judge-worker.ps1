@@ -28,13 +28,6 @@ Get-ChildItem -LiteralPath $JudgeLogDir -Filter *.log | Sort-Object Name -Descen
 
 function Write-Log([string]$Text) { [IO.File]::AppendAllText($logFile, ((Get-Date).ToString('HH:mm:ss') + ' ' + $Text + "`r`n"), $Utf8NoBom) }
 
-# Claude's output file, read even while a claude stopped at the time limit (or its children) still holds it open.
-function Read-SharedText([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return '' }
-    $stream = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
-    try { (New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)).ReadToEnd() } finally { $stream.Dispose() }
-}
-
 function Set-Status([string]$State, [string]$Message, [string]$Run = '') {
     Write-JsonFile $JudgeStatusFile ([ordered]@{ state = $State; message = $Message; run = $Run; previous = $previous; jury = $Jury; pid = $PID; log = $logFile; at = (Get-Date).ToString('o') })
 }

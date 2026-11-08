@@ -34,6 +34,13 @@ function Resolve-JudgeClaude([string]$Preferred) {
     $null
 }
 
+# Claude's output file, read even while a claude stopped at the time limit (or its children) still holds it open.
+function Read-SharedText([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return '' }
+    $stream = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
+    try { (New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)).ReadToEnd() } finally { $stream.Dispose() }
+}
+
 # What went wrong, in one line for the window, from what claude -p left: its JSON answer ($null when there was none),
 # stderr, the exit code and whether it ran out of time. The log keeps the full text.
 function Get-JudgeFailure($Answer, [string]$StdErr, [int]$ExitCode, [bool]$TimedOut, [int]$TimeoutMinutes) {

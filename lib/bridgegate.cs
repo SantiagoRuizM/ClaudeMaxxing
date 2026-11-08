@@ -5,6 +5,10 @@
 //   2. records the session in sessions\ so the tray can show and end it;
 //   3. runs, with this process's own console or pipes, an interactive shell (no command), the trusted
 //      sftp-server (sftp and scp), or the command through cmd.exe /c, as the stock Windows sshd does.
+// Debates (lib\debate.ps1) never run anything: "cmx-debate <debate id> <message> <base64 JSON>" only drops the JSON
+// in debates\<debate id>\in\. It travels in the command, not on stdin: this sshd hands a forced command no more than
+// 4 KB of stdin and then the session hangs. "open" asks the tray (always, grants do not count) and starts the debate;
+// every later message is taken without asking, but only from the PC the debate is with, and never twice.
 // Usage: cmx-gate.exe <peer id>. The bridge folder is the parent of the folder holding this exe.
 // Messages are Spanish without accents on purpose: the client terminal's code page is unknown.
 using System;
@@ -62,25 +66,54 @@ public static class ClaudeMaxxingGate
         SetConsoleCtrlHandler(keepHandler, true);
 
         string original = Environment.GetEnvironmentVariable("SSH_ORIGINAL_COMMAND") ?? "";
-        string kind = original.Length == 0 ? "shell" : IsSftp(original) ? "sftp" : "exec";
+        string debateId = null, debateMessage = null, message = "";
+        byte[] body = null;
+        bool debate = original.StartsWith("cmx-debate", StringComparison.Ordinal);
+        // A malformed debate command is refused, never run as a command.
+        if (debate)
+        {
+            string problem = ParseDebate(original, out debateId, out debateMessage, out body);
+            if (problem != null) { Say("ClaudeMaxxing: " + problem); return 1; }
+        }
+        string kind = original.Length == 0 ? "shell" : debate ? "debate" : IsSftp(original) ? "sftp" : "exec";
         string client = (Environment.GetEnvironmentVariable("SSH_CLIENT") ?? "").Split(' ')[0];
         string id = Guid.NewGuid().ToString("N");
-        string record = "{\"id\":" + Json(id) + ",\"peer\":" + Json(peer) + ",\"kind\":" + Json(kind) +
-            ",\"command\":" + Json(kind == "exec" ? original : "") + ",\"client\":" + Json(client) +
-            ",\"pid\":" + System.Diagnostics.Process.GetCurrentProcess().Id +
-            ",\"at\":" + Json(DateTime.Now.ToString("o")) + "}";
 
         // Without the tray (it crashed and left sshd behind, or it is being closed) nobody here would see a
         // dialog or a notice: nobody gets in, not even with a grant.
         if (!TrayRunning(home)) { Say("ClaudeMaxxing: la bandeja de ClaudeMaxxing no esta abierta en " + name + "; conexion cerrada."); return 1; }
 
-        if (!HasGrant(Path.Combine(home, "grants.txt"), peer))
+        string debateDir = null;
+        if (debate)
+        {
+            debateDir = Path.Combine(Path.Combine(home, "debates"), debateId);
+            if (debateMessage != "open") return StoreDebateMessage(debateDir, peer, debateMessage, body);
+            if (Directory.Exists(debateDir)) { Say("ClaudeMaxxing: ese debate ya existe."); return 1; }
+            // The tray shows the topic from here; the gate's Json escapes everything that is not printable ASCII.
+            message = new UTF8Encoding(false).GetString(body);
+        }
+        string record = "{\"id\":" + Json(id) + ",\"peer\":" + Json(peer) + ",\"kind\":" + Json(kind) +
+            ",\"command\":" + Json(kind == "exec" ? original : debate ? "cmx-debate " + debateId + " " + debateMessage : "") + ",\"client\":" + Json(client) +
+            ",\"message\":" + Json(message) +
+            ",\"pid\":" + System.Diagnostics.Process.GetCurrentProcess().Id +
+            ",\"at\":" + Json(DateTime.Now.ToString("o")) + "}";
+
+        // An hour's grant lets a PC open terminals, not debates: accepting one is where the user picks the folder
+        // their Claude may read.
+        if (debate || !HasGrant(Path.Combine(home, "grants.txt"), peer))
         {
             int timeout;
             if (!int.TryParse(Get(conf, "timeout", "60"), out timeout)) timeout = 60;
             string answer = AskTray(Path.Combine(home, "requests"), id, record, timeout);
             if (answer == null) { Say("ClaudeMaxxing: nadie respondio en " + name + " (" + timeout + " s); conexion cerrada."); return 1; }
             if (answer != "allow") { Say("ClaudeMaxxing: " + name + " no permitio esta conexion."); return 1; }
+        }
+
+        if (debate)
+        {
+            Directory.CreateDirectory(Path.Combine(debateDir, "in"));
+            WriteAtomically(Path.Combine(debateDir, "peer.txt"), peer);
+            return StoreDebateMessage(debateDir, peer, "open", body);
         }
 
         string sessions = Path.Combine(home, "sessions");
@@ -148,6 +181,46 @@ public static class ClaudeMaxxingGate
         GetExitCodeProcess(pi.hProcess, out code);
         CloseHandle(pi.hProcess);
         return (int)code;
+    }
+
+    // The JSON of one message, before base64 (a Windows command line holds about 32 000 characters).
+    const int MaxDebateBytes = 16 * 1024;
+    const int MaxDebateMessages = 16;
+
+    // "cmx-debate <32 hex> <open|turn0..turn9|final|close> <base64>", exactly. Returns why it is refused, or null.
+    static string ParseDebate(string command, out string debateId, out string message, out byte[] body)
+    {
+        debateId = null; message = null; body = null;
+        const string invalid = "mensaje de debate invalido.";
+        string[] parts = command.Split(' ');
+        if (parts.Length != 4 || parts[0] != "cmx-debate" || parts[1].Length != 32) return invalid;
+        foreach (char c in parts[1]) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return invalid;
+        string m = parts[2];
+        if (!(m == "open" || m == "final" || m == "close" || (m.Length == 5 && m.StartsWith("turn") && m[4] >= '0' && m[4] <= '9'))) return invalid;
+        if (parts[3].Length > (MaxDebateBytes + 2) / 3 * 4) return "el mensaje del debate pasa de " + (MaxDebateBytes / 1024) + " KB.";
+        foreach (char c in parts[3]) if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=')) return invalid;
+        try { body = Convert.FromBase64String(parts[3]); } catch (FormatException) { return invalid; }
+        debateId = parts[1]; message = m;
+        return null;
+    }
+
+    // Only into a debate this PC holds with that same peer, still open, once per message name.
+    static int StoreDebateMessage(string dir, string peer, string message, byte[] body)
+    {
+        string peerFile = Path.Combine(dir, "peer.txt"), inbox = Path.Combine(dir, "in");
+        string owner = "";
+        try { owner = File.ReadAllText(peerFile).Trim(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        if (owner != peer || File.Exists(Path.Combine(dir, "closed"))) { Say("ClaudeMaxxing: no hay un debate abierto con este PC."); return 1; }
+        Directory.CreateDirectory(inbox);
+        string target = Path.Combine(inbox, message + ".json");
+        if (File.Exists(target)) { Say("ClaudeMaxxing: ese mensaje del debate ya llego."); return 1; }
+        if (Directory.GetFiles(inbox, "*.json").Length >= MaxDebateMessages) { Say("ClaudeMaxxing: el debate ya tiene demasiados mensajes."); return 1; }
+        string tmp = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        File.WriteAllBytes(tmp, body);
+        try { File.Move(tmp, target); }
+        catch (IOException) { DeleteQuietly(tmp); Say("ClaudeMaxxing: ese mensaje del debate ya llego."); return 1; }
+        Console.Out.WriteLine("ok");
+        return 0;
     }
 
     // sshd hands a subsystem request over as its configured command; only the trusted path from gate.conf runs.
