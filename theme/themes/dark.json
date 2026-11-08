@@ -1,0 +1,8 @@
+{
+  "name": "ClaudeMaxxing (oscuro)",
+  "base": "dark",
+  "overrides": {
+    "userMessageBackground": "rgb(174,74,44)",
+    "userMessageBackgroundHover": "rgb(196,92,60)"
+  }
+}

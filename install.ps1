@@ -142,6 +142,11 @@ $peekState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.
 Write-Host "Peek: $peekState"
 if ($peekState -like 'skipped*') { Add-Warning "Peek $peekState" }
 
+# Theme: the prompt Claude Code pins at the top of the transcript, in Claude orange, in every session.
+$themeState = Install-ThemeSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'theme')
+Write-Host "Theme: $themeState"
+if ($themeState -like 'skipped*') { Add-Warning "Theme $themeState" }
+
 # ---------------------------------------------------------------- 5. Explorer menu
 Write-Step 'Explorer menu (Abrir con Claude Code)'
 if ($SkipMenu) {

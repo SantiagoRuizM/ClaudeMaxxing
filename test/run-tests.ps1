@@ -765,6 +765,40 @@ try {
     Remove-Item -LiteralPath $peekSettings, "$peekSettings.bak-claudemaxxing" -ErrorAction SilentlyContinue
 }
 
+# --- Theme: a plugin of custom themes for the pinned prompt bar, picked through the top-level "theme" setting
+foreach ($needed in 'theme\.claude-plugin\plugin.json', 'theme\themes\light.json', 'theme\themes\dark.json') {
+    Assert-Equal $true ($manifest -contains $needed) "runtime includes $needed"
+}
+foreach ($file in Get-ChildItem -LiteralPath (Join-Path $TrayRoot 'theme\themes') -Filter *.json) {
+    $themeJson = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json
+    Assert-Equal $file.BaseName $themeJson.base "theme: $($file.Name) builds on the built-in theme it is named after"
+    foreach ($color in $themeJson.overrides.PSObject.Properties) {
+        Assert-Equal $true ($color.Value -match '^rgb\(\d{1,3},\d{1,3},\d{1,3}\)$') "theme: $($file.Name) $($color.Name) is a color Claude Code accepts"
+    }
+}
+$themeSettings = Join-Path $env:TEMP "claudemaxxing-theme-test-$PID.json"
+$themeDir = 'X:\Apps\ClaudeMaxxing\theme'
+try {
+    [IO.File]::WriteAllText($themeSettings, "{`r`n  `"theme`": `"light`",`r`n  `"pluginConfigs`": { `"x`": { `"theme`": `"keep`" } }`r`n}`r`n")
+    Assert-Equal 'on (custom:maxx-theme:light)' (Install-ThemeSettings $themeSettings $themeDir) 'theme: a light theme becomes the light ClaudeMaxxing one'
+    $themeJson = [IO.File]::ReadAllText($themeSettings) | ConvertFrom-Json
+    Assert-Equal 'X:/Apps/ClaudeMaxxing/theme' $themeJson.env.CLAUDE_CODE_PLUGIN_DIRS 'theme: plugin folder listed'
+    Assert-Equal 'keep' $themeJson.pluginConfigs.x.theme 'theme: a nested "theme" is not touched'
+    Assert-Equal 'on (custom:maxx-theme:light)' (Install-ThemeSettings $themeSettings $themeDir) 'theme: install is idempotent'
+    Assert-Equal 'removed (theme back to light)' (Uninstall-ThemeSettings $themeSettings $themeDir) 'theme: uninstall restores the built-in theme'
+    $themeJson = [IO.File]::ReadAllText($themeSettings) | ConvertFrom-Json
+    Assert-Equal $true ($themeJson.theme -eq 'light' -and -not $themeJson.env.CLAUDE_CODE_PLUGIN_DIRS) 'theme: uninstall leaves no trace'
+    [IO.File]::WriteAllText($themeSettings, '{"model":"opus"}')
+    Assert-Equal 'on (custom:maxx-theme:dark)' (Install-ThemeSettings $themeSettings $themeDir) 'theme: no theme (dark by default) becomes the dark one'
+    [IO.File]::WriteAllText($themeSettings, '{"theme":"custom:mine"}')
+    Assert-Equal $true ((Install-ThemeSettings $themeSettings $themeDir) -like 'kept*') 'theme: a custom theme of the user is kept'
+    Assert-Equal 'custom:mine' (([IO.File]::ReadAllText($themeSettings) | ConvertFrom-Json).theme) 'theme: the custom theme is unchanged'
+    [IO.File]::WriteAllText($themeSettings, '{ not json')
+    Assert-Equal $true ((Install-ThemeSettings $themeSettings $themeDir) -like 'skipped*') 'theme: broken settings are left alone'
+} finally {
+    Remove-Item -LiteralPath $themeSettings, "$themeSettings.bak-claudemaxxing" -ErrorAction SilentlyContinue
+}
+
 # --- Explorer menu: prebuilt files committed, and the MSIX built from the current manifest
 foreach ($file in 'ClaudeCodeMenu.dll', 'ClaudeCodeMenuStub.exe', 'ClaudeCodeMenu.msix') {
     Assert-Equal $true (Test-Path -LiteralPath (Join-Path $TrayRoot "menu\bin\$file")) "menu\bin\$file is in the repo"

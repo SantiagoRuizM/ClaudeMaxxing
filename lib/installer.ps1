@@ -13,7 +13,7 @@ $script:RuntimeFiles = @(
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
 # claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
 # (env.js, the Chrome extension loaded unpacked from the install folder and its native messaging host).
-$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension')
+$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension', 'theme')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
 # the Python environment for edge-tts, the icons copied from the Claude app and the native host files that
 # Register-HarnessHost writes (Chrome may be running that launcher) and the extension's icons (install.ps1 draws them).
@@ -402,4 +402,57 @@ function Uninstall-PeekSettings([string]$SettingsPath, [string]$PeekDir) {
     if (-not (Test-JsonText $new)) { return "skipped: could not edit $SettingsPath (left as it was)" }
     [IO.File]::WriteAllText($SettingsPath, $new, (New-Object Text.UTF8Encoding $false))
     'removed'
+}
+
+# Theme (theme\): a plugin with two custom themes, loaded like Peek through CLAUDE_CODE_PLUGIN_DIRS. They repaint
+# userMessageBackground, the bar Claude Code pins at the top of the transcript with the prompt being answered
+# (and each prompt in it). Themes are a documented setting, so a Claude Code update keeps them. Picked with the
+# top-level "theme" setting as custom:maxx-theme:light|dark after the built-in theme it replaces; a custom theme
+# the user picked is left alone.
+$ThemePrefix = 'custom:maxx-theme:'
+
+function Get-SettingsTheme([string]$Text) {
+    $settings = $Text | ConvertFrom-Json
+    if ($settings -and $settings.PSObject.Properties['theme']) { return [string]$settings.theme }
+    ''
+}
+
+# The settings text with the top-level "theme" set to $Value (made when there is none).
+function Set-SettingsThemeText([string]$Text, [string]$Value) {
+    $found = ([regex]'("theme"\s*:\s*)"(?:[^"\\]|\\.)*"').Match($Text)
+    if ($found.Success) { return $Text.Substring(0, $found.Index) + $found.Groups[1].Value + (ConvertTo-JsonText $Value) + $Text.Substring($found.Index + $found.Length) }
+    $open = $Text.IndexOf('{')
+    $rest = $Text.Substring($open + 1)
+    $Text.Substring(0, $open + 1) + "`n  `"theme`": " + (ConvertTo-JsonText $Value) + $(if ($rest -match '^\s*\}') { "`n" } else { ',' }) + $rest
+}
+
+function Write-SettingsTheme([string]$SettingsPath, [string]$Text, [string]$Value) {
+    $new = Set-SettingsThemeText $Text $Value
+    # The regex could hit a nested "theme": written only when the top-level one is the one that changed.
+    if (-not (Test-JsonText $new) -or (Get-SettingsTheme $new) -ne $Value) { return $false }
+    [IO.File]::WriteAllText($SettingsPath, $new, (New-Object Text.UTF8Encoding $false))
+    $true
+}
+
+function Install-ThemeSettings([string]$SettingsPath, [string]$ThemeDir) {
+    $dirs = Install-PeekSettings $SettingsPath $ThemeDir
+    if ($dirs -like 'skipped*') { return $dirs }
+    $text = [IO.File]::ReadAllText($SettingsPath)
+    $current = Get-SettingsTheme $text
+    if ($current.StartsWith($ThemePrefix)) { return "on ($current)" }
+    if ($current.StartsWith('custom:')) { return "kept your theme $current (pick ClaudeMaxxing in /theme)" }
+    $want = $ThemePrefix + $(if ($current -like 'light*') { 'light' } else { 'dark' })
+    if (-not (Write-SettingsTheme $SettingsPath $text $want)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    "on ($want)"
+}
+
+function Uninstall-ThemeSettings([string]$SettingsPath, [string]$ThemeDir) {
+    $dirs = Uninstall-PeekSettings $SettingsPath $ThemeDir
+    if ($dirs -like 'skipped*' -or -not (Test-Path -LiteralPath $SettingsPath)) { return $dirs }
+    $text = [IO.File]::ReadAllText($SettingsPath)
+    $current = Get-SettingsTheme $text
+    if (-not $current.StartsWith($ThemePrefix)) { return $dirs }
+    $back = $current.Substring($ThemePrefix.Length)
+    if (-not (Write-SettingsTheme $SettingsPath $text $back)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    "removed (theme back to $back)"
 }
