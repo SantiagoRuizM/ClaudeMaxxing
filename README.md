@@ -2,7 +2,8 @@
 
 Tools for working with several Claude Code sessions at once on Windows 11:
 
-- **Usage tray**: your Claude plan usage (5-hour window and weekly limit) in the notification area, and when each one resets. Its **Entrar a ClaudeMaxxing** button opens the ClaudeMaxxing window, where every tool below has its status and settings (see [The ClaudeMaxxing window](#the-claudemaxxing-window)), including **Agendar sesión** to start the 5-hour window ahead of time.
+- **Usage tray**: your Claude plan usage (5-hour window and weekly limit) in the notification area, and when each one resets. Its **Entrar a ClaudeMaxxing** button opens the ClaudeMaxxing window, where every tool below has its status and settings (see [The ClaudeMaxxing window](#the-claudemaxxing-window)), including **Agendar sesión** to start the 5-hour window ahead of time. A notification warns when either window crosses 80 % and 95 %.
+- **Skills y MCP**: a section of the window that lists every skill and MCP server Claude Code loads (yours, your projects', your plugins', claude.ai's), and installs Anthropic's official packages to create them (skill-creator, mcp-server-dev, plugin-dev), each with a button that opens a Claude Code session that starts using it.
 - **"Abrir con Claude Code"** in the Explorer right-click menu: every session opens in its own half of a screen (two per monitor), with its own color and a name such as "Martín · codificador".
 - **Voice**: each session opened from the menu reads a one-line summary of every answer aloud, with its own voice and a short musical signature. Details in [`voice/README.md`](voice/README.md) (Spanish).
 - **Otros PCs**: PCs on the same Wi-Fi that both run ClaudeMaxxing find each other. After you pair them once, either one can open a terminal or Claude Code on the other, or run commands there from Claude Code with `ssh cmx-<pc>`. The other PC asks before letting anyone in. See [Otros PCs](#otros-pcs-terminals-between-your-pcs).
@@ -28,7 +29,18 @@ Nothing personal ships in the repo: your environments, voices, keys, paired PCs 
 
 ## Install
 
-Download the ZIP of the [latest release](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest) and unzip it (or clone the repo), then run, in that folder:
+One command, in any PowerShell window (nothing to install first):
+
+```powershell
+irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
+```
+
+It downloads the [latest release](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest), checks it against the release's SHA-256, and runs its `install.ps1`. With options: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1))) -SkipBridge`. Run the same command to update.
+
+Other ways:
+
+- With Node.js: `npx github:SantiagoRuizM/ClaudeMaxxing` (options pass through, for example `-- -SkipBridge`).
+- By hand: download and unzip the release ZIP (or clone the repo), then run in that folder:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
@@ -280,10 +292,10 @@ ClaudeMaxxing reúne estas herramientas para trabajar con Claude Code en Windows
 - **Otros PCs**: los PCs de la misma red con ClaudeMaxxing se encuentran solos. Una vez emparejados (los dos muestran el mismo código de 6 dígitos y confirmas en ambos), desde la bandeja abres una terminal o Claude Code en el otro PC, y desde Claude Code puedes usar `ssh cmx-<pc> "comando"`. El otro PC siempre pregunta antes de dejar entrar (**Permitir**, **Permitir 1 hora** o **Rechazar**) y avisa cuando se abre y se cierra una sesión. Va por SSH, con un `sshd` que corre como tu usuario mientras la bandeja está abierta, solo en redes privadas y solo desde la red local;
 - **Claude Whisper**: un copiloto para llamadas (entrevistas, reuniones, ventas). Se abre desde el menú de la bandeja; al pulsar **Escuchar** transcribe en vivo lo que suena en el PC (**Ellos**) y tu micrófono (**Tú**), detecta cuándo te hacen una pregunta y Claude te propone qué decir, con tu perfil y tus notas de **Contexto**. **Responder** (Ctrl+Alt+Shift+R) pide una respuesta ya, **Pantalla** (Ctrl+Alt+Shift+C) le manda a Claude el monitor donde está el ratón (por ejemplo un ejercicio de programación) y Ctrl+Alt+Shift+W oculta o muestra la ventana. Cada llamada queda guardada en Markdown en `~/.claude/usage-tray/whisper/sessions`. Todo va con tu suscripción de Claude a través de Claude Code: la transcripción usa el mismo servicio que el dictado por voz de Claude Code (no es una API pública: puede cambiar o dejar de funcionar) y las respuestas, un `claude -p` que queda abierto durante la llamada. Cada respuesta cuenta para tus límites de uso. La llamada se envía a Anthropic: avisa a los demás cuando corresponda. Detalles en [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
 
-**Instalar:** descarga el ZIP de la [última versión](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest) y descomprímelo (o clona el repo), y ejecuta en esa carpeta lo de abajo. En el repo no viene nada personal: tus ambientes, voces, claves, PCs emparejados y datos de uso los crean el instalador y la bandeja en tu PC. Para actualizar, baja una versión nueva y vuelve a ejecutar `install.ps1`; tus datos se conservan. Qué cambió en cada versión: [CHANGELOG.md](CHANGELOG.md).
+**Instalar:** un solo comando en cualquier ventana de PowerShell. Baja la [última versión](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest), comprueba su SHA-256 y la instala; el mismo comando la actualiza. Con Node.js también vale `npx github:SantiagoRuizM/ClaudeMaxxing`, y a mano, descomprimir el ZIP y ejecutar `install.ps1`. En el repo no viene nada personal: tus ambientes, voces, claves, PCs emparejados y datos de uso los crean el instalador y la bandeja en tu PC, y se conservan al actualizar. Qué cambió en cada versión: [CHANGELOG.md](CHANGELOG.md).
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
 ```
 
 - Todo se copia a `%LOCALAPPDATA%\ClaudeMaxxing` y se ejecuta desde ahí, así que después puedes mover o borrar el repo. Para actualizar, vuelve a ejecutar `install.ps1` desde una copia nueva.

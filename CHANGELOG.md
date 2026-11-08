@@ -4,9 +4,10 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
 
 ## 1.0.0 - 2026-11-07
 
-First public release. Download the ZIP, unzip it and run `install.ps1` (see the README).
+First public release. Install with one command: `irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex` (or `npx github:SantiagoRuizM/ClaudeMaxxing`, or the ZIP and `install.ps1`; see the README).
 
-- **Usage tray**: the 5-hour window and the weekly limit of your Claude plan in the notification area, with when each resets, and the ClaudeMaxxing window with every tool.
+- **Usage tray**: the 5-hour window and the weekly limit of your Claude plan in the notification area, with when each resets, a warning at 80 % and 95 %, and the ClaudeMaxxing window with every tool.
+- **Skills y MCP**: every skill and MCP server Claude Code loads, and Anthropic's packages to create skills, MCP servers and plugins.
 - **"Abrir con Claude Code"** in the Explorer menu: each session in its own half of a screen, with its own color and name.
 - **Voice**: a spoken one-line summary of every answer, a voice and a musical signature per session (Edge, ElevenLabs, Gemini or the Windows voice).
 - **Agenda**: scheduled and automatic sessions on this PC (Task Scheduler) or in the cloud, and a week plan that spreads the weekly limit.
