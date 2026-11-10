@@ -530,13 +530,22 @@ function Get-BridgeFirewallRemovalScript { "Remove-NetFirewallRule -Group '$Brid
 
 # ---------------------------------------------------------------- network
 
+# Get-NetConnectionProfile goes through WMI, which can block for minutes, and the tray asks from its UI thread
+# (frozen eggs, a dead icon): the profiles are read again only when the addresses change, or every 10 minutes.
+$script:BridgeProfiles = @(); $script:BridgeProfilesKey = $null; $script:BridgeProfilesAt = [datetime]::MinValue
+
 # IPv4 addresses on networks Windows marks Private, with their broadcast address and network name.
 function Get-BridgeNetworks {
-    $profiles = @(Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { [string]$_.NetworkCategory -eq 'Private' })
+    $nics = @([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.OperationalStatus -eq 'Up' })
+    $key = @($nics | ForEach-Object { $_.Id + '=' + (@($_.GetIPProperties().UnicastAddresses | ForEach-Object { $_.Address }) -join ',') }) -join ';'
+    if ($key -ne $script:BridgeProfilesKey -or ((Get-Date) - $script:BridgeProfilesAt).TotalMinutes -ge 10) {
+        $script:BridgeProfiles = @(Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { [string]$_.NetworkCategory -eq 'Private' })
+        $script:BridgeProfilesKey = $key; $script:BridgeProfilesAt = Get-Date
+    }
+    $profiles = $script:BridgeProfiles
     $result = @()
     if (-not $profiles.Count) { return $result }
-    foreach ($nic in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
-        if ($nic.OperationalStatus -ne 'Up') { continue }
+    foreach ($nic in $nics) {
         $props = $nic.GetIPProperties()
         try { $index = $props.GetIPv4Properties().Index } catch { continue }
         $match = $profiles | Where-Object { $_.InterfaceIndex -eq $index } | Select-Object -First 1
