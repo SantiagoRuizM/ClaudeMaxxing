@@ -10,10 +10,17 @@ tray_jq="${JQ_BIN:-$(command -v jq 2>/dev/null)}"
 if [ -n "$tray_jq" ]; then
   tray_dir="$HOME/.claude/usage-tray"
   mkdir -p "$tray_dir" 2>/dev/null
-  if printf '%s' "$input" | "$tray_jq" -c 'select(.rate_limits != null) | {rate_limits: .rate_limits, updated_at: now}' > "$tray_dir/usage.json.tmp" 2>/dev/null && [ -s "$tray_dir/usage.json.tmp" ]; then
-    mv -f "$tray_dir/usage.json.tmp" "$tray_dir/usage.json" 2>/dev/null
-  else
-    rm -f "$tray_dir/usage.json.tmp" 2>/dev/null
+  tray_snap=$(printf '%s' "$input" | "$tray_jq" -c 'select(.rate_limits != null) | {rate_limits: .rate_limits, updated_at: now}' 2>/dev/null)
+  if [ -n "$tray_snap" ]; then
+    # Rewritten only when the limits change or the copy is a minute old: a statusline can run every second in
+    # every session and each write is a Defender scan (a pile of them can hang Defender, and PowerShell with it).
+    tray_old=""; [ -f "$tray_dir/usage.json" ] && IFS= read -r -d '' tray_old < "$tray_dir/usage.json"
+    tray_at="${tray_old##*\"updated_at\":}"; tray_at="${tray_at%%[.\}]*}"
+    [[ "$tray_at" =~ ^[0-9]+$ ]] || tray_at=0
+    printf -v tray_now '%(%s)T' -1
+    if [ "${tray_old%,\"updated_at\"*}" != "${tray_snap%,\"updated_at\"*}" ] || (( tray_now - tray_at >= 60 )); then
+      printf '%s' "$tray_snap" > "$tray_dir/usage.json.tmp" 2>/dev/null && mv -f "$tray_dir/usage.json.tmp" "$tray_dir/usage.json" 2>/dev/null
+    fi
   fi
 fi
 # <<< ClaudeTray
