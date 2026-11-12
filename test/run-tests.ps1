@@ -277,6 +277,7 @@ Assert-Equal '"C:\\"' (Format-WtPath 'C:\') 'trailing backslash doubled'
 Assert-Equal '"C:\a\;b"' (Format-WtPath 'C:\a;b') 'semicolon escaped for wt'
 Assert-Equal '-w new --pos 2560,0 -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude' $slots[2]) 'wt arguments with position'
 Assert-Equal '-w new --pos 2560,0 --tabColor #16A34A -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude' $slots[2] (Get-SlotTabColor 2)) 'wt arguments with tab color'
+Assert-Equal '-w new --pos 2560,0 -p "ClaudeMaxxing green" --tabColor #16A34A -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude' $slots[2] (Get-SlotTabColor 2) (Get-SessionProfileName 'green')) 'wt arguments with the color profile (its egg as the tab icon)'
 Assert-Equal 'blue #6A9BCC' ('{0} {1}' -f (Get-SlotColor 0).Name, (Get-SlotColor 0).Hex) 'slot 0 is blue, as Claude Code draws it'
 Assert-Equal 'orange #D97757' ('{0} {1}' -f (Get-SlotColor 1).Name, (Get-SlotColor 1).Hex) 'slot 1 is orange, as Claude Code draws it'
 Assert-Equal '#6A9BCC' (Get-SlotTabColor 8) 'tab colors wrap past eight slots'
@@ -398,6 +399,157 @@ try {
     Assert-Equal '4 alfa>zeta' ('{0} {1}>{2}' -f $graph.Switches, $graph.Top.From, $graph.Top.To) 'selfharness stats: switches and the most common one'
 } finally { Remove-Item -LiteralPath $harnessTmp -Recurse -Force -ErrorAction SilentlyContinue }
 
+# --- Session circles in the notification area (lib\traysessions.ps1): tooltip and which circle a session uses
+. (Join-Path $TrayRoot 'lib\traysessions.ps1')
+$dot = Tx '\u00b7'
+Assert-Equal "Isabela $dot codificadora`ntienda-web" (Format-SessionIconTip ([pscustomobject]@{ Name = 'Isabela'; Role = 'codificadora'; Dir = 'D:\proyectos\tienda-web' })) 'session circle: name, role and folder'
+Assert-Equal "Mateo`nCodeHubs" (Format-SessionIconTip ([pscustomobject]@{ Name = 'Mateo'; Role = ''; Dir = 'C:\CodeHubs\.' })) 'session circle: no role yet, folder without the trailing \.'
+Assert-Equal 'Claude Code' (Format-SessionIconTip ([pscustomobject]@{ Name = ''; Role = ''; Dir = '' })) 'session circle: unnamed session'
+Assert-Equal 63 (Format-SessionIconTip ([pscustomobject]@{ Name = 'N'; Role = ('r' * 80); Dir = 'C:\x' })).Length 'session circle: tooltip fits the 63-character NotifyIcon limit'
+Add-Type -AssemblyName System.Drawing
+$eggs = Get-EggImages
+$still = $eggs.Still
+$mid = 0..($still.Width - 1) | ForEach-Object { $still.GetPixel($_, [int]($still.Height / 2)) }
+Assert-Equal "True 0" ('{0} {1}' -f ($still.Width -eq $still.Height), $still.GetPixel(0, 0).A) 'session egg: egg_logo.png loads squared, background transparent'
+Assert-Equal $true (@($mid | Where-Object { $_.A -eq 255 }).Count -gt 0 -and @($mid | Where-Object { $_.A -eq 0 }).Count -gt 0) 'session egg: solid outline with see-through stripes between'
+Assert-Equal 9 $eggs.Frames.Count 'session egg: egg_logo_gift_thinking.gif gives the 9 thinking frames'
+Assert-Equal 9 @($eggs.Frames | Where-Object { $_.GetPixel(1, 1).A -eq 0 -and $_.GetPixel($_.Width - 2, $_.Height - 2).A -eq 0 }).Count 'session egg: every GIF frame has a transparent background'
+Assert-Equal 2 @($eggs.Frames | ForEach-Object { $_.GetPixel([int]($_.Width / 2), [int]($_.Height * 0.55)).A -gt 127 } | Select-Object -Unique).Count 'session egg: the GIF frames differ (the waves move)'
+$busyTitles = @(((Tx '\u2733') + ' Diego'), ((Tx '\u25d1') + ' Diego'), ((Tx '\u2810') + ' Diego'), 'C:\WINDOWS\system32\cmd.exe', '',
+    ('Diego ' + (Tx '\u00b7') + ' asistente'), ('Diego ' + (Tx '\u00b7') + ' asistente' + [char]0x200B))
+Assert-Equal 'False True True False False False True' (($busyTitles | ForEach-Object { Test-SessionTitleBusy $_ }) -join ' ') 'session egg: spark title waits, spinner title works, plain titles do not count; a hook title works with its zero-width mark'
+# Speaking egg: who is talking (speaking.json, written by voice\hooks\play.ps1 while it holds the turn) and its look.
+$VoiceStateDir = Join-Path ([IO.Path]::GetTempPath()) ('cmx-speak-test-{0}' -f [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $VoiceStateDir | Out-Null
+try {
+    $speakingFile = Join-Path $VoiceStateDir 'speaking.json'
+    Assert-Equal '' (@(Get-SpeakingVoiceKeys) -join ' ') 'speaking egg: nobody talking'
+    $start = [string](Get-Process -Id $PID).StartTime.Ticks
+    [IO.File]::WriteAllText($speakingFile, (@{ key = 'abc-1'; pid = $PID; start = $start } | ConvertTo-Json))
+    Assert-Equal 'abc-1' (@(Get-SpeakingVoiceKeys) -join ' ') 'speaking egg: the player holding the turn'
+    [IO.File]::WriteAllText((Join-Path $VoiceStateDir 'origin-abc-1'), '{"origin":"first-0"}')
+    Assert-Equal 'abc-1 first-0' (@(Get-SpeakingVoiceKeys) -join ' ') 'speaking egg: also the id its window was opened with (after /clear)'
+    [IO.File]::WriteAllText($speakingFile, (@{ key = 'abc-1'; pid = $PID; start = '1' } | ConvertTo-Json))
+    Assert-Equal '' (@(Get-SpeakingVoiceKeys) -join ' ') 'speaking egg: a player that is gone (its PID reused) is not talking'
+} finally { Remove-Item -LiteralPath $VoiceStateDir -Recurse -Force -ErrorAction SilentlyContinue }
+# The statusline's 8-bit egg: the image's opaque box as sextants (2 x 3 dots a cell). A pixel in the far corner
+# stretches the box; the rest is drawn in the top-left part.
+$dots = { param([int[]]$Fill)
+    $b = New-Object System.Drawing.Bitmap(20, 30)
+    $g = [System.Drawing.Graphics]::FromImage($b)
+    $g.FillRectangle([System.Drawing.Brushes]::Black, $Fill[0], $Fill[1], $Fill[2], $Fill[3]); $g.Dispose()
+    $b.SetPixel(19, 29, [System.Drawing.Color]::Black)
+    $b }
+$img = & $dots @(0, 0, 10, 30)
+Assert-Equal (([char]0x2588 + ' '), ([char]0x2588 + ' ') -join '|') ((ConvertTo-EggSextants $img 2 2) -join '|') 'statusline egg: a full left half is full cells and blank ones'
+Assert-Equal ([string][char]0x258C) ((ConvertTo-EggSextants $img 1 1) -join '|') 'statusline egg: the left column of dots is the left-half block'
+$img.Dispose(); $img = & $dots @(0, 0, 10, 10)
+Assert-Equal ([char]::ConvertFromUtf32(0x1FB00)) ((ConvertTo-EggSextants $img 1 1) -join '|') 'statusline egg: one top-left dot is the first sextant'
+$img.Dispose()
+# The one-line egg (4 x 3 dots) thinks with a hole going round its four inner dots: four different frames.
+$eggDots = @(, @($false, $true, $true, $false)) + @(, @($true, $false, $true, $true)) + @(, @($true, $true, $true, $true))
+$waves = New-EggWaveFrames $eggDots
+Assert-Equal '4 4 1' ('{0} {1} {2}' -f $waves.Count, @($waves | ForEach-Object { $_[0] } | Select-Object -Unique).Count, @($waves[0]).Count) 'statusline egg: four different one-line thinking frames'
+Assert-Equal ((Format-EggSextants $eggDots)[0]) $waves[0][0] 'statusline egg: the first thinking frame is the still egg (its own hole)'
+# What each egg is doing, for the statusline (eggs.json), by the id its window was opened with.
+$realTrayHome = $TrayHome
+$TrayHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-eggs-test-{0}' -f [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $TrayHome | Out-Null
+$savedFrames = $script:SessionIconFrames
+try {
+    $script:SessionIconFrames = @{ 0 = -1; 1 = 3; 2 = -1 }
+    $script:EggStatesText = $null
+    Write-EggStates @{ 0 = [pscustomobject]@{ Key = 'a-1' }; 1 = [pscustomobject]@{ Key = 'b-2' }; 2 = [pscustomobject]@{ Key = 'c-3' } } 2
+    $eggStates = [IO.File]::ReadAllText((Join-Path $TrayHome 'eggs.json')) | ConvertFrom-Json
+    Assert-Equal 'idle thinking speaking' ('{0} {1} {2}' -f $eggStates.'a-1', $eggStates.'b-2', $eggStates.'c-3') 'egg states: idle, thinking by its frame, speaking wins'
+} finally { $script:SessionIconFrames = $savedFrames; Remove-Item -LiteralPath $TrayHome -Recurse -Force -ErrorAction SilentlyContinue; $TrayHome = $realTrayHome }
+# The egg is tinted with lib\theme.ps1, loaded only here (in its own scope).
+& {
+    . (Join-Path $TrayRoot 'lib\theme.ps1')
+    $quiet = New-SpeakingIconBitmap '#D97757' 16 0
+    $loud = New-SpeakingIconBitmap '#D97757' 16 2
+    Assert-Equal 'True True' ('{0} {1}' -f ($quiet.GetPixel(8, 1).A -lt 60), ($loud.GetPixel(8, 1).A -eq 255)) 'speaking egg: grows to full height on the beat'
+    $inside = $quiet.GetPixel(8, 8)
+    Assert-Equal $true ($inside.A -eq 255 -and [Math]::Abs($inside.R - 217) -lt 10 -and [Math]::Abs($inside.G - 119) -lt 10) 'speaking egg: filled with the session color'
+    $quiet.Dispose(); $loud.Dispose()
+    # The jellyfish of logo.png: square, clear corners, solid body; and the Apps-list .ico built from it.
+    $mark = New-AppLogoBitmap 64
+    Assert-Equal '64x64 0 255' ('{0}x{1} {2} {3}' -f $mark.Width, $mark.Height, $mark.GetPixel(1, 1).A, $mark.GetPixel(32, 18).A) 'app logo: jellyfish square, transparent around, solid head'
+    $icoPath = Join-Path $env:TEMP "cmx-logo-test-$PID.ico"
+    try {
+        Save-PngIcon @((New-AppLogoBitmap 16), $mark) $icoPath
+        $ico = New-Object System.Drawing.Icon($icoPath, 64, 64)
+        Assert-Equal 64 $ico.Width 'app logo: the .ico holds the 64 px frame'
+        $ico.Dispose()
+    } finally { $mark.Dispose(); Remove-Item -LiteralPath $icoPath -ErrorAction SilentlyContinue }
+}
+$curve = @(0, 45, 90, 300, 699, 700, 900 | ForEach-Object { Get-SessionGlowAlpha $_ })
+$barsPalette = @{ low = [System.Drawing.Color]::FromArgb(0, 200, 0); medium = [System.Drawing.Color]::FromArgb(200, 200, 0); high = [System.Drawing.Color]::FromArgb(200, 0, 0) }
+$barsView = [pscustomobject]@{ HasData = $true; Session = [pscustomobject]@{ Active = $true; Percent = 25 }; Weekly = [pscustomobject]@{ Active = $true; Percent = 100 } }
+$bars = New-UsageBarsBitmap $barsView 16 $barsPalette $false
+# 16 px: bars of 5 px at rows 2-6 (session) and 9-13 (weekly); 25 % fills the first 4 columns.
+$px = { param($x, $y) $c = $bars.GetPixel($x, $y); '{0},{1},{2},{3}' -f $c.A, $c.R, $c.G, $c.B }
+Assert-Equal '255,0,200,0 80,255,255,255 255,200,0,0 0,0,0,0' ((& $px 1 4), (& $px 8 4), (& $px 15 11), (& $px 8 0) -join ' ') 'usage bars: session 25 % low, the rest track; weekly full and high; clear around'
+$bars.Dispose(); $barsView.Session.Active = $false
+$bars = New-UsageBarsBitmap $barsView 16 $barsPalette $false
+Assert-Equal '80,255,255,255' (& $px 1 4) 'usage bars: a window not started shows only its track'
+$bars.Dispose(); $barsView.Session.Active = $true
+# Four icons long: 25 % of 64 px fills all of segment 0 and none of segment 1; the full weekly reaches segment 3's end.
+$bars = New-UsageBarsBitmap $barsView 16 $barsPalette $false 0 4
+$first = (& $px 15 4)
+$bars.Dispose()
+$bars = New-UsageBarsBitmap $barsView 16 $barsPalette $false 1 4
+$second = (& $px 0 4)
+$bars.Dispose()
+$bars = New-UsageBarsBitmap $barsView 16 $barsPalette $false 3 4
+Assert-Equal '255,0,200,0 80,255,255,255 255,200,0,0' ($first, $second, (& $px 15 11) -join ' ') 'usage bars: drawn across four icons, each its own stretch'
+$bars.Dispose()
+# One continuous bar 64 px wide: 25 % fills 16 px.
+$bars = New-UsageBarsBitmap $barsView 16 $barsPalette $false -Width 64
+Assert-Equal '64x16 255,0,200,0 80,255,255,255 255,200,0,0' (('{0}x{1}' -f $bars.Width, $bars.Height), (& $px 15 4), (& $px 16 4), (& $px 63 11) -join ' ') 'usage bars: one continuous bar, filled along its whole width'
+$bars.Dispose()
+$button = { param($l) [pscustomobject]@{ Left = $l; Top = 1392; Right = $l + 32; Bottom = 1440 } }
+$place = Get-UsageOverlayPlace @((& $button 2200), (& $button 2232))
+Assert-Equal '2208 1408 56 16' ('{0} {1} {2} {3}' -f $place.X, $place.Y, $place.Width, $place.Size) 'usage overlay: across both buttons but half an icon off the left, as tall as their icon, centered'
+Assert-Equal 'True True True' ('{0} {1} {2}' -f ($null -eq (Get-UsageOverlayPlace @((& $button 2278), (& $button 2278)))),
+    ($null -eq (Get-UsageOverlayPlace @((& $button 2200), (& $button 2264)))), ($null -eq (Get-UsageOverlayPlace @((& $button 2200), $null)))) 'usage overlay: none under ^, with an icon between or one not placed'
+# Tray watchdog, in a child process with a 1 s limit: left alone while its window answers, then, with the thread
+# blocked, it starts the new tray (here a cmd that writes a mark) and kills its own process.
+$dogMark = Join-Path $env:TEMP "cmx-watchdog-$PID.txt"
+Remove-Item -LiteralPath $dogMark -ErrorAction SilentlyContinue
+$dogScript = @"
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+. '$TrayRoot\lib\common.ps1'; . '$TrayRoot\lib\traysessions.ps1'
+Initialize-UsageOverlayApi
+`$w = New-Object System.Windows.Forms.NativeWindow; `$w.CreateHandle((New-Object System.Windows.Forms.CreateParams))
+[ClaudeTray.TrayWatchdog]::Start(@(`$w), @(1), 'cmd.exe', '/c echo restarted>>"$dogMark"', '$env:TEMP\cmx-watchdog-$PID.log', 1)
+`$t = New-Object System.Windows.Forms.Timer; `$t.Interval = 200; `$t.Add_Tick({ [ClaudeTray.TrayWatchdog]::Beat() }); `$t.Start()
+`$end = (Get-Date).AddSeconds(4); while ((Get-Date) -lt `$end) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 50 }
+Add-Content -LiteralPath '$dogMark' 'healthy'
+Start-Sleep -Seconds 30
+Add-Content -LiteralPath '$dogMark' 'not killed'
+"@
+$dog = Start-Process powershell.exe -ArgumentList '-NoProfile', '-STA', '-EncodedCommand', ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($dogScript))) -WindowStyle Hidden -PassThru
+[void]$dog.WaitForExit(25000); Start-Sleep -Milliseconds 500
+$dogText = if (Test-Path -LiteralPath $dogMark) { ((Get-Content -LiteralPath $dogMark) | ForEach-Object { $_.Trim() }) -join ' ' } else { '' }
+if (-not $dog.HasExited) { $dog.Kill() }
+Remove-Item -LiteralPath $dogMark, "$env:TEMP\cmx-watchdog-$PID.log" -ErrorAction SilentlyContinue
+Assert-Equal 'healthy restarted' $dogText 'tray watchdog: quiet while the window answers; hung, it starts a new tray and ends this one'
+Assert-Equal ((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize').SystemUsesLightTheme -eq 1) (Test-LightTaskbar) 'usage bars: taskbar theme read straight from the registry, same answer'
+Assert-Equal '0 36 72 31 0 0 0' ($curve -join ' ') 'session glow: rises to its peak in 90 ms, fades out by 700 ms'
+Assert-Equal '2 1' ('{0} {1}' -f (Get-SessionIconIndex ([pscustomobject]@{ Color = 'green'; Slot = 5 })), (Get-SessionIconIndex ([pscustomobject]@{ Color = ''; Slot = 9 }))) 'session circle: by color, else by slot'
+$eggEntries = @(@{ Color = 2; Left = 1800; Top = 0 }, @{ Color = 0; Left = 0; Top = 500 }, @{ Color = 5; Left = 0; Top = 0 }) | ForEach-Object { [pscustomobject]$_ }
+$eggOrder = { param($lefts) $map = Get-EggOrder $lefts $eggEntries; (0..2 | ForEach-Object { $map[$_].Color }) -join ' ' }
+Assert-Equal '2 5 0' (& $eggOrder @(2264, 2200, 2232)) 'session eggs: the icons left to right take the terminals left to right, then top to bottom'
+Assert-Equal '5 0 2|5 0 2|5 0 2' ((& $eggOrder @(2278, 2278, 2278)), (& $eggOrder @(2200, $null, 2232)), (& $eggOrder @()) -join '|') 'session eggs: icon order under ^ or with one not placed'
+Assert-Equal 0 (Get-EggOrder @() @()).Count 'session eggs: none open, none painted'
+$eggArea = New-Object System.Drawing.Rectangle(0, 0, 1920, 1032)
+$eggStrip = { param($edge, $offset) $r = Get-EggStripBounds $eggArea $edge $offset 3 34 4; '{0},{1} {2}x{3}' -f $r.X, $r.Y, $r.Width, $r.Height }
+Assert-Equal '0,0 42x110|1878,922 42x110|905,0 110x42|0,990 110x42' ((& $eggStrip 'left' 0), (& $eggStrip 'right' 1), (& $eggStrip 'top' 0.5), (& $eggStrip 'bottom' 0) -join '|') 'egg strip: against its edge of the work area, a column on the sides and a row at the top or bottom'
+$r = Get-EggStripBounds $eggArea 'left' 0 3 34 4 16
+Assert-Equal '42x126' ('{0}x{1}' -f $r.Width, $r.Height) 'egg strip: the grip adds its length before the eggs'
+Assert-Equal '0.5|0|1|0.5' (@((Get-EggStripOffset $eggArea 'left' 461 110), (Get-EggStripOffset $eggArea 'left' -50 110), (Get-EggStripOffset $eggArea 'top' 5000 110), (Get-EggStripOffset $eggArea 'top' 0 4000) | ForEach-Object { [string]$_ }) -join '|') 'egg strip: dragged, it stays inside its edge'
+
 # --- ElevenLabs voice pool: gender and language/accent labels
 . (Join-Path $TrayRoot 'lib\voiceengine.ps1')
 $elPool = ConvertTo-ElevenVoicePool ([pscustomobject]@{ voices = @(
@@ -420,6 +572,31 @@ try {
     [IO.File]::WriteAllText((Join-Path $cmHome 'settings.json'), '{"enabledPlugins":{"context-mode@context-mode":true}}')
     Assert-Equal $true (Get-ContextModeState $cmHome).Enabled 'context-mode: enabled'
 } finally { Remove-Item -LiteralPath $cmHome -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Claude Whip (lib\whip.ps1): settings, threshold steps, mode and the company policy switch
+. (Join-Path $TrayRoot 'lib\whip.ps1')
+$whipFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-whip-{0}.json' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
+try {
+    $ws = Get-WhipSettings $whipFile
+    Assert-Equal "False|85|" "$($ws.Enabled)|$($ws.Threshold)|$($ws.Agents -join ',')" 'whip: defaults without a file'
+    [IO.File]::WriteAllText($whipFile, '{"enabled":true,"threshold":42,"agents":["codex","made-up","agy"]}')
+    $ws = Get-WhipSettings $whipFile
+    Assert-Equal "True|85|codex,agy" "$($ws.Enabled)|$($ws.Threshold)|$($ws.Agents -join ',')" 'whip: unknown threshold and agents dropped'
+    $ws.Agents = @('codex'); $ws.Threshold = 0
+    Save-WhipSettings $ws $whipFile
+    Assert-Equal '{"enabled":true,"threshold":0,"agents":["codex"]}' (([IO.File]::ReadAllText($whipFile) | ConvertFrom-Json) | ConvertTo-Json -Compress) 'whip: one agent stays a list (the plugin reads an array)'
+    Assert-Equal 90 (Step-WhipThreshold 85 1) 'whip: threshold up'
+    Assert-Equal 0 (Step-WhipThreshold 95 1) 'whip: threshold wraps to always'
+    Assert-Equal 'Siempre|Desde 85%' ((Format-WhipThreshold 0) + '|' + (Format-WhipThreshold 85)) 'whip: threshold labels'
+    $mode = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex') }
+    Assert-Equal 'armed|active' ((Get-WhipMode $mode 84) + '|' + (Get-WhipMode $mode 85)) 'whip: armed under the threshold, active at it'
+    $mode.Agents = @()
+    Assert-Equal 'noagent' (Get-WhipMode $mode 99) 'whip: on with no agent'
+    Assert-Equal $false (Sync-WhipPolicy $true $whipFile) 'whip: an allowed module is left alone'
+    Assert-Equal $true (Sync-WhipPolicy $false $whipFile) 'whip: a policy that forbids it switches it off'
+    Assert-Equal $false (Get-WhipSettings $whipFile).Enabled 'whip: off on disk after the policy'
+    Assert-Equal 4 (Get-WhipAgentStates).Count 'whip: every agent listed with its install state'
+} finally { Remove-Item -LiteralPath $whipFile -Force -ErrorAction SilentlyContinue }
 
 # --- Skills y MCP (lib\hubskills.ps1): read from a fake ~/.claude, every place and shape Claude Code uses
 . (Join-Path $TrayRoot 'lib\hubskills.ps1')
@@ -733,6 +910,23 @@ try {
     Assert-Equal "$($repo.key)|$($repo.description)" "$($installed.key)|$($installed.description)" 'extension manifest: key (the extension id) and text kept'
     Assert-Equal $false ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) 'extension manifest: no BOM'
 } finally { Remove-Item -LiteralPath $extTmp -Recurse -Force -ErrorAction SilentlyContinue }
+
+# Terminal profiles: a Windows Terminal fragment with one hidden profile per egg drawn, the egg as its icon.
+$wtTmp = Join-Path ([IO.Path]::GetTempPath()) ('cmx-wt-test-{0}' -f [guid]::NewGuid().ToString('N'))
+$realFragment = $TerminalFragmentFile
+try {
+    $TerminalFragmentFile = Join-Path $wtTmp 'Fragments\ClaudeMaxxing\sessions.json'
+    $eggDir = Join-Path $wtTmp 'eggs'
+    New-Item -ItemType Directory -Force -Path $eggDir | Out-Null
+    Assert-Equal $true ((Install-TerminalProfiles $eggDir) -like '*no eggs*') 'terminal profiles: none without eggs'
+    foreach ($name in 'orange', 'blue') { [IO.File]::WriteAllBytes((Join-Path $eggDir "$name.png"), [byte[]](137, 80, 78, 71)) }
+    [void](Install-TerminalProfiles $eggDir)
+    $fragment = [IO.File]::ReadAllText($TerminalFragmentFile) | ConvertFrom-Json
+    Assert-Equal "$(Get-SessionProfileName 'blue')|$(Join-Path $eggDir 'blue.png')|True|2" ('{0}|{1}|{2}|{3}' -f $fragment.profiles[0].name, $fragment.profiles[0].icon, $fragment.profiles[0].hidden, @($fragment.profiles).Count) 'terminal profiles: one hidden profile per egg, named as the launcher asks'
+    Assert-Equal 'Cascadia Mono, ClaudeMaxxing Eggs' $fragment.profiles[0].font.face 'terminal profiles: the eggs font after the main one (the statusline egg glyphs)'
+    [void](Uninstall-TerminalProfiles)
+    Assert-Equal $false (Test-Path -LiteralPath (Split-Path -Parent $TerminalFragmentFile)) 'terminal profiles: removed on uninstall'
+} finally { $TerminalFragmentFile = $realFragment; Remove-Item -LiteralPath $wtTmp -Recurse -Force -ErrorAction SilentlyContinue }
 # The repo may be renamed or deleted after installing: no runtime file may point back into it.
 $repoRefs = @($manifest | Where-Object {
     $text = [IO.File]::ReadAllText((Join-Path $TrayRoot $_))
@@ -1200,27 +1394,6 @@ Assert-Equal 'Redis o Postgres' (Get-DebateTopic ([pscustomobject]@{ Message = '
 Assert-Equal '' (Get-DebateTopic ([pscustomobject]@{ Message = 'not json' })) 'debate topic: unreadable is empty'
 Assert-Equal 'True True False' ('{0} {1} {2}' -f (Test-DebateFolderTooBroad 'C:\'), (Test-DebateFolderTooBroad $env:USERPROFILE), (Test-DebateFolderTooBroad (Join-Path $env:USERPROFILE 'proyecto'))) 'debate folder: a drive or the whole profile is too broad'
 
-# --- every script parses and is ASCII
-foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {
-    $tokens = $null; $errors = $null
-    [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
-    Assert-Equal 0 $errors.Count "parses: $($file.Name)"
-    # A bare + between command arguments (e.g. Draw-Text $g 'a' + 'b' ...) shifts every later argument.
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
-    $bare = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-        $n.StringConstantType -eq 'BareWord' -and $n.Value -in '+', '-', '*', '/' -and
-        $n.Parent -is [System.Management.Automation.Language.CommandAst] }, $true))
-    Assert-Equal 0 $bare.Count "no bare operators as arguments: $($file.Name)"
-    $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
-    Assert-Equal 0 @($bytes | Where-Object { $_ -gt 127 }).Count "ascii: $($file.Name)"
-}
-
-Write-Host ''
-if ($script:Failures -gt 0) {
-    Write-Host "$script:Failures of $script:Count tests failed" -ForegroundColor Red
-    exit 1
-}
-Write-Host "all $script:Count tests passed" -ForegroundColor Green
 # --- business edition (lib\business.ps1)
 . (Join-Path $TrayRoot 'lib\business.ps1')
 Assert-Equal 'business' (Resolve-Edition $true $false '' $false) 'edition: -Business'
@@ -1237,7 +1410,7 @@ foreach ($script in 'install.ps1', 'get.ps1') {
 }
 
 $policy = Merge-BusinessPolicy $null
-Assert-Equal 'bridge,freellm,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs and Whisper off by default'
+Assert-Equal 'bridge,freellm,whip,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs, Whisper and Whip off by default'
 $policy = Merge-BusinessPolicy ([pscustomobject]@{ disabled = @('whisper'); seatMonthlyUsd = '150'; autoReport = 1; unknown = 'x'; plugins = 'one@kit' })
 Assert-Equal 'whisper' (@($policy.disabled) -join ',') 'policy: a list replaces the default'
 Assert-Equal 150 $policy.seatMonthlyUsd 'policy: the seat price is a number'
@@ -1331,3 +1504,24 @@ try {
     Assert-Equal $false (Test-ReportDue ([pscustomobject]@{ Business = $true; Policy = (Merge-BusinessPolicy $null) }) $null $now) 'auto report: only when the policy asks'
 } finally { Remove-Item -LiteralPath $bizRoot -Recurse -Force -ErrorAction SilentlyContinue }
 
+# --- every script parses and is ASCII
+foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {
+    $tokens = $null; $errors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+    Assert-Equal 0 $errors.Count "parses: $($file.Name)"
+    # A bare + between command arguments (e.g. Draw-Text $g 'a' + 'b' ...) shifts every later argument.
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+    $bare = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+        $n.StringConstantType -eq 'BareWord' -and $n.Value -in '+', '-', '*', '/' -and
+        $n.Parent -is [System.Management.Automation.Language.CommandAst] }, $true))
+    Assert-Equal 0 $bare.Count "no bare operators as arguments: $($file.Name)"
+    $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+    Assert-Equal 0 @($bytes | Where-Object { $_ -gt 127 }).Count "ascii: $($file.Name)"
+}
+
+Write-Host ''
+if ($script:Failures -gt 0) {
+    Write-Host "$script:Failures of $script:Count tests failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "all $script:Count tests passed" -ForegroundColor Green

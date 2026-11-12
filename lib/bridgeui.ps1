@@ -700,7 +700,7 @@ function Show-BridgeDialog([string]$RenderPath) {
     $dlg.Tag = New-HitMap
     Register-HitMap $dlg
     $script:BridgeDialog = $dlg
-    $script:BridgeUi = @{ Logo = (New-TintedLogo $P.Accent (Px 22)); ConfirmForget = ''; Message = ''; MessageAt = [datetime]::MinValue
+    $script:BridgeUi = @{ Logo = (New-BrandMark $P.Accent (Px 22)); ConfirmForget = ''; Message = ''; MessageAt = [datetime]::MinValue
         Render = [bool]$RenderPath; Resizing = $false; WantHeight = 0 }
 
     $ipBox = New-Object System.Windows.Forms.TextBox
@@ -1070,7 +1070,7 @@ function Show-ApprovalForm([string]$RenderPath) {
     # No Tab / Enter here: a window that pops up while you type must not take keys meant for another app.
     $form.Tag.NoKeys = $true
     $script:ApprovalForm = $form
-    $script:ApprovalLogo = New-TintedLogo $P.Accent (Px 22)
+    $script:ApprovalLogo = New-BrandMark $P.Accent (Px 22)
     $form.Add_HandleCreated({ param($sender, $e) Set-RoundedWindow $sender $script:Palette.Border })
     $form.Add_Paint({ param($sender, $e) try { Draw-ApprovalForm $sender $e.Graphics } catch { } })
     # Esc rejects (the safe answer, so it needs no arming); Enter does nothing, so no key press can allow.

@@ -39,7 +39,8 @@ $script:HubSections = @(
     @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
     @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
-    @{ Id = 'skills'; Label = 'Skills y MCP'; Glyph = '\uea86' },
+    @{ Id = 'whip'; Label = 'Claude Whip'; Glyph = '\ue99a'; Module = 'whip' },
+    @{ Id = 'skills'; Label = 'Skills y MCP'; Glyph ='\uea86' },
     @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968'; Module = 'bridge' },
     @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720'; Module = 'whisper' },
     @{ Id = 'voice'; Label = 'Voz'; Glyph = '\ue767' }
@@ -89,9 +90,10 @@ function Get-HubCodeSessions {
         $hwnd = [long]$r.hwnd
         $at = $null
         try { if ($r.at) { $at = [datetime]$r.at } } catch { }
-        $voice = Read-JsonFile (Join-Path $VoiceStateDir ('name-' + (Get-HubSessionKey $r.sessionId)))
+        $key = Get-HubSessionKey $r.sessionId
+        $voice = Read-JsonFile (Join-Path $VoiceStateDir ('name-' + $key))
         [pscustomobject]@{
-            Slot = [int]$r.slot; Hwnd = $hwnd; Live = ($hwnd -ne 0 -and [ClaudeTray.Native]::IsWindow([IntPtr]$hwnd))
+            Key = $key; Slot = [int]$r.slot; Hwnd = $hwnd; Live = ($hwnd -ne 0 -and [ClaudeTray.Native]::IsWindow([IntPtr]$hwnd))
             Dir = [string]$r.dir; At = $at; Color = [string]$r.color; Name = [string]$r.name
             Role = $(if ($voice) { [string]$voice.role } else { '' }); Voice = $(if ($voice) { [string]$voice.voice } else { '' })
             Backend = [string]$r.backend
@@ -177,6 +179,7 @@ function Update-HubCache([switch]$Full) {
     try { $c.Harness = Get-HarnessState } catch { $c.Harness = $null }
     try { $c.SelfHarness = Get-SelfHarnessSettings } catch { $c.SelfHarness = $null }
     try { Update-HubSkills } catch { }
+    try { $c.Whip = Get-WhipSettings; if ($slow -or -not $c.WhipAgents) { $c.WhipAgents = Get-WhipAgentStates } } catch { }
     try { Update-HubBusiness } catch { }
     if ($slow) {
         $hub.SlowAt = $now
@@ -600,7 +603,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.Tag = New-HitMap
     Register-HitMap $dlg
     $script:HubDialog = $dlg
-    $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Logo = (New-TintedLogo $P.Accent (Px 22)); Cache = @{}
+    $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Logo = (New-BrandMark $P.Accent (Px 26)); Watermark = (New-BrandMark $P.Accent (Px 380) 0.07); NavMark = (New-BrandMark $P.Accent (Px 96) 0.12); Cache = @{}
         SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = ''
         StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview; EnvsPreview = $envsPreview }
     # A damaged data file must not take the click handler (and the tray) down: the section just shows less.
@@ -631,6 +634,8 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.Add_FormClosed({
         if ($script:Hub.Timer) { $script:Hub.Timer.Stop(); $script:Hub.Timer.Dispose() }
         if ($script:Hub.Logo) { $script:Hub.Logo.Dispose() }
+        if ($script:Hub.Watermark) { $script:Hub.Watermark.Dispose() }
+        if ($script:Hub.NavMark) { $script:Hub.NavMark.Dispose() }
         if ($script:Hub.StatsBitmap) { $script:Hub.StatsBitmap.Dispose() }
         $script:HubDialog = $null
     })
@@ -666,6 +671,14 @@ function Draw-HubDot($G, [int]$X, [int]$Y, [int]$Size, [System.Drawing.Color]$Co
     $brush = New-Object System.Drawing.SolidBrush($Color)
     $G.FillEllipse($brush, $X, $Y, $Size, $Size)
     $brush.Dispose()
+}
+
+# A session's egg in its color (the tray's egg, lib\traysessions.ps1), centered on ($CX, $CY). Drawn once per color and size.
+$script:HubEggCache = @{}
+function Draw-HubEgg($G, [int]$CX, [int]$CY, [int]$Size, [string]$Hex) {
+    $key = "$Hex/$Size"
+    if (-not $script:HubEggCache.ContainsKey($key)) { $script:HubEggCache[$key] = New-SessionIconBitmap $Hex $Size }
+    $G.DrawImage($script:HubEggCache[$key], ($CX - [int]($Size / 2)), ($CY - [int]($Size / 2)), $Size, $Size)
 }
 
 function ConvertFrom-Hex([string]$Hex) {
@@ -985,7 +998,7 @@ function Draw-Hub($Form, $G) {
     $navBrush = New-Object System.Drawing.SolidBrush($P.Surface)
     $G.FillRectangle($navBrush, 0, 0, $navW, $h)
     $navBrush.Dispose()
-    if ($hub.Logo) { $G.DrawImage($hub.Logo, (Px 18), (Px 19)) }
+    if ($hub.Logo) { $G.DrawImage($hub.Logo, (Px 16), (Px 16), $hub.Logo.Width, $hub.Logo.Height) }
     Draw-Text $G $AppName $HF.Brand $P.Text (Px 48) (Px 14) ($navW - (Px 52)) (Px 32)
     $y = Px 70
     foreach ($section in (Get-HubVisibleSections)) {
@@ -1001,6 +1014,8 @@ function Draw-Hub($Form, $G) {
         if (-not $active) { Add-Hit $map $hitId $item ([scriptblock]::Create("Set-HubSection '$($section.Id)'")) }
         $y += Px 40
     }
+    # A small faint jellyfish in the free space between the last section and the version line.
+    if ($hub.NavMark) { $G.DrawImage($hub.NavMark, $navW - $hub.NavMark.Width - (Px 14), $h - $hub.NavMark.Height - (Px 40), $hub.NavMark.Width, $hub.NavMark.Height) }
     $plan = if ($script:Plan) { "Plan $($script:Plan)  " + (Tx '\u00b7') + '  ' } else { '' }
     Draw-Text $G ($plan + "v$AppVersion") $F.Small $P.Faint (Px 22) ($h - (Px 36)) ($navW - (Px 30)) (Px 20)
     $pen = New-Object System.Drawing.Pen($P.Border)
@@ -1022,16 +1037,19 @@ function Draw-Hub($Form, $G) {
     }
     $G.DrawLine($pen, $x0, (Px 56), $x0 + $inner, (Px 56))
     $pen.Dispose()
+    # The jellyfish peeks in faintly from the bottom-right corner of every section, under its cards.
+    if ($hub.Watermark) { $G.DrawImage($hub.Watermark, $w - (Px 300), $h - (Px 330), $hub.Watermark.Width, $hub.Watermark.Height) }
 
     switch ($hub.Section) {
+        'business' { Draw-HubBusinessSection $G $map $hover $x0 $inner }
         'plan'    { Draw-HubPlanSection $G $map $hover $x0 $inner }
         'envs'    { Draw-HubEnvsSection $G $map $hover $x0 $inner }
         'self'    { Draw-HubSelfSection $G $map $hover $x0 $inner }
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
         'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
-        'business' { Draw-HubBusinessSection $G $map $hover $x0 $inner }
         'skills'  { Draw-HubSkillsSection $G $map $hover $x0 $inner }
+        'whip'    { Draw-HubWhipSection $G $map $hover $x0 $inner }
         'pcs'     { Draw-HubPcsSection $G $map $hover $x0 $inner }
         'whisper' { Draw-HubWhisperSection $G $map $hover $x0 $inner }
         'voice'   { Draw-HubVoiceSection $G $map $hover $x0 $inner }
@@ -1548,7 +1566,7 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Wrapped $G (Tx 'Ninguna sesi\u00f3n abierta. Clic derecho en una carpeta > Abrir con Claude Code.') $F.Small $P.Faint $cx $sy $cww (Px 36)
     }
     foreach ($session in @($sessions | Select-Object -First 3)) {
-        Draw-HubDot $G $cx ($sy + (Px 6)) (Px 10) (ConvertFrom-Hex (Get-HubSlotHex $session.Color))
+        Draw-HubEgg $G ($cx + (Px 5)) ($sy + (Px 11)) (Px 18) (Get-HubSlotHex $session.Color)
         $name = $session.Name
         if ($session.Role) { $name += ' ' + (Tx '\u00b7') + ' ' + $session.Role }
         # The folder keeps its width (up to 40 %) and the name gets the rest, so they never overlap.
@@ -1711,8 +1729,10 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     else { Draw-HubPolicyNote $G (New-Rect $X0 (Px 166) $Inner (Px 84)) 'Modelos gratis con FreeLLMAPI' (Tx 'Apagado por la pol\u00edtica de la empresa: las sesiones usan solo el plan de Claude, sin enviar prompts a proveedores de terceros.') }
 
     # Ahorro de tokens: context-mode
-    $mcard = New-Rect $X0 (Px 260) $Inner (Px 56)
+    $mcard = New-Rect $X0 (Px 260) $Inner (Px 94)
     Draw-HubCard $G $mcard
+    # Where the session eggs go: the taskbar, or a strip stuck to one edge of the screen (lib\traysessions.ps1).
+    Draw-HubPicker $G $Map $Hover 'code-eggs' (New-Rect ($mcard.X + (Px 6)) ($mcard.Y + (Px 56)) ($mcard.Width - (Px 12)) (Px 30)) 'Huevos' $script:EggDockLabels[(Get-EggDock).Edge] 'Step-HubEggDock'
     $cm = $c.ContextMode
     $job = $c.MaxxStatus
     $busy = $job -and $job.state -eq 'running'
@@ -1724,8 +1744,8 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 
     $sessions = @($c.CodeSessions)
     $live = @($sessions | Where-Object { $_.Live }).Count
-    $y = Px 330
-    Draw-HubCaption $G 'SESIONES' $X0 $y $Inner ($(if ($limit) { "$live de $slots abiertas" } else { "$live abiertas" }) + $(if ($sessions.Count -gt 4) { (Tx "  \u00b7  +$($sessions.Count - 4) m\u00e1s") } else { '' }))
+    $y = Px 368
+    Draw-HubCaption $G 'SESIONES' $X0 $y $Inner ($(if ($limit) { "$live de $slots abiertas" } else { "$live abiertas" }) + $(if ($sessions.Count -gt 3) { (Tx "  \u00b7  +$($sessions.Count - 3) m\u00e1s") } else { '' }))
     $y += Px 22
     if (-not $sessions.Count) {
         $row = New-Rect $X0 $y $Inner (Px 40)
@@ -1733,13 +1753,12 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Text $G (Tx 'Ninguna sesi\u00f3n abierta desde el men\u00fa.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
     }
     $now = Get-Date
-    for ($i = 0; $i -lt [Math]::Min(4, $sessions.Count); $i++) {
+    for ($i = 0; $i -lt [Math]::Min(3, $sessions.Count); $i++) {
         $session = $sessions[$i]
         $row = New-Rect $X0 $y $Inner (Px 50)
         Fill-Round $G $row (Px 8) $P.Surface
-        $color = ConvertFrom-Hex (Get-HubSlotHex $session.Color)
-        if (-not $session.Live) { $color = $P.Faint }
-        Draw-HubDot $G ($row.X + (Px 14)) ($row.Y + (Px 19)) (Px 12) $color
+        $hex = if ($session.Live) { Get-HubSlotHex $session.Color } else { [System.Drawing.ColorTranslator]::ToHtml($P.Faint) }
+        Draw-HubEgg $G ($row.X + (Px 20)) ($row.Y + (Px 25)) (Px 24) $hex
         $right = $row.Right - (Px 12)
         if ($session.Live) {
             $bw = Get-PillWidth 'Mostrar'
@@ -1767,6 +1786,14 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $y += Px 56
     }
     Draw-Wrapped $G (Tx 'Al cerrar una ventana su mitad queda libre para la siguiente. Las sesiones de otros PCs se abren desde Otros PCs.') $F.Small $P.Faint $X0 (Px 584) $Inner (Px 34)
+}
+
+$script:EggDockLabels = @{ taskbar = 'Barra de tareas'; left = 'Lateral izquierdo'; right = 'Lateral derecho'; top = 'Arriba'; bottom = 'Abajo' }
+function Step-HubEggDock([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $i = ([Array]::IndexOf($EggDockEdges, (Get-EggDock).Edge) + $Delta + $EggDockEdges.Count) % $EggDockEdges.Count
+    Set-EggDock $EggDockEdges[$i]
+    Update-HubNow
 }
 
 # FreeLLMAPI: free models for new sessions when the plan's quota runs out (lib\freellm.ps1).
@@ -1823,6 +1850,83 @@ function Draw-HubFreeLlmCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) 
     }
     Draw-Text $G $line2 $F.Small $line2Color $tx ($Card.Y + (Px 42)) ($Card.Width - (Px 32)) (Px 18)
     if ($line3) { Draw-Text $G $line3 $F.Small $line3Color $tx ($Card.Y + (Px 60)) ($Card.Width - (Px 32)) (Px 18) }
+}
+
+# ---------------------------------------------------------------- Claude Whip (lib\whip.ps1)
+
+# The plan's highest window, as the whip plugin reads it from usage.json.
+function Get-HubPlanPercent {
+    $view = $script:View
+    $pct = 0
+    if ($view -and $view.HasData) { foreach ($w in @($view.Session, $view.Weekly)) { if ($w -and $w.Active) { $pct = [Math]::Max($pct, [int]$w.Percent) } } }
+    $pct
+}
+
+function Update-HubWhip([scriptblock]$Change, [string]$Message) {
+    if ($script:Hub.Preview -or -not (Test-HubModule 'whip')) { return }
+    $settings = Get-WhipSettings
+    & $Change $settings
+    try { Save-WhipSettings $settings; Set-HubMessage $Message } catch { Set-HubMessage 'No se pudo guardar Claude Whip.' }
+    Update-HubNow
+}
+
+function Set-HubWhipEnabled([bool]$On) {
+    Update-HubWhip { param($s) $s.Enabled = $On } $(if ($On) { 'Claude Whip activado.' } else { 'Claude Whip apagado.' })
+}
+
+function Set-HubWhipAgent([string]$Id, [bool]$On) {
+    Update-HubWhip { param($s) $s.Agents = @(@($s.Agents | Where-Object { $_ -ne $Id }) + @(if ($On) { $Id })) } $(if ($On) { "$Id activado." } else { "$Id apagado." })
+}
+
+function Step-HubWhipThreshold([int]$Delta) {
+    Update-HubWhip { param($s) $s.Threshold = Step-WhipThreshold $s.Threshold $Delta } 'Umbral de Claude Whip cambiado.'
+}
+
+function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    $c = $script:Hub.Cache
+    $s = $c.Whip
+    if (-not $s) { return }
+    $pct = Get-HubPlanPercent
+    $mode = Get-WhipMode $s $pct
+    $agents = @($c.WhipAgents)
+    $names = @($agents | Where-Object { $s.Agents -contains $_.Id } | ForEach-Object { $_.Label }) -join ', '
+
+    # the switch, what it is doing now and the threshold
+    $card = New-Rect $X0 (Px 72) $Inner (Px 108)
+    Draw-HubCard $G $card
+    $tx = $card.X + (Px 16)
+    $tw = $card.Width - (Px 84)
+    Draw-HubSwitch $G $Map 'whip-switch' ($card.Right - (Px 52)) ($card.Y + (Px 14)) ([bool]$s.Enabled) ([scriptblock]::Create("Set-HubWhipEnabled `$$(-not $s.Enabled)"))
+    Draw-Text $G 'Claude Whip' $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) $tw (Px 22)
+    $status, $color = switch ($mode) {
+        'off'     { (Tx 'Apagado. Cuando el plan llegue al umbral, un agente programa y Claude revisa el git, ejecuta los tests y le devuelve lo que falle.'), $P.Muted }
+        'noagent' { (Tx 'Activa al menos un agente abajo: sin agentes, Claude Whip no entra en acci\u00f3n.'), $P.Warn }
+        'armed'   { (Tx "Listo: entra en acci\u00f3n cuando el plan llegue al $($s.Threshold)% (ahora $pct%)."), $P.Muted }
+        default   { (Tx "\u2713 En acci\u00f3n (plan al $pct%): programa $names; Claude revisa el git y los tests."), $P.Ok }
+    }
+    Draw-Text $G $status $F.Small $color $tx ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 18)
+    Draw-HubPicker $G $Map $Hover 'whip-threshold' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 66)) ($card.Width - (Px 12)) (Px 30)) 'Se activa' (Format-WhipThreshold $s.Threshold) 'Step-HubWhipThreshold'
+
+    # the agents
+    $y = Px 192
+    Draw-HubCaption $G 'AGENTES' $X0 $y $Inner 'Cada uno gasta su propia cuota'
+    $y += Px 22
+    $list = New-Rect $X0 $y $Inner ([Math]::Max(1, $agents.Count) * (Px 46) + (Px 8))
+    Draw-HubCard $G $list
+    $ry = $list.Y + (Px 4)
+    foreach ($agent in $agents) {
+        $on = $s.Agents -contains $agent.Id
+        $sub = if ($agent.Installed) { $agent.Note } else { 'No instalado: ' + $agent.Install }
+        Draw-HubToggleRow $G $Map $Hover "whip-agent-$($agent.Id)" (New-Rect ($list.X + (Px 6)) $ry ($list.Width - (Px 12)) (Px 42)) "$($agent.Label)  $(Tx '\u00b7')  $($agent.Vendor)" $sub $on ([scriptblock]::Create("Set-HubWhipAgent '$($agent.Id)' `$$(-not $on)")) ([bool]($agent.Installed -or $on))
+        $ry += Px 46
+    }
+
+    $y = $list.Bottom + (Px 14)
+    Draw-HubCaption $G (Tx 'C\u00d3MO FUNCIONA') $X0 $y $Inner ''
+    Draw-Wrapped $G (Tx 'Un ciclo entre Claude y el agente: Claude planea y escribe el encargo, el agente programa, Claude mira el git y ejecuta los tests, y le devuelve lo que fall\u00f3 hasta que pasen (como mucho 3 rondas). En todas las sesiones, tambi\u00e9n las abiertas, Claude no puede editar, escribir ni lanzar subagentes (skill claude-whip).') $F.Small $P.Muted $X0 ($y + (Px 22)) $Inner (Px 54)
+    Draw-Wrapped $G (Tx 'El uso del plan sale de la statusline de ClaudeMaxxing. Apagado o por debajo del umbral, las sesiones funcionan como siempre.') $F.Small $P.Faint $X0 ($y + (Px 80)) $Inner (Px 36)
 }
 
 # ---------------------------------------------------------------- Otros PCs
@@ -2095,8 +2199,8 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $session = $sessions[$i]
         $row = New-Rect $X0 $y $Inner (Px 44)
         Fill-Round $G $row (Px 8) $P.Surface
-        $color = if ($session.Color) { ConvertFrom-Hex (Get-HubSlotHex $session.Color) } else { $P.Faint }
-        Draw-HubDot $G ($row.X + (Px 14)) ($row.Y + (Px 16)) (Px 12) $color
+        $hex = if ($session.Color) { Get-HubSlotHex $session.Color } else { [System.Drawing.ColorTranslator]::ToHtml($P.Faint) }
+        Draw-HubEgg $G ($row.X + (Px 20)) ($row.Y + (Px 22)) (Px 22) $hex
         $name = $session.Name
         if ($session.Role) { $name += ' ' + (Tx '\u00b7') + ' ' + $session.Role }
         $textX = $row.X + (Px 36)
@@ -2154,6 +2258,8 @@ function Set-HubPreview {
     $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true
+    $c.Whip = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex', 'agy') }
+    $c.WhipAgents = @(Get-WhipAgentStates | ForEach-Object { $_.Installed = $_.Id -ne 'copilot'; $_ })
     $c.VoiceMuted = $false
     $c.HotkeysOn = $true
     $c.VoiceSessions = @(
@@ -2224,6 +2330,6 @@ function Set-HubPreview {
         default   { $null }
     }
     $c.JudgeProgress = 'Jurado: 4 de 6 votos'
-}
     # Empresa: -HubSection business, or home-business for Inicio in that edition.
     if ($script:Hub.Section -eq 'business' -or $script:BusinessPreview) { Set-BusinessPreview }
+}

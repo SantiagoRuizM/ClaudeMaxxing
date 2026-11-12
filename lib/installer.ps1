@@ -3,12 +3,17 @@
 
 # Everything the installed tray, menu launcher and voice need; nothing else from the repo is copied.
 $script:RuntimeFiles = @(
-    'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1',
+    'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1', 'logo.png',
+    # The egg of each session in the notification area (lib\traysessions.ps1): still, and the thinking animation.
+    'egg_logo.png', 'egg_logo_gift_thinking.gif',
     'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js',
     # Peek: the plugin Claude Code loads (its tests, README and the sample paths in them stay in the repo).
     'peek\LICENSE', 'peek\.claude-plugin\plugin.json', 'peek\hooks\hooks.json', 'peek\hooks\register.tsx', 'peek\hooks\paths.ts',
     'peek\hooks\code.ts', 'peek\hooks\markdown.ts', 'peek\hooks\link.tsx', 'peek\hooks\window.ts', 'peek\windows\preview.ps1',
-    'peek\windows\reveal.ps1'
+    'peek\windows\reveal.ps1',
+    # Claude Whip: the plugin that holds a session to reading and planning when the plan runs low (lib\whip.ps1).
+    'whip\.claude-plugin\plugin.json', 'whip\hooks\hooks.json', 'whip\hooks\register.ts', 'whip\hooks\rules.ts',
+    'whip\skills\claude-whip\SKILL.md', 'whip\bin\whip-run.sh', 'whip\bin\whip-check.sh'
 )
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
 # claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
@@ -277,7 +282,8 @@ function Register-AppEntry([string]$InstallDir) {
         DisplayVersion  = $AppVersion
         Publisher       = $AppName
         InstallLocation = $InstallDir
-        DisplayIcon     = Join-Path $env:LOCALAPPDATA 'ClaudeCodeMenu\Assets\claude.ico'
+        # The jellyfish, drawn by tray.ps1 -RenderLogoTo with the extension's icons.
+        DisplayIcon     = Join-Path $InstallDir 'harness\extension\icons\logo.ico'
         # -Pause: the console Settings opens stays until Enter, so its messages can be read.
         UninstallString = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -Pause' -f $powershell, (Join-Path $InstallDir 'uninstall.ps1')
     }
@@ -310,7 +316,7 @@ function Register-HarnessHost([string]$InstallDir) {
 
 function Unregister-HarnessHost { Remove-Item -Path $HarnessHostKey -Force -ErrorAction SilentlyContinue }
 
-# The extension's icons are drawn into the install (from the Claude app's icon, not in the repo), so only the
+# The extension's icons are drawn into the install (from logo.png, not kept as PNGs in the repo), so only the
 # installed manifest names them: the repo copy stays loadable in Chrome, with its default icon.
 function Add-HarnessManifestIcons([string]$InstallDir) {
     $extension = Join-Path $InstallDir 'harness\extension'
@@ -325,6 +331,79 @@ function Add-HarnessManifestIcons([string]$InstallDir) {
     $manifest.action | Add-Member -NotePropertyName default_icon -NotePropertyValue $icons -Force
     [IO.File]::WriteAllText($file, ($manifest | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding $false))  # Chrome rejects a BOM
     "extension icons: $(Join-Path $extension 'icons')"
+}
+
+# Windows Terminal profiles for the menu sessions: one per egg drawn in $EggDir (<color>.png, tray.ps1 -RenderEggsTo),
+# hidden from the new-tab menu, with that egg as the tab icon. Named like Get-SessionProfileName (lib\sessions.ps1).
+# A fragment: Windows Terminal reads it beside the user's settings.json, which stays untouched.
+function Install-TerminalProfiles([string]$EggDir) {
+    $eggs = @(Get-ChildItem -LiteralPath $EggDir -Filter '*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
+    if (-not $eggs.Count) { return 'terminal profiles: no eggs drawn (tabs keep the cmd icon)' }
+    $profiles = @($eggs | ForEach-Object {
+        # The eggs font after the main one: the statusline's egg glyphs (U+E100...) come from it (Install-EggFont).
+        # shortcut: assumes Windows Terminal's default face; a user who changed theirs gets Cascadia Mono in these tabs.
+        [ordered]@{ name = 'ClaudeMaxxing ' + $_.BaseName; commandline = '%SystemRoot%\System32\cmd.exe'; icon = $_.FullName; hidden = $true
+            font = [ordered]@{ face = 'Cascadia Mono, ' + $EggFontFamily } }
+    })
+    Write-JsonFile $TerminalFragmentFile ([ordered]@{ profiles = $profiles })
+    # A running Windows Terminal reads fragments only when it reloads its settings: a new timestamp (content
+    # untouched) makes it reload now, so the next menu session already finds its profile.
+    foreach ($settings in @(Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal*\LocalState\settings.json') -ErrorAction SilentlyContinue)) {
+        try { $settings.LastWriteTime = Get-Date } catch { }
+    }
+    "terminal profiles: $TerminalFragmentFile"
+}
+
+# The eggs font (font\ClaudeMaxxingEggs.ttf, built by font\build_eggs_font.py): the session egg and its animation
+# frames as glyphs, for the statusline. Installed for this user only (no admin): copied under a name with its hash
+# (a running terminal may hold the previous file), registered in HKCU and announced to running programs.
+$script:EggFontFamily = 'ClaudeMaxxing Eggs'
+$script:EggFontValue = 'ClaudeMaxxing Eggs (TrueType)'
+$script:UserFontsKey = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
+function Install-EggFont([string]$Source) {
+    if (-not (Test-Path -LiteralPath $Source)) { return 'eggs font: not found' }
+    $fonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+    if (-not (Test-Path -LiteralPath $fonts)) { New-Item -ItemType Directory -Force -Path $fonts | Out-Null }
+    $hash = (Get-FileHash -LiteralPath $Source -Algorithm SHA1).Hash.Substring(0, 8)
+    $target = Join-Path $fonts "ClaudeMaxxingEggs-$hash.ttf"
+    if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $Source -Destination $target }
+    if (-not (Test-Path -LiteralPath $script:UserFontsKey)) { New-Item -Path $script:UserFontsKey -Force | Out-Null }
+    New-ItemProperty -Path $script:UserFontsKey -Name $script:EggFontValue -Value $target -PropertyType String -Force | Out-Null
+    foreach ($old in @(Get-ChildItem -LiteralPath $fonts -Filter 'ClaudeMaxxingEggs-*.ttf' | Where-Object { $_.FullName -ne $target })) {
+        try { Remove-Item -LiteralPath $old.FullName -Force -ErrorAction Stop } catch { }
+    }
+    Send-FontChange $target
+    "eggs font: $target"
+}
+
+function Uninstall-EggFont {
+    Remove-ItemProperty -Path $script:UserFontsKey -Name $script:EggFontValue -ErrorAction SilentlyContinue
+    $fonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+    foreach ($file in @(Get-ChildItem -LiteralPath $fonts -Filter 'ClaudeMaxxingEggs-*.ttf' -ErrorAction SilentlyContinue)) {
+        try { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop } catch { }
+    }
+    'eggs font removed'
+}
+
+# Loads the font in this session and tells running programs (WM_FONTCHANGE), so a new terminal finds it at once.
+function Send-FontChange([string]$Path) {
+    if (-not ('ClaudeMaxxing.FontChange' -as [type])) {
+        Add-Type -Namespace ClaudeMaxxing -Name FontChange -MemberDefinition @'
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern int AddFontResource(string file);
+[DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+'@
+    }
+    [void][ClaudeMaxxing.FontChange]::AddFontResource($Path)
+    $result = [IntPtr]::Zero
+    # HWND_BROADCAST, WM_FONTCHANGE, SMTO_ABORTIFHUNG, 1 s per window.
+    [void][ClaudeMaxxing.FontChange]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$result)
+}
+
+function Uninstall-TerminalProfiles {
+    $dir = Split-Path -Parent $TerminalFragmentFile
+    if (-not (Test-Path -LiteralPath $dir)) { return 'terminal profiles: none' }
+    Remove-Item -LiteralPath $dir -Recurse -Force
+    'terminal profiles removed (open session tabs keep theirs until closed)'
 }
 
 # Peek (peek\): Claude Code loads the installed folder in every session through CLAUDE_CODE_PLUGIN_DIRS in the "env"

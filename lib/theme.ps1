@@ -97,7 +97,7 @@ function Get-TrayIcon {
     [System.Drawing.SystemIcons]::Information
 }
 
-# The Claude spark recolored to a solid color (RGB replaced, alpha kept).
+# The Claude spark recolored to a solid color (RGB replaced, alpha kept); only the usage popup's "Claude" header.
 function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
     $path = Get-ClaudeIconPath 'Tray-Win32.ico'
     if (-not $path) { return $null }
@@ -105,6 +105,13 @@ function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
     $frame = [Math]::Max(64, $Size)
     $icon = New-Object System.Drawing.Icon($path, $frame, $frame)
     $source = $icon.ToBitmap()
+    $bitmap = ConvertTo-TintedBitmap $source $Color $Size
+    $source.Dispose(); $icon.Dispose()
+    $bitmap
+}
+
+# $Source scaled to a $Size square in a solid color (RGB replaced, alpha kept).
+function ConvertTo-TintedBitmap([System.Drawing.Image]$Source, [System.Drawing.Color]$Color, [int]$Size) {
     $bitmap = New-Object System.Drawing.Bitmap($Size, $Size)
     $g = [System.Drawing.Graphics]::FromImage($bitmap)
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
@@ -113,41 +120,31 @@ function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
     $matrix.Matrix40 = $Color.R / 255.0; $matrix.Matrix41 = $Color.G / 255.0; $matrix.Matrix42 = $Color.B / 255.0
     $attributes = New-Object System.Drawing.Imaging.ImageAttributes
     $attributes.SetColorMatrix($matrix)
-    $g.DrawImage($source, (New-Object System.Drawing.Rectangle(0, 0, $Size, $Size)), 0, 0, $source.Width, $source.Height,
+    $g.DrawImage($Source, (New-Object System.Drawing.Rectangle(0, 0, $Size, $Size)), 0, 0, $Source.Width, $Source.Height,
         [System.Drawing.GraphicsUnit]::Pixel, $attributes)
-    $g.Dispose(); $source.Dispose(); $icon.Dispose()
+    $g.Dispose(); $attributes.Dispose()
     $bitmap
 }
 
-# The ClaudeMaxxing logo at any size: the Claude spark in Claude orange with a dark "max" badge (two up chevrons),
-# drawn for 64 px and scaled. Built from the Claude app's icon (not redistributed); $null without it. -Fallback draws
-# an orange disc with the badge instead (the Chrome extension needs some icon). Below 32 px the badge is left out.
-function New-AppLogoBitmap([int]$Size, [switch]$Fallback) {
-    $bitmap = New-TintedLogo (New-Rgb 217 119 87) $Size
-    if (-not $bitmap -and -not $Fallback) { return $null }
-    if (-not $bitmap) { $bitmap = New-Object System.Drawing.Bitmap($Size, $Size) }
-    $g = [System.Drawing.Graphics]::FromImage($bitmap)
-    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $k = $Size / 64.0
-    if ($Fallback -and -not (Get-ClaudeIconPath 'Tray-Win32.ico')) {
-        $orange = New-Object System.Drawing.SolidBrush((New-Rgb 217 119 87))
-        $g.FillEllipse($orange, [single](2 * $k), [single](2 * $k), [single](60 * $k), [single](60 * $k))
-        $orange.Dispose()
+# The ClaudeMaxxing logo as an app icon: the jellyfish of logo.png in its own orange on a transparent $Size square.
+function New-AppLogoBitmap([int]$Size) { New-BrandMark (New-Rgb 253 107 77) $Size }
+
+# The bitmaps as one .ico of PNG frames (Windows Vista and later read them); for the entry in Settings > Apps.
+function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) {
+    $frames = @($Bitmaps | ForEach-Object { $ms = New-Object IO.MemoryStream; $_.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); , $ms.ToArray() })
+    $out = New-Object IO.MemoryStream
+    $w = New-Object IO.BinaryWriter($out)
+    $w.Write([uint16]0); $w.Write([uint16]1); $w.Write([uint16]$frames.Count)
+    $offset = 6 + 16 * $frames.Count
+    for ($i = 0; $i -lt $frames.Count; $i++) {
+        # Width and height bytes: 0 means 256.
+        $w.Write([byte]($Bitmaps[$i].Width % 256)); $w.Write([byte]($Bitmaps[$i].Height % 256)); $w.Write([uint16]0)
+        $w.Write([uint16]1); $w.Write([uint16]32); $w.Write([uint32]$frames[$i].Length); $w.Write([uint32]$offset)
+        $offset += $frames[$i].Length
     }
-    if ($Size -ge 32) {
-        $back = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
-        $g.FillEllipse($back, (New-Object System.Drawing.RectangleF((34 * $k), (34 * $k), (30 * $k), (30 * $k))))
-        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, [single](4 * $k))
-        $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-        $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-        $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-        foreach ($y in 47, 56) {
-            $g.DrawLines($pen, [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF((42 * $k), ($y * $k))), (New-Object System.Drawing.PointF((49 * $k), (($y - 7) * $k))), (New-Object System.Drawing.PointF((56 * $k), ($y * $k)))))
-        }
-        $pen.Dispose(); $back.Dispose()
-    }
-    $g.Dispose()
-    $bitmap
+    foreach ($frame in $frames) { $w.Write($frame) }
+    [IO.File]::WriteAllBytes($Path, $out.ToArray())
+    $w.Dispose()
 }
 
 # Window and taskbar icon: the logo above at 64 px, built once; falls back to the tray icon.
@@ -309,4 +306,29 @@ function Confirm-UiAction([string]$Text, $Owner = $null) {
     $answer = if ($Owner) { [System.Windows.Forms.MessageBox]::Show($Owner, $Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
         else { [System.Windows.Forms.MessageBox]::Show($Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
     $answer -eq [System.Windows.Forms.DialogResult]::Yes
+}
+
+# logo.png (the ClaudeMaxxing jellyfish, orange on cream, no alpha channel) as a $Color silhouette $Width px square.
+# The cream turns transparent by taking alpha from the blue channel (cream ~248, jellyfish ~77); $Opacity scales it.
+function New-BrandMark([System.Drawing.Color]$Color, [int]$Width, [double]$Opacity = 1) {
+    $path = Join-Path (Split-Path -Parent $PSScriptRoot) 'logo.png'
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    # shortcut: square crop measured on the current logo.png (jellyfish 298-948 x 270-958 of 1254, plus 16 px of air);
+    # re-measure if the art changes.
+    $crop = New-Object System.Drawing.Rectangle(271, 262, 704, 704)
+    $bitmap = New-Object System.Drawing.Bitmap($Width, [int]($Width * $crop.Height / $crop.Width))
+    $g = [System.Drawing.Graphics]::FromImage($bitmap)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $matrix = New-Object System.Drawing.Imaging.ColorMatrix
+    $matrix.Matrix00 = 0; $matrix.Matrix11 = 0; $matrix.Matrix22 = 0; $matrix.Matrix33 = 0
+    $matrix.Matrix40 = $Color.R / 255.0; $matrix.Matrix41 = $Color.G / 255.0; $matrix.Matrix42 = $Color.B / 255.0
+    $matrix.Matrix23 = -1.65 * $Opacity; $matrix.Matrix43 = 1.545 * $Opacity
+    $attributes = New-Object System.Drawing.Imaging.ImageAttributes
+    $attributes.SetColorMatrix($matrix)
+    $source = [System.Drawing.Image]::FromFile($path)
+    try {
+        $g.DrawImage($source, (New-Object System.Drawing.Rectangle(0, 0, $bitmap.Width, $bitmap.Height)), $crop.X, $crop.Y,
+            $crop.Width, $crop.Height, [System.Drawing.GraphicsUnit]::Pixel, $attributes)
+    } finally { $source.Dispose(); $g.Dispose(); $attributes.Dispose() }
+    $bitmap
 }

@@ -147,6 +147,11 @@ $themeState = Install-ThemeSettings (Join-Path $env:USERPROFILE '.claude\setting
 Write-Host "Theme: $themeState"
 if ($themeState -like 'skipped*') { Add-Warning "Theme $themeState" }
 
+# Claude Whip: loaded in every session, idle until switched on in the window (ClaudeMaxxing > Claude Whip).
+$whipState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip')
+Write-Host "Claude Whip: $whipState"
+if ($whipState -like 'skipped*') { Add-Warning "Claude Whip $whipState" }
+
 # ---------------------------------------------------------------- 5. Explorer menu
 Write-Step 'Explorer menu (Abrir con Claude Code)'
 if ($SkipMenu) {
@@ -190,9 +195,13 @@ if (-not $NoHotkeys) {
 # ---------------------------------------------------------------- Ambientes
 Write-Step 'Ambientes (Chrome extension and its native host)'
 Write-Host (Register-HarnessHost $InstallDir)
-# The extension's icons: the ClaudeMaxxing logo, drawn from the Claude app's icon on this PC (not in the repo).
+# The extension's icons: the ClaudeMaxxing jellyfish, drawn from logo.png into the install (not in the repo).
 & $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderLogoTo (Join-Path $InstallDir 'harness\extension\icons')
 Write-Host (Add-HarnessManifestIcons $InstallDir)
+# The menu sessions' tabs: the session's egg in its color as the tab icon (lib\sessions.ps1 opens them with it).
+& $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderEggsTo (Join-Path $InstallDir 'eggs')
+Write-Host (Install-EggFont (Join-Path $RepoRoot 'font\ClaudeMaxxingEggs.ttf'))
+Write-Host (Install-TerminalProfiles (Join-Path $InstallDir 'eggs'))
 Write-Host "extension: load it once per Chrome profile (chrome://extensions > Developer mode > Load unpacked > $(Join-Path $InstallDir 'harness\extension')); updates only need its reload button"
 Write-Host "environments and state (per PC): $(Join-Path $TrayHome 'harness')"
 

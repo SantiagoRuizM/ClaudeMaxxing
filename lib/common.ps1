@@ -5,6 +5,8 @@ $AppVersion    = '1.1.0'
 # install.ps1 copies the runtime here; nothing runs from the repo.
 $DefaultInstallDir = Join-Path $env:LOCALAPPDATA $AppName
 $TrayHome      = Join-Path $env:USERPROFILE '.claude\usage-tray'
+# Windows Terminal profiles of the menu sessions, one per color with its egg as the tab icon (install.ps1).
+$TerminalFragmentFile = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows Terminal\Fragments\ClaudeMaxxing\sessions.json'
 $UsageFile     = Join-Path $TrayHome 'usage.json'
 $ConfigFile    = Join-Path $TrayHome 'config.json'
 $HistoryFile   = Join-Path $TrayHome 'history.json'

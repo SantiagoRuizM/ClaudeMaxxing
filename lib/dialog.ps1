@@ -330,7 +330,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
 
     $dlg.Add_HandleCreated({ param($sender, $e) Set-RoundedWindow $sender $script:Palette.Border })
 
-    $logo = New-TintedLogo $P.Accent (Px 22)
+    $logo = New-BrandMark $P.Accent (Px 22)
 
     $dlg.Add_Paint({
         param($sender, $e)

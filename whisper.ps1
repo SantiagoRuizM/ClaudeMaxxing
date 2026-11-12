@@ -542,7 +542,7 @@ $Form.TopMost = [bool]$script:Settings.topMost
 $Form.Opacity = 1.0
 $Form.KeyPreview = $true
 $Form.MinimumSize = New-Object System.Drawing.Size((Px 380), (Px 420))
-try { $Form.Icon = Get-TrayIcon } catch { }
+try { $appIcon = Get-AppIcon; if ($appIcon) { $Form.Icon = $appIcon } } catch { }
 $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $bounds = $script:Settings.bounds
 if ($bounds -and $bounds.w -gt 200 -and $bounds.h -gt 200 -and

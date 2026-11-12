@@ -69,14 +69,20 @@ function Format-ClaudeCommand([string]$Run, [string]$SessionId, [string]$PluginD
     $command
 }
 
+# The hidden Windows Terminal profile with this color's egg as its tab icon (Install-TerminalProfiles).
+function Get-SessionProfileName([string]$ColorName) { 'ClaudeMaxxing ' + $ColorName }
+
 # wt.exe arguments for a new window in $Dir running $Run. --pos only takes non-negative values
 # (a leading '-' reads as an option); the window is moved to its exact slot afterwards anyway.
-function Format-WtArguments([string]$Dir, [string]$Run, $Slot, [string]$TabColor) {
+function Format-WtArguments([string]$Dir, [string]$Run, $Slot, [string]$TabColor, [string]$TerminalProfile) {
     $pos = ''
     if ($Slot -and $Slot.X -ge 0 -and $Slot.Y -ge 0) { $pos = '--pos {0},{1} ' -f $Slot.X, $Slot.Y }
     $color = ''
     if ($TabColor) { $color = '--tabColor {0} ' -f $TabColor }
-    '-w new {0}{1}-d {2} cmd /k {3}' -f $pos, $color, (Format-WtPath $Dir), $Run
+    # -p is a new-tab option: it goes after --pos, a window option (before it, wt rejects --pos and opens nothing).
+    $prof = ''
+    if ($TerminalProfile) { $prof = '-p "{0}" ' -f $TerminalProfile }
+    '-w new {0}{1}{2}-d {3} cmd /k {4}' -f $pos, $prof, $color, (Format-WtPath $Dir), $Run
 }
 
 function Format-SessionsFullMessage([int]$Open, [int]$Monitors) {

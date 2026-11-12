@@ -70,8 +70,11 @@ Write-Host "scheduled sessions removed: $removed"
 
 $statusline = Get-StatuslineScriptPath
 if ($statusline) { Write-Host "statusline: $(Uninstall-StatuslineBlock $statusline)" }
+Write-Host (Uninstall-TerminalProfiles)
+Write-Host (Uninstall-EggFont)
 Write-Host "Peek: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'peek'))"
 Write-Host "Theme: $(Uninstall-ThemeSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'theme'))"
+Write-Host "Claude Whip: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip'))"
 
 if (Test-Path -LiteralPath $UninstallKey) { Remove-Item -LiteralPath $UninstallKey -Recurse; Write-Host 'Settings > Apps entry removed' }
 

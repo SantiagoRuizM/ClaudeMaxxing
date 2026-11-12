@@ -31,7 +31,7 @@ Tras actualizar ClaudeMaxxing basta el botón de recargar de la extensión (o `n
 
 ## La extensión en Chrome
 
-Se llama **ClaudeMaxxing** y lleva su logo (lo dibuja `install.ps1` con `tray.ps1 -RenderLogoTo` a partir del icono de la app de Claude de este PC; no se sube al repo, así que la extensión solo carga desde la instalación). Además de darle las pestañas a `env.js` y a la bandeja:
+Se llama **ClaudeMaxxing** y lleva su logo (la medusa de `logo.png`: la dibuja `install.ps1` con `tray.ps1 -RenderLogoTo`; los PNG no se suben al repo, así que la extensión solo carga desde la instalación). Además de darle las pestañas a `env.js` y a la bandeja:
 
 - **Número en el icono:** cuántas pestañas de este perfil cerraría el ambiente encendido (las mismas reglas que al encenderlo, duplicados incluidos). El título del icono dice el ambiente.
 - **Aviso al navegar:** cuando la pestaña en la que estás termina de cargar una página que no encaja, sale una barra discreta en la esquina con el motivo, **Cerrar pestaña** y **Mantener** (no vuelve a avisar en esa pestaña y ese sitio hasta cerrar Chrome). Los duplicados de las pestañas del ambiente solo cuentan en el número.

@@ -106,8 +106,14 @@ try {
     }
 
     $before = [long[]]@([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses))
+    # With the voice plugin its hooks write the tab's title ("name - role", no spark or spinner before it).
+    if ($pluginDir) { $command = 'set CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1&& ' + $command }
+    # The tab shows the session's egg once install.ps1 has written the terminal profiles.
+    $wtProfile = if (Test-Path -LiteralPath $TerminalFragmentFile) { Get-SessionProfileName $color.Name } else { '' }
+    # That profile's font has the egg glyphs: the statusline draws the egg with them only where this is set.
+    if ($wtProfile) { $command = 'set CLAUDEMAXXING_EGG_FONT=1&& ' + $command }
     try {
-        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $command $rect $color.Hex) -WorkingDirectory $Dir -ErrorAction Stop
+        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $command $rect $color.Hex $wtProfile) -WorkingDirectory $Dir -ErrorAction Stop
     } catch {
         Write-SessionLog "wt.exe failed ($($_.Exception.Message)); using cmd.exe"
         Start-Process -FilePath 'cmd.exe' -ArgumentList "/k $command" -WorkingDirectory $Dir -ErrorAction Stop

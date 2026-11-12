@@ -1,6 +1,6 @@
 {
   "company": "Acme",
-  "disabled": ["freellm", "bridge", "whisper"],
+  "disabled": ["freellm", "bridge", "whisper", "whip"],
   "seatName": "Premium",
   "seatMonthlyUsd": 150,
   "reportDir": "\\\\files\\claude\\informes",
