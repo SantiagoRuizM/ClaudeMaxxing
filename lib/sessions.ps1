@@ -18,11 +18,12 @@ function Get-HalfSlots($WorkAreas) {
 
 # Lowest slot index no live session holds, or -1 when there are already as many sessions as slots.
 # Sessions left on a slot that no longer exists (a monitor was unplugged) still count.
-function Get-FreeSlot([int]$SlotCount, $Sessions) {
+# -NoLimit: never full; past the last slot it returns $SlotCount and up (the caller places it on slot % count).
+function Get-FreeSlot([int]$SlotCount, $Sessions, [bool]$NoLimit = $false) {
     $Sessions = @($Sessions | Where-Object { $_ })
-    if ($Sessions.Count -ge $SlotCount) { return -1 }
+    if (-not $NoLimit -and $Sessions.Count -ge $SlotCount) { return -1 }
     $used = @($Sessions | ForEach-Object { [int]$_.slot })
-    for ($i = 0; $i -lt $SlotCount; $i++) {
+    for ($i = 0; $NoLimit -or $i -lt $SlotCount; $i++) {
         if ($used -notcontains $i) { return $i }
     }
     return -1
@@ -81,5 +82,13 @@ function Format-WtArguments([string]$Dir, [string]$Run, $Slot, [string]$TabColor
 function Format-SessionsFullMessage([int]$Open, [int]$Monitors) {
     $screens = if ($Monitors -eq 1) { '1 pantalla' } else { "$Monitors pantallas" }
     Tx ("Ya hay $Open sesiones de Claude Code abiertas desde el men\u00fa: el m\u00e1ximo es 2 por pantalla ($screens).`n`n" +
-        "Cierra una de esas ventanas para abrir otra.")
+        "Cierra una de esas ventanas para abrir otra, o quita el l\u00edmite en ClaudeMaxxing > Claude Code.")
 }
+
+# On unless switched off in the ClaudeMaxxing window ($SessionLimitFile, lib\common.ps1).
+function Test-SessionLimit {
+    $saved = Read-JsonFile $SessionLimitFile
+    -not ($saved -and $saved.enabled -eq $false)
+}
+
+function Set-SessionLimit([bool]$On) { Write-JsonFile $SessionLimitFile @{ enabled = $On } }

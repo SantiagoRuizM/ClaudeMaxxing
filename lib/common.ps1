@@ -16,6 +16,8 @@ $TrayPidFile   = Join-Path $TrayHome 'tray.pid'
 $RunsDir       = Join-Path $TrayHome 'runs'
 $SessionsFile  = Join-Path $TrayHome 'sessions.json'
 $SessionLogFile = Join-Path $TrayHome 'sessions.log'
+# The two-sessions-per-monitor limit, switched off in the ClaudeMaxxing window (lib\sessions.ps1, Test-SessionLimit).
+$SessionLimitFile = Join-Path $TrayHome 'session-limit.json'
 $BinDir        = Join-Path $TrayHome 'bin'
 # Estadisticas in the ClaudeMaxxing window: the last result and the per-transcript cache (lib\stats.cs).
 $StatsFile     = Join-Path $TrayHome 'stats.json'

@@ -1,6 +1,6 @@
 # Opens Claude Code in $Dir in a new Windows Terminal window placed on the next free half-screen slot.
 # With n monitors there are 2n slots (left and right half of each, monitors left to right); when all are
-# taken it says so and opens nothing. Launched by the "Abrir con Claude Code" Explorer menu entry, which
+# taken it says so and opens nothing, unless the limit is off (Test-SessionLimit): then it opens over them. Launched by the "Abrir con Claude Code" Explorer menu entry, which
 # reads this command from HKCU\Software\ClaudeCodeMenu\Launcher (written by install.ps1).
 # Each session gets its slot's color (tab and Claude Code prompt box) and, from the voice part, a name
 # and a voice picked before Claude Code starts; the voice plugin (voice\plugin) loads for that session
@@ -74,7 +74,7 @@ try {
     $areas = @(Get-WorkAreas)
     $slots = Get-HalfSlots $areas
     $sessions = @(Read-JsonFile $SessionsFile | Where-Object { $_ -and [ClaudeTrayWin]::IsLiveWindow([long]$_.hwnd, $TerminalClasses) })
-    $slot = Get-FreeSlot $slots.Count $sessions
+    $slot = Get-FreeSlot $slots.Count $sessions (-not (Test-SessionLimit))
     if ($slot -lt 0) {
         Write-JsonFile $SessionsFile $sessions
         Write-SessionLog "full: $($sessions.Count) sessions, $($areas.Count) monitors; not opening $Dir"
@@ -82,7 +82,8 @@ try {
         return
     }
 
-    $rect = $slots[$slot]
+    # Without the limit, sessions past the last slot go over the half-screens again from the first.
+    $rect = $slots[$slot % $slots.Count]
     $color = Get-SlotColor $slot
     $sessionId = [guid]::NewGuid().ToString()
     $identity = $null

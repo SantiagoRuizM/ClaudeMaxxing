@@ -184,6 +184,7 @@ function Update-HubCache([switch]$Full) {
         $c.VoiceSessions = Get-HubVoiceSessions
         $c.MenuInstalled = [bool](Get-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue)
         $c.Screens = [System.Windows.Forms.Screen]::AllScreens.Count
+        $c.SessionLimit = Test-SessionLimit
         $c.VoiceInstalled = Test-Path -LiteralPath (Join-Path $TrayRoot 'voice\hooks\speak.ps1')
         try { $c.VoiceEngine = Get-VoiceEngineState } catch { $c.VoiceEngine = $null }
         $c.Auto = Get-HubAutoView
@@ -313,6 +314,14 @@ function Set-HubFreeLlmEnabled([bool]$On) {
 }
 
 # Ahorro de tokens (lib\maxx.ps1): context-mode on or off for new sessions, in the background.
+function Set-HubSessionLimit([bool]$On) {
+    if ($script:Hub.Preview) { return }
+    Set-SessionLimit $On
+    $script:Hub.Cache.SessionLimit = $On
+    Set-HubMessage $(if ($On) { 'Sesiones limitadas a 2 por pantalla.' } else { (Tx 'Sin l\u00edmite de sesiones: las nuevas se superponen.') })
+    Update-HubNow
+}
+
 function Set-HubContextMode([bool]$On) {
     if ($script:Hub.Preview) { return }
     $status = $script:Hub.Cache.MaxxStatus
@@ -1481,7 +1490,8 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $sessions = @($c.CodeSessions | Where-Object { $_.Live })
     $slots = 2 * [Math]::Max(1, [int]$c.Screens)
     Draw-Text $G 'CLAUDE CODE' $F.Caps $P.Muted $cx ($ccard.Y + (Px 10)) $cww (Px 18)
-    Draw-Text $G "$($sessions.Count) de $slots abiertas" $F.Small $P.Muted $cx ($ccard.Y + (Px 10)) $cww (Px 18) 'Right'
+    $openText = if ($c.SessionLimit -ne $false) { "$($sessions.Count) de $slots abiertas" } else { "$($sessions.Count) abiertas" }
+    Draw-Text $G $openText $F.Small $P.Muted $cx ($ccard.Y + (Px 10)) $cww (Px 18) 'Right'
     $sy = $ccard.Y + (Px 34)
     if (-not $sessions.Count) {
         Draw-Wrapped $G (Tx 'Ninguna sesi\u00f3n abierta. Clic derecho en una carpeta > Abrir con Claude Code.') $F.Small $P.Faint $cx $sy $cww (Px 36)
@@ -1639,7 +1649,12 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Text $G (Tx 'El men\u00fa del Explorador no est\u00e1 instalado: ejecuta install.ps1.') $F.Small $P.Warn $tx ($card.Y + (Px 36)) $tw (Px 18)
     }
     $screensText = if ($screens -eq 1) { '1 pantalla' } else { "$screens pantallas" }
-    Draw-Text $G ((Tx 'Cada sesi\u00f3n ocupa media pantalla, con su color, nombre y voz: ') + "$screensText, hasta $slots a la vez.") $F.Small $P.Muted $tx ($card.Y + (Px 56)) ($card.Width - (Px 32)) (Px 18)
+    # The switch turns the two-per-monitor limit on and off (Test-SessionLimit); the whole line is its hit area.
+    $limit = $c.SessionLimit -ne $false
+    $limitText = if ($limit) { "L$(Tx '\u00ed')mite: hasta $slots a la vez ($screensText)." } else { "Sin l$(Tx '\u00ed')mite: desde la $($slots + 1)$(Tx '\u00aa') se superponen." }
+    $limitRow = New-Rect $tx ($card.Y + (Px 54)) ($card.Right - (Px 16) - $tx) (Px 22)
+    Draw-Text $G ((Tx 'Media pantalla por sesi\u00f3n, con su color, nombre y voz. ') + $limitText) $F.Small $P.Muted $tx ($card.Y + (Px 56)) ($limitRow.Width - (Px 46)) (Px 18)
+    Draw-HubSwitch $G $Map 'code-limit' ($limitRow.Right - (Px 36)) ($limitRow.Y + (Px 1)) $limit ([scriptblock]::Create("Set-HubSessionLimit `$$(-not $limit)")) $true $limitRow
 
     if (Test-HubModule 'freellm') { Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 (Px 166) $Inner (Px 84)) }
     else { Draw-HubPolicyNote $G (New-Rect $X0 (Px 166) $Inner (Px 84)) 'Modelos gratis con FreeLLMAPI' (Tx 'Apagado por la pol\u00edtica de la empresa: las sesiones usan solo el plan de Claude, sin enviar prompts a proveedores de terceros.') }
@@ -1659,7 +1674,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $sessions = @($c.CodeSessions)
     $live = @($sessions | Where-Object { $_.Live }).Count
     $y = Px 330
-    Draw-HubCaption $G 'SESIONES' $X0 $y $Inner ("$live de $slots abiertas" + $(if ($sessions.Count -gt 4) { (Tx "  \u00b7  +$($sessions.Count - 4) m\u00e1s") } else { '' }))
+    Draw-HubCaption $G 'SESIONES' $X0 $y $Inner ($(if ($limit) { "$live de $slots abiertas" } else { "$live abiertas" }) + $(if ($sessions.Count -gt 4) { (Tx "  \u00b7  +$($sessions.Count - 4) m\u00e1s") } else { '' }))
     $y += Px 22
     if (-not $sessions.Count) {
         $row = New-Rect $X0 $y $Inner (Px 40)
@@ -1692,7 +1707,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Text $G $name $F.BodyStrong $(if ($session.Live) { $P.Text } else { $P.Muted }) $textX ($row.Y + (Px 6)) ($right - $textX - $folderW - (Px 8)) (Px 20)
         $side = if ($session.Slot % 2 -eq 0) { 'izquierda' } else { 'derecha' }
         $sub = $session.Dir
-        $meta = @("mitad $side de la pantalla $([int][Math]::Floor($session.Slot / 2) + 1)")
+        $meta = @("mitad $side de la pantalla $([int][Math]::Floor(($session.Slot % $slots) / 2) + 1)")
         if ($session.Backend -eq 'freellm') { $meta = @('FreeLLMAPI') + $meta }
         if ($session.At) { $meta += 'desde ' + (Format-DialogDateTime $session.At $now) }
         if ($session.Voice) { $meta += 'voz ' + (Format-VoiceName $session.Voice) }

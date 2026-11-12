@@ -270,6 +270,8 @@ Assert-Equal 1 (Get-FreeSlot 4 @((Session 0))) 'single session'
 Assert-Equal -1 (Get-FreeSlot 4 @((Session 0), (Session 1), (Session 2), (Session 3))) 'four sessions on two monitors: full'
 Assert-Equal -1 (Get-FreeSlot 2 @((Session 2), (Session 3))) 'sessions left on an unplugged monitor still count'
 Assert-Equal 0 (Get-FreeSlot 2 @((Session 3))) 'a slot beyond the monitors does not block a free one'
+Assert-Equal 2 (Get-FreeSlot 2 @((Session 0), (Session 1)) $true) 'no limit: past the last slot'
+Assert-Equal 1 (Get-FreeSlot 2 @((Session 0), (Session 2)) $true) 'no limit: a free slot is still reused first'
 
 Assert-Equal '"C:\\"' (Format-WtPath 'C:\') 'trailing backslash doubled'
 Assert-Equal '"C:\a\;b"' (Format-WtPath 'C:\a;b') 'semicolon escaped for wt'
