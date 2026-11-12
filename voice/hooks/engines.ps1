@@ -43,8 +43,16 @@ function Select-EngineVoice($Config, [string]$EdgeVoice, $Female, $Male) {
     $pool[$index % $pool.Count]
 }
 
-function Get-ElevenVoiceId($Config, [string]$EdgeVoice) {
+# Voces por idioma: elevenlabs.languageVoices.<idioma> (nombres como "Sarah" o ids) elige cuales hablan ese idioma;
+# sin esa lista, elevenlabs.accents.<idioma> (p. ej. es: colombian, mexican) deja las de esos acentos. Si ninguna
+# voz de la cuenta coincide, todas, como sin preferencia.
+function Get-ElevenVoiceId($Config, [string]$EdgeVoice, [string]$Lang = 'es') {
     $voices = @(Get-Opt $Config 'elevenlabs.voices' @())
+    $chosen = @(Get-Opt $Config "elevenlabs.languageVoices.$Lang" @() | Where-Object { $_ })
+    $wanted = @(Get-Opt $Config "elevenlabs.accents.$Lang" @() | ForEach-Object { "$Lang/$_".ToLowerInvariant() })
+    $preferred = @(if ($chosen.Count) { $voices | Where-Object { $_ -and ($chosen -contains $_.id -or $chosen -contains ([string]$_.name -split ' - ')[0]) } }
+                   else { $voices | Where-Object { $_ -and @($_.accents | Where-Object { $wanted -contains $_ }).Count } })
+    if ($preferred.Count) { $voices = $preferred }
     $f = @($voices | Where-Object { $_.gender -eq 'f' } | ForEach-Object { $_.id })
     $m = @($voices | Where-Object { $_.gender -eq 'm' } | ForEach-Object { $_.id })
     $other = @($voices | Where-Object { $_.gender -notin 'f', 'm' } | ForEach-Object { $_.id })
@@ -53,6 +61,21 @@ function Get-ElevenVoiceId($Config, [string]$EdgeVoice) {
 
 function Get-GeminiVoiceName($Config, [string]$EdgeVoice) {
     Select-EngineVoice $Config $EdgeVoice @(Get-Opt $Config 'gemini.voices.f' @('Kore')) @(Get-Opt $Config 'gemini.voices.m' @('Puck'))
+}
+
+# 'en' o 'es' segun el texto: palabras frecuentes de cada idioma; tildes, enie y signos de apertura cuentan
+# para el espanol. En empate, 'es' (los resumenes son en espanol salvo que el agente hable en ingles).
+$SpanishWords = @('de', 'la', 'que', 'el', 'y', 'los', 'las', 'del', 'se', 'por', 'un', 'una', 'para', 'con', 'es', 'lo',
+                  'como', 'pero', 'ya', 'esta', 'si', 'te', 'tu', 'hice', 'listo', 'falta', 'puedes', 'quedo')
+$EnglishWords = @('the', 'and', 'to', 'of', 'is', 'it', 'you', 'that', 'for', 'with', 'this', 'are', 'was', 'on', 'be',
+                  'have', 'i', 'your', 'what', 'next', 'now', 'done', 'need', 'can', 'will', 'all', 'from')
+function Get-TextLanguage([string]$Text) {
+    $es = ([regex]::Matches($Text, '[\xE1\xE9\xED\xF3\xFA\xF1\xBF\xA1]', 'IgnoreCase')).Count
+    $en = 0
+    foreach ($word in ([regex]::Matches($Text.ToLowerInvariant(), "[a-z']+") | ForEach-Object { $_.Value })) {
+        if ($SpanishWords -contains $word) { $es++ } elseif ($EnglishWords -contains $word) { $en++ }
+    }
+    if ($en -gt $es) { 'en' } else { 'es' }
 }
 
 function Set-Tls12 {
@@ -92,7 +115,7 @@ function New-EdgeAudio($Cfg, [string]$Text, [string]$Voice, [string]$Out) {
 function New-ElevenAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) {
     $key = [string](Get-Opt $Cfg 'elevenlabs.apiKey' '')
     if (-not $key) { Write-Log 'elevenlabs: sin clave'; return $false }
-    $voiceId = Get-ElevenVoiceId $Cfg $EdgeVoice
+    $voiceId = Get-ElevenVoiceId $Cfg $EdgeVoice (Get-TextLanguage $Text)
     if (-not $voiceId) { Write-Log 'elevenlabs: sin voces (vuelve a pegar la clave en ClaudeMaxxing > Voz)'; return $false }
     $body = [ordered]@{ text = $Text; model_id = [string](Get-Opt $Cfg 'elevenlabs.model' 'eleven_flash_v2_5') }
     $settings = Get-Opt $Cfg 'elevenlabs.voiceSettings' $null

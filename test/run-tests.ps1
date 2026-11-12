@@ -398,6 +398,16 @@ try {
     Assert-Equal '4 alfa>zeta' ('{0} {1}>{2}' -f $graph.Switches, $graph.Top.From, $graph.Top.To) 'selfharness stats: switches and the most common one'
 } finally { Remove-Item -LiteralPath $harnessTmp -Recurse -Force -ErrorAction SilentlyContinue }
 
+# --- ElevenLabs voice pool: gender and language/accent labels
+. (Join-Path $TrayRoot 'lib\voiceengine.ps1')
+$elPool = ConvertTo-ElevenVoicePool ([pscustomobject]@{ voices = @(
+    [pscustomobject]@{ voice_id = 'a'; name = 'Ana'; labels = [pscustomobject]@{ gender = 'female'; language = 'es'; accent = 'Colombian' }
+        verified_languages = @([pscustomobject]@{ language = 'es'; accent = 'colombian' }, [pscustomobject]@{ language = 'en'; accent = 'american' }) },
+    [pscustomobject]@{ voice_id = 'b'; name = 'Bob'; labels = [pscustomobject]@{ gender = 'male' } }) })
+Assert-Equal 'es/colombian,en/american' ($elPool[0].accents -join ',') 'eleven pool: accents from labels and verified languages, once each'
+Assert-Equal 'f' $elPool[0].gender 'eleven pool: gender'
+Assert-Equal 0 @($elPool[1].accents).Count 'eleven pool: no accent labels'
+
 # --- Ahorro de tokens (lib\maxx.ps1): context-mode state from Claude Code's own files
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
 $cmHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-cm-test-{0}' -f [guid]::NewGuid().ToString('N'))

@@ -448,12 +448,63 @@ function Set-HubVoiceEngine([int]$Delta) {
 
 function Set-HubVoiceKey([string]$Engine) {
     if ($script:Hub.Preview) { return }
-    $key = ''
-    try { $key = ([System.Windows.Forms.Clipboard]::GetText()).Trim() } catch { }
-    $result = Invoke-HubBusy (Tx 'Comprobando la clave\u2026') { Save-VoiceKey $Engine $key }
-    Set-HubMessage $(if ($result.Ok) { [string][char]0x2713 + ' ' + $result.Message } else { $result.Message })
+    $result = Show-VoiceKeyDialog $Engine $script:Palette $script:HubDialog
+    if ($result) { Set-HubMessage ([string][char]0x2713 + ' ' + $result.Message) }
     $script:Hub.Cache.VoiceEngine = Get-VoiceEngineState
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+# A box to paste the ElevenLabs or Gemini key (prefilled from the clipboard when it holds one). Saving checks the
+# key with the service; on failure the window stays open with the whole error. Returns Save-VoiceKey's result or $null.
+# Reuses the Claude Judge dialog helpers (hubplan.ps1).
+function Show-VoiceKeyDialog([string]$Engine, $Palette, $Owner) {
+    $P = $Palette
+    $name = if ($Engine -eq 'elevenlabs') { 'ElevenLabs' } else { 'Gemini' }
+    $dlg = New-JudgeForm '' $P 500 210
+    $dlg.Text = 'Clave de ' + $name
+    # New-JudgeForm's minimum is taller than this window: lower it and size the window again.
+    $dlg.MinimumSize = New-Object System.Drawing.Size((Px 400), (Px 230))
+    $dlg.ClientSize = New-Object System.Drawing.Size((Px 500), (Px 210))
+    $hint = if ($Engine -eq 'elevenlabs') { Tx 'Pega tu clave de ElevenLabs (empieza por sk_). Cr\u00e9ala en elevenlabs.io > Developers > API Keys con los permisos Text to Speech y Voices (Read).' }
+            else { Tx 'Pega tu clave de Google AI Studio (empieza por AIza). Cr\u00e9ala en aistudio.google.com > Get API key.' }
+    $label = New-JudgeLabel $hint $P.Muted
+    $label.MaximumSize = New-Object System.Drawing.Size((Px 460), 0)
+    Add-JudgeRow $dlg $label
+    $box = New-Object System.Windows.Forms.TextBox
+    $box.UseSystemPasswordChar = $true
+    $box.BackColor = $P.Surface; $box.ForeColor = $P.Text; $box.BorderStyle = 'FixedSingle'
+    $box.Font = New-UiFont 'Segoe UI' 10
+    $box.Margin = New-Object System.Windows.Forms.Padding(0, (Px 6), 0, (Px 6))
+    $clip = ''
+    try { $clip = ([System.Windows.Forms.Clipboard]::GetText()).Trim() } catch { }
+    if (Test-VoiceKeyFormat $Engine $clip) { $box.Text = $clip }
+    Add-JudgeRow $dlg $box
+    # Fills the free height and wraps, so a long error is read whole.
+    $err = New-JudgeLabel '' $P.Error
+    $err.AutoSize = $false
+    Add-JudgeRow $dlg $err 100
+    $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttons.AutoSize = $true; $buttons.FlowDirection = 'RightToLeft'
+    $save = New-WhisperButton 'Guardar' $P $true
+    $cancel = New-WhisperButton 'Cancelar' $P
+    $cancel.DialogResult = 'Cancel'
+    $buttons.Controls.Add($save); $buttons.Controls.Add($cancel)
+    Add-JudgeRow $dlg $buttons
+    $dlg.AcceptButton = $save
+    $dlg.CancelButton = $cancel
+    $state = @{ Result = $null }
+    $save.Add_Click({
+        $err.ForeColor = $P.Muted; $err.Text = Tx 'Comprobando la clave\u2026'
+        $dlg.UseWaitCursor = $true; $save.Enabled = $false; $dlg.Refresh()
+        $r = Save-VoiceKey $Engine $box.Text.Trim()
+        $dlg.UseWaitCursor = $false; $save.Enabled = $true
+        if ($r.Ok) { $state.Result = $r; $dlg.DialogResult = 'OK' }
+        else { $err.ForeColor = $P.Error; $err.Text = $r.Message; $box.Focus(); $box.SelectAll() }
+    })
+    $dlg.Add_Shown({ $box.Focus(); $box.SelectAll() })
+    [void]$dlg.ShowDialog($Owner)
+    $dlg.Dispose()
+    $state.Result
 }
 
 function Update-HubVoiceCredits {

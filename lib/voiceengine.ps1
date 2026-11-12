@@ -79,8 +79,9 @@ function Set-VoiceTls12 {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 }
 
-# ElevenLabs voices from the account, as @{ id; name; gender = f|m|'' }. The premade voices are multilingual
-# and speak Spanish with the Flash model.
+# ElevenLabs voices from the account, as @{ id; name; gender = f|m|''; accents = 'es/colombian', ... }. The premade
+# voices are multilingual and speak Spanish with the Flash model. accents: the voice's own language/accent label
+# plus its verified languages; engines.ps1 matches them against elevenlabs.accents.
 function ConvertTo-ElevenVoicePool($Response) {
     $pool = @()
     foreach ($v in @($Response.voices)) {
@@ -88,7 +89,9 @@ function ConvertTo-ElevenVoicePool($Response) {
         $gender = ''
         $label = if ($v.labels) { [string]$v.labels.gender } else { '' }
         if ($label -match '^f') { $gender = 'f' } elseif ($label -match '^m') { $gender = 'm' }
-        $pool += [pscustomobject]@{ id = [string]$v.voice_id; name = [string]$v.name; gender = $gender }
+        $pairs = @(@($v.labels) + @($v.verified_languages) | Where-Object { $_ -and $_.language -and $_.accent } |
+            ForEach-Object { ('{0}/{1}' -f $_.language, $_.accent).ToLowerInvariant() } | Select-Object -Unique)
+        $pool += [pscustomobject]@{ id = [string]$v.voice_id; name = [string]$v.name; gender = $gender; accents = $pairs }
     }
     , $pool
 }
@@ -111,7 +114,7 @@ function Get-HttpStatus($ErrorRecord) {
 function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot) {
     if (-not (Test-VoiceKeyFormat $Engine $Key)) {
         $what = if ($Engine -eq 'elevenlabs') { 'una clave de ElevenLabs (sk_...)' } else { 'una clave de Google AI Studio (AIza...)' }
-        return [pscustomobject]@{ Ok = $false; Message = "En el portapapeles no hay $what." }
+        return [pscustomobject]@{ Ok = $false; Message = "Eso no parece $what." }
     }
     Set-VoiceTls12
     $path = Get-VoiceLocalConfigPath $Root
@@ -135,7 +138,12 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
         }
     } catch {
         $code = Get-HttpStatus $_
-        $why = if ($code -in 400, 401, 403) { 'el servicio rechaza esa clave' } elseif ($code) { "error HTTP $code" } else { Tx 'sin conexi\u00f3n' }
+        # ElevenLabs answers 401 for several reasons; its body says which ({"detail":{"status":...}}).
+        $status = try { [string]($_.ErrorDetails.Message | ConvertFrom-Json).detail.status } catch { '' }
+        $why = if ($status -eq 'missing_permissions') { 'a la clave le faltan permisos: dale Text to Speech y Voices (Read) en elevenlabs.io' }
+        elseif ($status -eq 'detected_unusual_activity') { Tx 'ElevenLabs bloque\u00f3 la cuenta gratis por actividad inusual (VPN o proxy)' }
+        elseif ($status -eq 'invalid_api_key') { Tx 'la clave no existe o fue borrada' }
+        elseif ($code -in 400, 401, 403) { 'el servicio rechaza esa clave' } elseif ($code) { "error HTTP $code" } else { Tx 'sin conexi\u00f3n' }
         return [pscustomobject]@{ Ok = $false; Message = "No se pudo comprobar la clave: $why." }
     }
     Set-VoiceLocalValue $config '' 'engine' $Engine

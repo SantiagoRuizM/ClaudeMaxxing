@@ -15,16 +15,17 @@ function Invoke-Sapi($Cfg, [string]$Text) {
     Add-Type -AssemblyName System.Speech
     $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
     try {
+        # La voz configurada si habla el idioma del texto; si no, la primera instalada de ese idioma, y si no
+        # hay ninguna, la configurada (o la de por defecto).
         $sapiVoice = Get-Opt $Cfg 'sapi.voice' ''
-        if ($sapiVoice) {
-            try { $synth.SelectVoice($sapiVoice) } catch {
-                # En otro PC puede no estar esa voz: cualquier voz en espanol antes que la de por defecto.
-                $spanish = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.TwoLetterISOLanguageName -eq 'es' }) |
-                    Select-Object -First 1
-                if ($spanish) { $synth.SelectVoice($spanish.VoiceInfo.Name) }
-                Write-Log "sapi: la voz '$sapiVoice' no existe; uso '$($synth.Voice.Name)'"
-            }
-        }
+        $lang = Get-TextLanguage $Text
+        $installed = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
+        $configured = $installed | Where-Object { $_.Name -eq $sapiVoice } | Select-Object -First 1
+        if ($sapiVoice -and -not $configured) { Write-Log "sapi: la voz '$sapiVoice' no existe en este PC" }
+        $pick = if ($configured -and $configured.Culture.TwoLetterISOLanguageName -eq $lang) { $configured }
+                else { $installed | Where-Object { $_.Culture.TwoLetterISOLanguageName -eq $lang } | Select-Object -First 1 }
+        if (-not $pick) { $pick = $configured }
+        if ($pick) { $synth.SelectVoice($pick.Name) }
         $synth.Rate = [int](Get-Opt $Cfg 'sapi.rate' 0)
         $synth.SetOutputToDefaultAudioDevice()
         $synth.Speak($Text)
@@ -65,6 +66,9 @@ try {
     try { $owned = $mutex.WaitOne([TimeSpan]::FromSeconds($wait)) }
     catch [System.Threading.AbandonedMutexException] { $owned = $true }
     if (-not $owned) { Write-Log "cola: $($job.key) espero mas de $wait s, descartado"; return }
+    # Quien habla ahora, para la bandeja (su huevo se ilumina). Se borra al soltar el turno.
+    $me = Get-Process -Id $PID
+    Write-JsonFile $SpeakingFile ([pscustomobject]@{ key = $job.key; pid = $PID; start = [string]$me.StartTime.Ticks })
 
     # 3. Bajar musica (o heredarla ya baja del anterior en la cola), hablar, subir musica
     #    salvo que otro reproductor espere turno: entonces se queda baja para el siguiente.
@@ -88,7 +92,11 @@ try {
     $waiting = Test-QueueWaiting
     if ($ducked) { if ($waiting) { Send-Duck } else { Restore-Duck $cfg } }
     elseif (-not $waiting) { Restore-StaleDuck $cfg }  # p. ej. se descarto por la cola con musica heredada
-    if ($owned) { $mutex.ReleaseMutex() }
+    if ($owned) {
+        $speaking = Read-JsonFile $SpeakingFile
+        if ($speaking -and [int]$speaking.pid -eq $PID) { Remove-Item $SpeakingFile -Force -ErrorAction SilentlyContinue }
+        $mutex.ReleaseMutex()
+    }
     $mutex.Dispose()
     Remove-Item (@($JobFile) + @($temps)) -Force -ErrorAction SilentlyContinue
     $pidFile = Join-Path $StateDir "player-$($job.key).json"

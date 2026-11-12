@@ -145,6 +145,8 @@ Para cambiar algo, escríbelo en `config.local.json` con la misma estructura, so
 | `enabled` | Interruptor general |
 | `engine` | `edge` (voz neuronal gratis, ~3 s), `elevenlabs`, `gemini` o `sapi` (Windows, offline). Si el elegido falla se usa edge, y luego SAPI |
 | `elevenlabs.apiKey`, `elevenlabs.model`, `elevenlabs.voices`, `elevenlabs.voiceSettings` | ElevenLabs: la clave y las voces las guarda ClaudeMaxxing al pegar la clave; modelo `eleven_flash_v2_5` (el más barato y rápido) y ajustes de estabilidad y velocidad |
+| `elevenlabs.accents.es`, `elevenlabs.accents.en` | Acentos preferidos por idioma, con las etiquetas de ElevenLabs (`colombian`, `mexican`, `latin american`, `peninsular`, `argentine`…; en inglés `american`, `new york`, `canadian`, `british`…). Cada frase se lee con una voz de tu cuenta que tenga uno de esos acentos en su idioma; si ninguna lo tiene, con cualquiera. Las voces de la Voice Library solo funcionan por la API con un plan de pago; tras añadirlas, se vuelve a pegar la clave para que ClaudeMaxxing las vea |
+| `elevenlabs.languageVoices.es`, `elevenlabs.languageVoices.en` | Qué voces de tu cuenta hablan cada idioma, por nombre (`"Sarah"`) o id. Si hay lista, manda sobre `accents` |
 | `gemini.apiKey`, `gemini.model`, `gemini.style`, `gemini.voices.f` / `.m` | Gemini TTS: clave, modelo, estilo de lectura (por ejemplo "cálida y conversacional") y voces por género |
 | `marker` | Prefijo de la línea que se lee (🔊). Si lo cambias, cambia también la regla en `templates/claude-md-rule.md` y `CLAUDE.md` |
 | `fallback` | `first-sentence` / `full` / `none`: qué decir si Claude no escribió la línea 🔊 |
@@ -159,7 +161,7 @@ Para cambiar algo, escríbelo en `config.local.json` con la misma estructura, so
 | `naming.enabled`, `naming.setTitle`, `naming.titleFormat` | Nombres de sesión y si se pone como título |
 | `naming.names.f` / `.m`, `naming.roles`, `naming.defaultRole` | Listas de nombres y roles con sus palabras clave (se comparan sin tildes) |
 | `edge.voice`, `edge.voicePool`, `edge.voiceGenders`, `edge.rate`, `edge.exe` | Voces. `voiceGenders` decide si el nombre es femenino o masculino |
-| `sapi.voice`, `sapi.rate`, `ffplay` | Voz local y reproductor |
+| `sapi.voice`, `sapi.rate`, `ffplay` | Voz local y reproductor. La voz de Windows detecta si la frase está en inglés o en español y usa una voz instalada de ese idioma (la de `sapi.voice` si coincide) |
 
 ## Archivos
 

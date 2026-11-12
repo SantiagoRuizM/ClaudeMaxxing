@@ -62,6 +62,17 @@ $env:CLAUDEVOICE_VOICE = 'es-UY-MateoNeural'
 Check 'CLAUDEVOICE_VOICE manda' ((Get-SessionVoice $cfgFile 'aaaa-1111') -eq 'es-UY-MateoNeural') ''
 Remove-Item Env:\CLAUDEVOICE_VOICE
 Check 'session id raro se sanea' ((Get-SessionKey '../x y;z') -eq 'xyz') (Get-SessionKey '../x y;z')
+# Origen tras /clear: un proceso padre falso con el --session-id con que el menu abrio la ventana.
+$fakeClaude = Start-Process cmd -ArgumentList '/c', 'ping -n 20 127.0.0.1 >nul & rem --session-id 11111111-2222-3333-4444-555555555555' -WindowStyle Hidden -PassThru
+try {
+    Save-SessionOrigin 'nueva-tras-clear' $fakeClaude.Id
+    $got = (Read-JsonFile (Get-SessionFile 'origin' 'nueva-tras-clear')).origin
+    Check 'origen: el --session-id del proceso claude de arriba' ($got -eq '11111111-2222-3333-4444-555555555555') $got
+    # Desde $PID subiria hasta el claude que corre estas pruebas: un proceso que no existe no trae nada.
+    Save-SessionOrigin 'sin-menu' 999999
+    $got = (Read-JsonFile (Get-SessionFile 'origin' 'sin-menu')).origin
+    Check 'origen: vacio si nada de arriba lo trae' ($got -eq '') $got
+} finally { Stop-Process -Id $fakeClaude.Id -Force -ErrorAction SilentlyContinue }
 
 $ctl = "$PSScriptRoot\..\ctl.ps1"
 & $ctl session aaaa-1111 off | Out-Null
@@ -245,6 +256,10 @@ $ecfg = [pscustomobject]@{
     elevenlabs = [pscustomobject]@{ apiKey = ''; voices = @([pscustomobject]@{ id = 'F1'; gender = 'f' }, [pscustomobject]@{ id = 'F2'; gender = 'f' }, [pscustomobject]@{ id = 'M1'; gender = 'm' }) }
     gemini = [pscustomobject]@{ voices = [pscustomobject]@{ f = @('Kore', 'Aoede'); m = @('Puck') } }
 }
+Check 'idioma: espanol' ((Get-TextLanguage 'Hice el commit y falta que pruebes la bandeja') -eq 'es') ''
+Check 'idioma: espanol con tildes y palabras tecnicas' ((Get-TextLanguage ([char]0xBF + 'Lo subo al build de main?')) -eq 'es') ''
+Check 'idioma: ingles' ((Get-TextLanguage 'I fixed the tray and you can test it now') -eq 'en') ''
+Check 'idioma: vacio cuenta como espanol' ((Get-TextLanguage '') -eq 'es') ''
 $order = @(Get-EngineOrder $ecfg)
 Check 'orden: el elegido y luego edge' (($order -join ',') -eq 'elevenlabs,edge') ($order -join ',')
 $ecfg.engine = 'sapi'
@@ -254,6 +269,15 @@ Check 'motor desconocido: edge' ((@(Get-EngineOrder $ecfg) -join ',') -eq 'edge'
 Check 'ElevenLabs: voz del mismo genero (mujer)' ((Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural') -eq 'F1') (Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural')
 Check 'ElevenLabs: otra mujer, otra voz' ((Get-ElevenVoiceId $ecfg 'es-MX-DaliaNeural') -eq 'F2') (Get-ElevenVoiceId $ecfg 'es-MX-DaliaNeural')
 Check 'ElevenLabs: hombre' ((Get-ElevenVoiceId $ecfg 'es-MX-JorgeNeural') -eq 'M1') (Get-ElevenVoiceId $ecfg 'es-MX-JorgeNeural')
+$ecfg.elevenlabs.voices = @([pscustomobject]@{ id = 'F1'; gender = 'f'; accents = @('en/american', 'es/standard') },
+    [pscustomobject]@{ id = 'CO'; gender = 'f'; accents = @('es/colombian') }, [pscustomobject]@{ id = 'M1'; gender = 'm'; accents = @('en/british') })
+$ecfg.elevenlabs | Add-Member accents ([pscustomobject]@{ es = @('Colombian'); en = @('canadian') })
+Check 'ElevenLabs: acento preferido en espanol' ((Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'es') -eq 'CO') (Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'es')
+Check 'ElevenLabs: sin voz con el acento, todas' ((Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en') -eq 'M1') (Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en')
+$ecfg.elevenlabs.voices[2] | Add-Member name 'Brit - Calm'
+$ecfg.elevenlabs | Add-Member languageVoices ([pscustomobject]@{ en = @('Brit', 'F1') })
+Check 'ElevenLabs: voces elegidas por nombre ganan al acento' ((Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en') -eq 'M1') (Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en')
+Check 'ElevenLabs: voces elegidas por id' ((Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'en') -eq 'F1') (Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'en')
 Check 'Gemini: voz por genero' ((Get-GeminiVoiceName $ecfg 'es-CO-GonzaloNeural') -eq 'Puck') (Get-GeminiVoiceName $ecfg 'es-CO-GonzaloNeural')
 $resp = [pscustomobject]@{ steps = @([pscustomobject]@{ type = 'model_output'; content = @([pscustomobject]@{ type = 'text'; text = 'x' }, [pscustomobject]@{ type = 'audio'; data = 'QUJD' }) }) }
 Check 'Gemini: audio de la respuesta' ((Get-GeminiAudioData $resp) -eq 'QUJD') ''

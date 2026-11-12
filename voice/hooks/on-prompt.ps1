@@ -48,5 +48,9 @@ try {
     }
 } catch {
     Write-Log "on-prompt: $_"
+} finally {
+    # Menu sessions: the tab's title, marked as working until the Stop hook (speak.ps1) clears it. In finally:
+    # the early exits above run it too, after any JSON was written.
+    try { if ($evt) { Set-SessionTerminalTitle (Get-SessionName $evt.session_id) -Busy } } catch { Write-Log "title: $_" }
 }
 exit 0

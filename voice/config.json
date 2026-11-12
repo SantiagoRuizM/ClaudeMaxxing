@@ -102,6 +102,8 @@
     "apiKey": "",
     "model": "eleven_flash_v2_5",
     "voices": [],
+    "accents": { "es": [], "en": [] },
+    "languageVoices": { "es": [], "en": [] },
     "voiceSettings": { "stability": 0.45, "similarity_boost": 0.8, "speed": 1.05 }
   },
   "gemini": {

@@ -22,6 +22,8 @@ try {
         $out.hookSpecificOutput.sessionTitle = "$($info.title)"
     }
     Write-HookOutput $out
+    # Menu sessions: the tab shows the name without Claude Code's spark (after the JSON above).
+    Set-SessionTerminalTitle $info
 } catch {
     Write-Log "on-start: $_"
 }

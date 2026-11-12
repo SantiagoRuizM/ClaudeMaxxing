@@ -9,6 +9,7 @@ $HistoryDir    = Join-Path $StateDir 'history'
 $MuteFile      = Join-Path $StateDir 'muted'
 $LogFile       = Join-Path $StateDir 'claude-voice.log'
 $DuckFile      = Join-Path $StateDir 'duck.json'
+$SpeakingFile  = Join-Path $StateDir 'speaking.json'  # el reproductor que tiene el turno (play.ps1); lo lee la bandeja
 $Utf8          = New-Object System.Text.UTF8Encoding($false)
 $DefaultMarker = [char]::ConvertFromUtf32(0x1F50A)  # altavoz
 $DefaultPool   = @('es-CO-SalomeNeural', 'es-CO-GonzaloNeural', 'es-US-PalomaNeural', 'es-US-AlonsoNeural',
@@ -122,6 +123,43 @@ function Get-SessionKey([string]$SessionId) {
 
 function Get-SessionFile([string]$Kind, [string]$SessionId) {
     Join-Path $StateDir ('{0}-{1}' -f $Kind, (Get-SessionKey $SessionId))
+}
+
+# Titulo de la pestana en las sesiones del menu: open-session.ps1 las abre con CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
+# (sin el asterisco ni el spinner de Claude Code delante) y los hooks escriben "Nombre - rol" en la consola del
+# claude de la sesion. -Busy le anade un espacio de ancho cero al final mientras trabaja: la bandeja lo lee para
+# animar el huevo (Test-SessionTitleBusy en lib\traysessions.ps1). Va al final del hook, ya escrito su JSON.
+function Set-SessionTerminalTitle($Info, [switch]$Busy) {
+    if ("$env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE" -ne '1' -or -not $Info -or -not "$($Info.title)") { return }
+    $procId = $PID
+    for ($depth = 0; $depth -lt 6 -and $procId -gt 0; $depth++) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+        if (-not $proc) { return }
+        if ($proc.Name -like 'claude*') { break }
+        $procId = [int]$proc.ParentProcessId
+    }
+    if (-not $proc -or $proc.Name -notlike 'claude*') { return }
+    Import-Native
+    $text = "$($Info.title)"
+    if ($Busy) { $text += [char]0x200B }
+    [void][ClaudeVoice.Title]::Set([int]$proc.ProcessId, $text)
+}
+
+# El id con que el menu abrio esta ventana: claude conserva su --session-id en la linea de comandos aunque /clear
+# le de otro id a la conversacion. Se guarda una vez por sesion en origin-<clave> (vacio si no lo hay); la bandeja
+# encuentra por el el huevo de quien habla. $ParentId: el proceso desde donde subir (el que lanzo el hook).
+function Save-SessionOrigin([string]$SessionId, [int]$ParentId = $PID) {
+    $file = Get-SessionFile 'origin' $SessionId
+    if ((Get-SessionKey $SessionId) -eq 'manual' -or (Test-Path -LiteralPath $file)) { return }
+    $origin = ''
+    $procId = $ParentId
+    for ($depth = 0; $depth -lt 8 -and $procId -gt 0; $depth++) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+        if (-not $proc) { break }
+        if ("$($proc.CommandLine)" -match '--session-id\s+"?([0-9A-Fa-f-]{36})') { $origin = Get-SessionKey $Matches[1]; break }
+        $procId = [int]$proc.ParentProcessId
+    }
+    Write-JsonFile $file ([pscustomobject]@{ origin = $origin })
 }
 
 # Archivos de un tipo (voice-*, name-*) usados en las ultimas horas = sesiones activas.
@@ -367,11 +405,11 @@ function Get-History([int]$Count = 1, [string]$SessionId = '') {
 
 # ---------- bajar la musica ----------
 
-# Compila Mixer.cs (volumen por app) y Chime.cs (firma musical) a una DLL, una sola vez por
-# version de las fuentes, y la carga.
+# Compila Mixer.cs (volumen por app), Chime.cs (firma musical) y Title.cs (titulo de la pestana) a una
+# DLL, una sola vez por version de las fuentes, y la carga.
 function Import-Native {
     if ('ClaudeVoice.Chime' -as [type]) { return }
-    $sources = @('Mixer.cs', 'Chime.cs') | ForEach-Object { Join-Path $PSScriptRoot $_ }
+    $sources = @('Mixer.cs', 'Chime.cs', 'Title.cs') | ForEach-Object { Join-Path $PSScriptRoot $_ }
     $sha  = [Security.Cryptography.SHA1]::Create()
     $all  = [Text.Encoding]::UTF8.GetBytes((($sources | ForEach-Object { [IO.File]::ReadAllText($_) }) -join "`n"))
     $hash = ([BitConverter]::ToString($sha.ComputeHash($all)) -replace '-', '').Substring(0, 12)
