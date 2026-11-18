@@ -140,7 +140,7 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
         $code = Get-HttpStatus $_
         # ElevenLabs answers 401 for several reasons; its body says which ({"detail":{"status":...}}).
         $status = try { [string]($_.ErrorDetails.Message | ConvertFrom-Json).detail.status } catch { '' }
-        $why = if ($status -eq 'missing_permissions') { 'a la clave le faltan permisos: dale Text to Speech y Voices (Read) en elevenlabs.io' }
+        $why = if ($status -eq 'missing_permissions') { 'a la clave le faltan permisos: dale Text to Speech, Voices (Read) y User (Read) en elevenlabs.io' }
         elseif ($status -eq 'detected_unusual_activity') { Tx 'ElevenLabs bloque\u00f3 la cuenta gratis por actividad inusual (VPN o proxy)' }
         elseif ($status -eq 'invalid_api_key') { Tx 'la clave no existe o fue borrada' }
         elseif ($code -in 400, 401, 403) { 'el servicio rechaza esa clave' } elseif ($code) { "error HTTP $code" } else { Tx 'sin conexi\u00f3n' }
@@ -162,14 +162,34 @@ function Update-ElevenCredits([string]$Root = $TrayRoot) {
         $sub = Invoke-RestMethod -Uri 'https://api.elevenlabs.io/v1/user/subscription' -Headers @{ 'xi-api-key' = $key } -TimeoutSec 15 -UseBasicParsing
         $credits = ConvertTo-ElevenCredits $sub
         Write-JsonFile $VoiceCreditsFile $credits
+        # Credits again (the month renewed, or more were bought): the pause for "sin creditos" is over.
+        if ([int]$credits.limit -gt [int]$credits.used) {
+            Remove-Item -LiteralPath (Join-Path (Join-Path $env:TEMP 'claude-voice') 'engine-off-elevenlabs.json') -Force -ErrorAction SilentlyContinue
+        }
         $credits
-    } catch { $null }
+    } catch {
+        # A key made without User (Read) can speak but not read its subscription: say which permission is missing.
+        $status = try { [string]($_.ErrorDetails.Message | ConvertFrom-Json).detail.status } catch { '' }
+        if ($status -eq 'missing_permissions') { return [pscustomobject]@{ error = 'missing_permissions' } }
+        $null
+    }
+}
+
+# The Voz card when ElevenLabs ran out: credits renew each month on the plan's date (the free plan's 10.000 too).
+function Get-ElevenNoCreditsText($Credits, [datetime]$Now = (Get-Date)) {
+    $when = $null
+    if ($Credits -and $Credits.resetAt) { try { $when = [datetime]$Credits.resetAt } catch { } }
+    if ($when -and $when -gt $Now) {
+        return (Tx 'ElevenLabs se qued\u00f3 sin cr\u00e9ditos: se renuevan el ') + $when.ToString('d MMM', $UiCulture).TrimEnd('.') +
+            (Tx ' (cada mes, con tu plan). Mientras, los res\u00famenes usan Edge.')
+    }
+    Tx 'ElevenLabs se qued\u00f3 sin cr\u00e9ditos: se renuevan cada mes, en la fecha de tu plan (elevenlabs.io > Subscription). Mientras, Edge. Con el permiso User (Read) en la clave, aqu\u00ed sale la fecha.'
 }
 
 # "8.432 de 10.000 creditos (se renuevan el 3 nov)": credits left, or ''.
 function Format-ElevenCredits($Credits) {
     if (-not $Credits -or -not $Credits.limit) { return '' }
-    $culture = [Globalization.CultureInfo]::GetCultureInfo('es-ES')
+    $culture = $UiCulture
     $left = [Math]::Max(0, [int]$Credits.limit - [int]$Credits.used)
     $text = ('{0} de {1} ' -f $left.ToString('N0', $culture), ([int]$Credits.limit).ToString('N0', $culture)) + (Tx 'cr\u00e9ditos')
     if ($Credits.resetAt) { try { $text += ' (se renuevan el ' + ([datetime]$Credits.resetAt).ToString('d MMM', $culture) + ')' } catch { } }

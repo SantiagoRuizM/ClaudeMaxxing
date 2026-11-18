@@ -643,7 +643,12 @@ Assert-Equal '0.5|0|1|0.5' (@((Get-EggStripOffset $eggArea 'left' 461 110), (Get
 
 # --- ElevenLabs voice pool: gender and language/accent labels
 . (Join-Path $TrayRoot 'lib\voiceengine.ps1')
-$elPool = ConvertTo-ElevenVoicePool ([pscustomobject]@{ voices = @(
+$elNow = Get-Date -Year 2026 -Month 11 -Day 18 -Hour 10 -Minute 0 -Second 0
+$elText = Get-ElevenNoCreditsText ([pscustomobject]@{ used = 10000; limit = 10000; resetAt = $elNow.AddDays(15).ToString('s') }) $elNow
+Assert-Equal $true ($elText -match 'se renuevan el 3 dic' -and $elText -match 'Edge') 'eleven out of credits: says the day they renew'
+Assert-Equal $true ((Get-ElevenNoCreditsText $null $elNow) -match 'User \(Read\)') 'eleven out of credits, date unknown: says which key permission shows it'
+Assert-Equal $true ((Get-ElevenNoCreditsText ([pscustomobject]@{ resetAt = $elNow.AddDays(-1).ToString('s') }) $elNow) -match 'cada mes') 'eleven out of credits: a past date is not shown'
+$elPool =ConvertTo-ElevenVoicePool ([pscustomobject]@{ voices = @(
     [pscustomobject]@{ voice_id = 'a'; name = 'Ana'; labels = [pscustomobject]@{ gender = 'female'; language = 'es'; accent = 'Colombian' }
         verified_languages = @([pscustomobject]@{ language = 'es'; accent = 'colombian' }, [pscustomobject]@{ language = 'en'; accent = 'american' }) },
     [pscustomobject]@{ voice_id = 'b'; name = 'Bob'; labels = [pscustomobject]@{ gender = 'male' } }) })

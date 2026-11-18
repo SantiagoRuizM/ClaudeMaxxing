@@ -112,6 +112,23 @@ function New-EdgeAudio($Cfg, [string]$Text, [string]$Voice, [string]$Out) {
     return $ok
 }
 
+# Out of credits: they come back with the plan's monthly renewal, so ElevenLabs waits until then instead of failing
+# again every few hours. The date comes from the subscription (the key needs User (Read)); it is also saved for the
+# Voz card (~/.claude/usage-tray/voice-credits.json, as lib\voiceengine.ps1 writes it). 6 hours when it can't be read.
+function Get-ElevenQuotaMinutes([string]$Key, [datetime]$Now = (Get-Date)) {
+    try {
+        $sub = Invoke-RestMethod -Uri 'https://api.elevenlabs.io/v1/user/subscription' -Headers @{ 'xi-api-key' = $Key } -TimeoutSec 10 -UseBasicParsing
+        if (-not $sub.next_character_count_reset_unix) { return 360 }
+        $reset = [DateTimeOffset]::FromUnixTimeSeconds([long]$sub.next_character_count_reset_unix).LocalDateTime
+        $trayDir = Join-Path $env:USERPROFILE '.claude\usage-tray'
+        if (Test-Path -LiteralPath $trayDir) {
+            Write-JsonFile (Join-Path $trayDir 'voice-credits.json') ([pscustomobject]@{
+                used = [int]$sub.character_count; limit = [int]$sub.character_limit; resetAt = $reset.ToString('s'); at = $Now.ToString('s') })
+        }
+        return [int][Math]::Min(31 * 1440, [Math]::Max(60, ($reset - $Now).TotalMinutes))
+    } catch { return 360 }
+}
+
 function New-ElevenAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) {
     $key = Unprotect-Secret ([string](Get-Opt $Cfg 'elevenlabs.apiKey' ''))
     if (-not $key) { Write-Log 'elevenlabs: sin clave'; return $false }
@@ -131,7 +148,7 @@ function New-ElevenAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) 
         $fail = Get-HttpFailure $_
         $why = if ($fail.Body -match 'quota_exceeded') { 'sin cr' + [char]0xE9 + 'ditos' } elseif ($fail.Code -eq 401) { 'clave rechazada' } elseif ($fail.Code -eq 429) { 'demasiadas peticiones' } else { "HTTP $($fail.Code)" }
         Write-Log "elevenlabs: fallo ($why)"
-        if ($fail.Body -match 'quota_exceeded') { Set-EngineSnooze 'elevenlabs' 360 $why }
+        if ($fail.Body -match 'quota_exceeded') { Set-EngineSnooze 'elevenlabs' (Get-ElevenQuotaMinutes $key) $why }
         elseif ($fail.Code -in 401, 402) { Set-EngineSnooze 'elevenlabs' 60 $why }
         elseif ($fail.Code -eq 429) { Set-EngineSnooze 'elevenlabs' 5 $why }
         Remove-Item $Out -Force -ErrorAction SilentlyContinue

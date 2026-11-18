@@ -474,7 +474,7 @@ function Show-VoiceKeyDialog([string]$Engine, $Palette, $Owner) {
     # New-JudgeForm's minimum is taller than this window: lower it and size the window again.
     $dlg.MinimumSize = New-Object System.Drawing.Size((Px 400), (Px 230))
     $dlg.ClientSize = New-Object System.Drawing.Size((Px 500), (Px 210))
-    $hint = if ($Engine -eq 'elevenlabs') { Tx 'Pega tu clave de ElevenLabs (empieza por sk_). Cr\u00e9ala en elevenlabs.io > Developers > API Keys con los permisos Text to Speech y Voices (Read).' }
+    $hint = if ($Engine -eq 'elevenlabs') { Tx 'Pega tu clave de ElevenLabs (empieza por sk_). Cr\u00e9ala en elevenlabs.io > Developers > API Keys con los permisos Text to Speech, Voices (Read) y User (Read): el \u00faltimo deja ver tus cr\u00e9ditos y cu\u00e1ndo se renuevan.' }
             else { Tx 'Pega tu clave de Google AI Studio (empieza por AIza). Cr\u00e9ala en aistudio.google.com > Get API key.' }
     $label = New-JudgeLabel $hint $P.Muted
     $label.MaximumSize = New-Object System.Drawing.Size((Px 460), 0)
@@ -519,7 +519,8 @@ function Show-VoiceKeyDialog([string]$Engine, $Palette, $Owner) {
 function Update-HubVoiceCredits {
     if ($script:Hub.Preview) { return }
     $credits = Invoke-HubBusy (Tx 'Leyendo los cr\u00e9ditos de ElevenLabs\u2026') { Update-ElevenCredits }
-    Set-HubMessage $(if ($credits) { 'ElevenLabs: quedan ' + (Format-ElevenCredits $credits) } else { (Tx 'No se pudieron leer los cr\u00e9ditos de ElevenLabs.') })
+    Set-HubMessage $(if ($credits -and $credits.error -eq 'missing_permissions') { Tx 'Tu clave no puede leer los cr\u00e9ditos: en elevenlabs.io > Developers > API Keys dale el permiso User (Read) (o crea otra y p\u00e9gala).' }
+        elseif ($credits) { 'ElevenLabs: quedan ' + (Format-ElevenCredits $credits) } else { (Tx 'No se pudieron leer los cr\u00e9ditos de ElevenLabs.') })
     $script:Hub.Cache.VoiceEngine = Get-VoiceEngineState
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
@@ -2230,6 +2231,8 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $detailColor = $P.Muted
     if ($state -and $state.Snooze) {
         $detail = $script:VoiceEngines[$engine] + ' en pausa hasta las ' + (Format-Clock $state.Snooze.Until) + $(if ($state.Snooze.Why) { ' (' + $state.Snooze.Why + ')' } else { '' }) + ': mientras, los res' + (Tx '\u00fa') + 'menes usan Edge.'
+        # Out of credits: they come back with the plan's monthly renewal, not at the end of the pause.
+        if ($engine -eq 'elevenlabs' -and "$($state.Snooze.Why)" -like 'sin cr*') { $detail = Get-ElevenNoCreditsText $state.Credits }
         $detailColor = $P.Warn
     }
     Draw-Wrapped $G $detail $F.Small $detailColor ($ecard.X + (Px 16)) ($ecard.Y + (Px 44)) ($ecard.Width - (Px 32)) (Px 34)
