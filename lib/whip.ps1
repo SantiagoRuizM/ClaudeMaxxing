@@ -35,12 +35,84 @@ function Save-WhipSettings($Settings, [string]$Path = $WhipFile) {
     Write-JsonFile $Path ([ordered]@{ enabled = [bool]$Settings.Enabled; threshold = [int]$Settings.Threshold; agents = @($Settings.Agents) })
 }
 
-# The agents with whether each CLI is on PATH (a PATH lookup each: called on the window's slow refresh only).
-function Get-WhipAgentStates {
+# The agents with whether each CLI is on PATH and its account (a PATH lookup and a few small files each: called on the
+# window's slow refresh only).
+function Get-WhipAgentStates([string]$HomeDir = $env:USERPROFILE) {
     foreach ($agent in $script:WhipAgents) {
         [pscustomobject]@{ Id = $agent.Id; Label = $agent.Label; Vendor = $agent.Vendor; Install = $agent.Install; Note = (Tx $agent.Note)
-            Installed = [bool](Get-Command $agent.Id -CommandType Application -ErrorAction SilentlyContinue) }
+            Installed = [bool](Get-Command $agent.Id -CommandType Application -ErrorAction SilentlyContinue)
+            Account = (Get-WhipAgentAccount $agent.Id $HomeDir) }
     }
+}
+
+$WhipCopilotFile = Join-Path $TrayHome 'whip-copilot.json'
+
+function New-WhipAccount([string]$Text, [string]$Tone = 'muted') { [pscustomobject]@{ Text = (Tx $Text); Tone = $Tone } }
+
+function Format-WhipDay($Value) { ([datetime]$Value).ToString('d MMM', $UiCulture).TrimEnd('.') }
+
+# A JWT's claims, or $null.
+function ConvertFrom-WhipJwt([string]$Token) {
+    try {
+        $part = $Token.Split('.')[1].Replace('-', '+').Replace('_', '/')
+        $part += '=' * ((4 - $part.Length % 4) % 4)
+        [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($part)) | ConvertFrom-Json
+    } catch { $null }
+}
+
+# Each agent's login as its own CLI keeps it: account, plan and until when, with Tone ok|warn|muted. Only local files,
+# except Copilot's plan: a hidden `gh api` refreshed every 6 hours into $CopilotCache, read on the next refresh.
+# shortcut: the default homes only (no CODEX_HOME, XDG_DATA_HOME), add them if someone moves them.
+function Get-WhipAgentAccount([string]$Id, [string]$HomeDir = $env:USERPROFILE, [string]$CopilotCache = $WhipCopilotFile, [datetime]$Now = (Get-Date)) {
+    switch ($Id) {
+        'codex' {
+            $auth = Read-JsonFile (Join-Path $HomeDir '.codex\auth.json')
+            if (-not $auth) { return New-WhipAccount 'Sin sesi\u00f3n: ejecuta codex login' 'warn' }
+            if (-not $auth.tokens -or -not $auth.tokens.id_token) { return New-WhipAccount 'Con clave de API (pago por uso)' }
+            $claims = ConvertFrom-WhipJwt $auth.tokens.id_token
+            $sub = if ($claims) { $claims.'https://api.openai.com/auth' }
+            $plan = if ($sub -and $sub.chatgpt_plan_type) { [string]$sub.chatgpt_plan_type } else { '' }
+            $text = @([string]$claims.email, $(if ($plan) { 'ChatGPT ' + (Get-Culture).TextInfo.ToTitleCase($plan) }) | Where-Object { $_ }) -join ' \u00b7 '
+            if (-not $sub -or -not $sub.chatgpt_subscription_active_until -or $plan -eq 'free') { return New-WhipAccount $text $(if ($plan -eq 'free') { 'warn' } else { 'muted' }) }
+            $until = [datetime]$sub.chatgpt_subscription_active_until
+            if ($until -lt $Now) { return New-WhipAccount "$text \u00b7 venci\u00f3 el $(Format-WhipDay $until)" 'warn' }
+            return New-WhipAccount "$text \u00b7 hasta el $(Format-WhipDay $until)" 'ok'
+        }
+        'agy' {
+            # agy keeps its token in the Credential Manager; the Google account it signed in with is in ~/.gemini.
+            $accounts = Read-JsonFile (Join-Path $HomeDir '.gemini\google_accounts.json')
+            if (-not $accounts -or -not $accounts.active) { return New-WhipAccount 'Sin sesi\u00f3n: abre agy e inicia sesi\u00f3n' 'warn' }
+            return New-WhipAccount "$($accounts.active) \u00b7 el plan solo se ve en agy"
+        }
+        'opencode' {
+            $auth = Read-JsonFile (Join-Path $HomeDir '.local\share\opencode\auth.json')
+            $providers = @(if ($auth) { $auth.PSObject.Properties | ForEach-Object { if ($_.Value.type -eq 'oauth') { "$($_.Name) (cuenta)" } else { "$($_.Name) (clave)" } } })
+            if (-not $providers.Count) { return New-WhipAccount 'Sin cuentas: solo modelos gratis (opencode auth login)' }
+            return New-WhipAccount ('Conectado a ' + ($providers -join ', ')) 'ok'
+        }
+        'copilot' {
+            $configFile = Join-Path $HomeDir '.copilot\config.json'
+            $login = $null
+            # config.json starts with // comments.
+            if (Test-Path -LiteralPath $configFile) { try { $login = ((Get-Content -LiteralPath $configFile -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*//' }) -join "`n" | ConvertFrom-Json).lastLoggedInUser.login } catch { } }
+            if (-not $login) { return New-WhipAccount 'Sin sesi\u00f3n: abre copilot y usa /login' 'warn' }
+            $cache = Read-JsonFile $CopilotCache
+            $fresh = (Test-Path -LiteralPath $CopilotCache) -and ($Now - (Get-Item -LiteralPath $CopilotCache).LastWriteTime).TotalHours -lt 6
+            if (-not $fresh -and (Get-Command gh -CommandType Application -ErrorAction SilentlyContinue)) {
+                try { Start-Process gh -ArgumentList 'api', '/copilot_internal/user' -RedirectStandardOutput $CopilotCache -RedirectStandardError "$CopilotCache.err" -WindowStyle Hidden | Out-Null } catch { }
+            }
+            # gh's account may not be the one Copilot CLI signed in with: the plan is shown only when they match.
+            if (-not $cache -or $cache.login -ne $login) { return New-WhipAccount "@$login" }
+            # shortcut: SKU names seen so far (free_limited_copilot, *_subscriber); an unknown individual one reads as Pro.
+            $sku = [string]$cache.access_type_sku
+            $plan = if ($cache.copilot_plan -match 'business|enterprise') { (Get-Culture).TextInfo.ToTitleCase([string]$cache.copilot_plan) }
+                elseif ($sku -match 'free_limited') { 'Free' } elseif ($sku -match 'plus') { 'Pro+' } elseif ($sku -match 'educ') { 'Pro (educativo)' } else { 'Pro' }
+            $text = "@$login \u00b7 Copilot $plan"
+            if ($cache.quota_reset_date) { $text += " \u00b7 la cuota se renueva el $(Format-WhipDay $cache.quota_reset_date)" }
+            return New-WhipAccount $text $(if ($plan -eq 'Free') { 'warn' } else { 'ok' })
+        }
+    }
+    New-WhipAccount ''
 }
 
 # The threshold $Delta steps away, wrapping around.

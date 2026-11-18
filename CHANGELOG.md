@@ -5,6 +5,7 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
 ## Unreleased
 
 - **Claude Whip follows the forecast**: past half the 5-hour window, if it is on pace to run out before it resets, Whip comes on before its threshold and says at what time the limit would come. The shell guard is tighter (a lone `&`, extra lines, `$(...)`, backticks, `git -c`/`config`/`apply`, `sort -o`, `VAR=` prefixes, a `whip-check.sh` planted in the repo) and MCP tools that run code or write are blocked. The check stops a test command after 20 minutes.
+- **Claude Whip shows each agent's account**: the email, the plan (ChatGPT Plus, Copilot Free...) and until when, from each CLI's own login files; Copilot's plan comes from `gh api`, refreshed every 6 hours.
 - **The voice says when the plan ran out** and at what time it comes back.
 - **Opt-in**: Otros PCs sets up nothing on a new install until **Activar** (or `install.ps1 -Bridge`); environment detection stays off until you turn it on, and never runs without environments.
 - **Claude Whisper** asks once, before the first listen, after saying that the transcription is an undocumented service and that the call's audio goes to Anthropic; calls older than 30 days are deleted.

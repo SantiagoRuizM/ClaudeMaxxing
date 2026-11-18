@@ -1974,7 +1974,13 @@ function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     foreach ($agent in $agents) {
         $on = $s.Agents -contains $agent.Id
         $sub = if ($agent.Installed) { $agent.Note } else { 'No instalado: ' + $agent.Install }
-        Draw-HubToggleRow $G $Map $Hover "whip-agent-$($agent.Id)" (New-Rect ($list.X + (Px 6)) $ry ($list.Width - (Px 12)) (Px 42)) "$($agent.Label)  $(Tx '\u00b7')  $($agent.Vendor)" $sub $on ([scriptblock]::Create("Set-HubWhipAgent '$($agent.Id)' `$$(-not $on)")) ([bool]($agent.Installed -or $on))
+        $row = New-Rect ($list.X + (Px 6)) $ry ($list.Width - (Px 12)) (Px 42)
+        Draw-HubToggleRow $G $Map $Hover "whip-agent-$($agent.Id)" $row "$($agent.Label)  $(Tx '\u00b7')  $($agent.Vendor)" $sub $on ([scriptblock]::Create("Set-HubWhipAgent '$($agent.Id)' `$$(-not $on)")) ([bool]($agent.Installed -or $on))
+        # the account, plan and until when, right-aligned on the label's line
+        if ($agent.Installed -and $agent.Account -and $agent.Account.Text) {
+            $tone = switch ($agent.Account.Tone) { 'ok' { $P.Ok } 'warn' { $P.Warn } default { $P.Faint } }
+            Draw-Text $G $agent.Account.Text $F.Small $tone ($row.X + (Px 200)) ($row.Y + (Px 4)) ($row.Width - (Px 266)) (Px 18) 'Right'
+        }
         $ry += Px 46
     }
 
@@ -2314,7 +2320,9 @@ function Set-HubPreview {
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true
     $c.Whip = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex', 'agy') }
-    $c.WhipAgents = @(Get-WhipAgentStates | ForEach-Object { $_.Installed = $_.Id -ne 'copilot'; $_ })
+    $previewAccounts = @{ codex = (New-WhipAccount 'ana@ejemplo.com \u00b7 ChatGPT Plus \u00b7 hasta el 7 dic' 'ok'); agy = (New-WhipAccount 'ana@ejemplo.com \u00b7 el plan solo se ve en agy')
+        opencode = (New-WhipAccount 'Sin cuentas: solo modelos gratis (opencode auth login)') }
+    $c.WhipAgents = @(Get-WhipAgentStates (Join-Path $env:TEMP 'cmx-no-home') | ForEach-Object { $_.Installed = $_.Id -ne 'copilot'; $_.Account = $previewAccounts[$_.Id]; $_ })
     $c.VoiceMuted = $false
     $c.HotkeysOn = $true
     $c.VoiceSessions = @(

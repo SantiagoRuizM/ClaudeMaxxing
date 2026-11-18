@@ -696,7 +696,33 @@ try {
     Assert-Equal $true (Sync-WhipPolicy $false $whipFile) 'whip: a policy that forbids it switches it off'
     Assert-Equal $false (Get-WhipSettings $whipFile).Enabled 'whip: off on disk after the policy'
     Assert-Equal 4 (Get-WhipAgentStates).Count 'whip: every agent listed with its install state'
-} finally { Remove-Item -LiteralPath $whipFile -Force -ErrorAction SilentlyContinue }
+
+    # agent accounts from a fake home; Copilot's plan from a fresh cache, so no gh runs
+    $wHome = "$whipFile.home"
+    $wNow = [datetime]'2026-11-18'
+    $wAcct = { param($id) $a = Get-WhipAgentAccount $id $wHome "$wHome\copilot.json" $wNow; "$($a.Tone)|$($a.Text)" }
+    Assert-Equal 'warn|warn' ((& $wAcct 'codex').Split('|')[0] + '|' + (& $wAcct 'agy').Split('|')[0]) 'whip account: codex and antigravity without a login'
+    Assert-Equal 'warn' (& $wAcct 'copilot').Split('|')[0] 'whip account: copilot without a login'
+    $b64 = { param($o) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($o | ConvertTo-Json -Compress -Depth 4))).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
+    $jwt = 'h.' + (& $b64 @{ email = 'ana@ejemplo.com'; 'https://api.openai.com/auth' = @{ chatgpt_plan_type = 'plus'; chatgpt_subscription_active_until = '2026-12-07T16:43:36+00:00' } }) + '.s'
+    Write-JsonFile "$wHome\.codex\auth.json" @{ auth_mode = 'chatgpt'; tokens = @{ id_token = $jwt } }
+    $dec = (Get-Date '2026-12-07').ToString('d MMM', $UiCulture).TrimEnd('.')
+    Assert-Equal "ok|ana@ejemplo.com $(Tx '\u00b7') ChatGPT Plus $(Tx '\u00b7') hasta el $dec" (& $wAcct 'codex') 'whip account: codex plan and until when'
+    Write-JsonFile "$wHome\.codex\auth.json" @{ auth_mode = 'apikey'; OPENAI_API_KEY = 'sk-x' }
+    Assert-Equal 'muted|Con clave de API (pago por uso)' (& $wAcct 'codex') 'whip account: codex with an API key'
+    Write-JsonFile "$wHome\.gemini\google_accounts.json" @{ active = 'ana@ejemplo.com'; old = @() }
+    Assert-Equal "muted|ana@ejemplo.com $(Tx '\u00b7') el plan solo se ve en agy" (& $wAcct 'agy') 'whip account: antigravity google account'
+    Assert-Equal 'muted' (& $wAcct 'opencode').Split('|')[0] 'whip account: opencode without credentials'
+    Write-JsonFile "$wHome\.local\share\opencode\auth.json" @{ anthropic = @{ type = 'oauth' } }
+    Assert-Equal 'ok|Conectado a anthropic (cuenta)' (& $wAcct 'opencode') 'whip account: opencode providers'
+    New-Item -ItemType Directory -Force -Path "$wHome\.copilot" | Out-Null
+    [IO.File]::WriteAllText("$wHome\.copilot\config.json", "// managed`n{ `"lastLoggedInUser`": { `"login`": `"ana`" } }")
+    Write-JsonFile "$wHome\copilot.json" @{ login = 'ana'; copilot_plan = 'individual'; access_type_sku = 'free_limited_copilot'; quota_reset_date = '2026-12-01' }
+    Assert-Equal 'warn' (& $wAcct 'copilot').Split('|')[0] 'whip account: copilot free plan'
+    Assert-Equal $true ((& $wAcct 'copilot') -like "*Copilot Free*") 'whip account: copilot plan named'
+    Write-JsonFile "$wHome\copilot.json" @{ login = 'otro'; access_type_sku = 'monthly_subscriber' }
+    Assert-Equal 'muted|@ana' (& $wAcct 'copilot') 'whip account: gh signed in as someone else hides the plan'
+} finally { Remove-Item -LiteralPath $whipFile, "$whipFile.home" -Recurse -Force -ErrorAction SilentlyContinue }
 
 # --- Skills y MCP (lib\hubskills.ps1): read from a fake ~/.claude, every place and shape Claude Code uses
 . (Join-Path $TrayRoot 'lib\hubskills.ps1')
