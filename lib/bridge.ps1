@@ -259,7 +259,7 @@ function Format-GrantsText($Grants) {
 # A command as the dialog shows it: line breaks and control or invisible characters made visible, runs of spaces
 # collapsed (they could push the dangerous part out of view), and the length when it does not fit. The remote
 # text never goes through Tx.
-function Format-CommandPreview([string]$Command, [int]$Max = 150) {
+function Format-CommandPreview([string]$Command, [int]$Max = 600) {
     $text = $Command -replace "`r?`n", (' [salto de l' + (Tx '\u00ed') + 'nea] ')
     $text = [regex]::Replace($text, '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]', '[?]')
     $text = ($text -replace '\s{2,}', ' ').Trim()

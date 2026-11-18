@@ -833,7 +833,7 @@ Assert-Equal $false (Test-BridgeName 'a;b' 40) 'separator in a name is rejected'
 $padded = Format-CommandPreview ('git status' + (' ' * 80) + '& rd /s /q C:/x')
 Assert-Equal 'git status & rd /s /q C:/x' $padded 'command preview collapses padding that would hide the tail'
 Assert-Equal $true ((Format-CommandPreview "echo a`r`nformat c:") -match 'salto de l.nea\] format c:') 'command preview shows line breaks'
-Assert-Equal $true ((Format-CommandPreview ('a' * 200)) -match '\(\+50 caracteres\)$') 'command preview says how much is cut'
+Assert-Equal $true ((Format-CommandPreview ('a' * 650)) -match '\(\+50 caracteres\)$') 'command preview says how much is cut'
 Assert-Equal '[?]x' (Format-CommandPreview ([string][char]0x202E + 'x')) 'command preview shows invisible characters'
 Assert-Equal 0 (ConvertFrom-GrantsText "aaaaaaaaaaaa 99999`n" 1000).Count 'a grant longer than an hour is not honored'
 Assert-Equal $true ($sshd -split "`n" -contains 'AuthenticationMethods publickey') 'sshd_config: keys only'

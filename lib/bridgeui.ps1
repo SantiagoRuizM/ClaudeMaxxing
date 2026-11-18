@@ -394,22 +394,15 @@ function Write-AnswerFile([string]$Path, [string]$Answer) {
     } catch { Remove-Item -LiteralPath "$Path.tmp" -ErrorAction SilentlyContinue }
 }
 
-# Answers one request. -ForAnHour also lets that PC in without asking for an hour, which includes the requests
-# of that PC already waiting (the dialog says so).
+# Answers one request. -ForAnHour also lets that PC in without asking for an hour, from now on: the requests of
+# that PC already waiting are still shown one by one, since nobody has seen them.
 function Send-BridgeAnswer([string]$RequestId, [string]$Answer, [switch]$ForAnHour) {
     $b = $script:Bridge
     if (-not $b.Requests.Contains($RequestId)) { return }
     $request = $b.Requests[$RequestId]
-    $answered = @($request)
-    if ($ForAnHour) {
-        Set-BridgeGrant $b.Ctx $request.Peer.id ((Get-UnixNow) + $BridgeGrantSeconds)
-        # A debate is never allowed in passing: accepting one is where the user picks the folder.
-        $answered = @($request) + @($b.Requests.Values | Where-Object { $_.Peer.id -eq $request.Peer.id -and $_.Id -ne $request.Id -and $_.Kind -ne 'debate' })
-    }
-    foreach ($item in $answered) {
-        Write-AnswerFile (Join-Path $b.Ctx.RequestsDir "$($item.Id).answer") $Answer
-        $b.Requests.Remove($item.Id)
-    }
+    if ($ForAnHour) { Set-BridgeGrant $b.Ctx $request.Peer.id ((Get-UnixNow) + $BridgeGrantSeconds) }
+    Write-AnswerFile (Join-Path $b.Ctx.RequestsDir "$($request.Id).answer") $Answer
+    $b.Requests.Remove($request.Id)
     Write-BridgeLog $b.Ctx ("answered {0}{1} to {2}: {3} [{4}]" -f $Answer, $(if ($ForAnHour) { ' (1 hour)' } else { '' }), $request.Peer.name, $request.Kind, $request.Command)
     # The folder is picked once this dialog has closed (Complete-DebateAccept, lib\debateui.ps1).
     if ($Answer -eq 'allow' -and $request.Kind -eq 'debate') { $script:DebateAccepted = $request }
@@ -1117,7 +1110,9 @@ function Get-RequestView($Request) {
     }
     # Only the exact command "claude" is shown as Claude Code; anything longer is shown as the command it is.
     if ($Request.Command.Trim() -ceq 'claude') { return @{ Title = 'Abrir Claude Code en este PC'; Detail = '' } }
-    @{ Title = 'Ejecutar este comando:'; Detail = (Format-CommandPreview $Request.Command) }
+    $shown = Format-CommandPreview $Request.Command
+    # A command too long to show whole can only be refused: allowing it would allow the part nobody saw.
+    @{ Title = 'Ejecutar este comando:'; Detail = $shown; Cut = ($shown -ne (Format-CommandPreview $Request.Command ([int]::MaxValue))) }
 }
 
 $script:BridgeMonoFont = New-UiFont 'Consolas' 9
@@ -1196,6 +1191,7 @@ function Draw-ApprovalForm($Form, $G) {
                  @{ Id = 'hour'; Label = 'Permitir 1 hora'; Action = "Send-BridgeAnswer '$id' 'allow' -ForAnHour"; Accent = $false },
                  @{ Id = 'deny'; Label = 'Rechazar'; Action = "Send-BridgeAnswer '$id' 'deny'"; Accent = $false })
     if ($request.Kind -eq 'debate') { $buttons = @($buttons | Where-Object { $_.Id -ne 'hour' }) }
+    if ($view.Cut) { $buttons = @($buttons | Where-Object { $_.Id -eq 'deny' }) }
     foreach ($button in $buttons) {
         $bw = [Math]::Max((Px 84), (Get-PillWidth $button.Label))
         $rect = New-Rect ($right - $bw) ((Px 262) + $dy) $bw (Px 32)
@@ -1208,9 +1204,10 @@ function Draw-ApprovalForm($Form, $G) {
         $right = $rect.X - (Px 8)
     }
     $hourNote = 'Permitir 1 hora: ese PC entra sin preguntar durante una hora'
-    if ($others -gt 0) { $hourNote += ', incluidas sus solicitudes en espera' }
+    if ($others -gt 0) { $hourNote += '; lo ya en espera se pregunta igual' }
     if ($request.Kind -eq 'debate') { $hourNote = 'Un debate se permite uno a uno' }
-    Draw-Wrapped $G ($hourNote + '. Esc rechaza.') $F.Small $P.Faint $left ((Px 302) + $dy) $inner (Px 32)
+    if ($view.Cut) { $hourNote = 'El comando es demasiado largo para mostrarlo entero, as\u00ed que solo se puede rechazar' }
+    Draw-Wrapped $G (Tx ($hourNote + '. Esc rechaza.')) $F.Small $P.Faint $left ((Px 302) + $dy) $inner (Px 32)
 
     $border = New-Object System.Drawing.Pen($P.Border)
     $G.DrawRectangle($border, 0, 0, $Form.ClientSize.Width - 1, $Form.ClientSize.Height - 1)
