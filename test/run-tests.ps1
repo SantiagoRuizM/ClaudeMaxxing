@@ -1056,6 +1056,10 @@ try {
     Assert-Equal 'removed (theme back to light)' (Uninstall-ThemeSettings $themeSettings $themeDir) 'theme: uninstall restores the built-in theme'
     $themeJson = [IO.File]::ReadAllText($themeSettings) | ConvertFrom-Json
     Assert-Equal $true ($themeJson.theme -eq 'light' -and -not $themeJson.env.CLAUDE_CODE_PLUGIN_DIRS) 'theme: uninstall leaves no trace'
+    [IO.File]::WriteAllText($themeSettings, '{"theme":"light-daltonized"}')
+    [void](Install-ThemeSettings $themeSettings $themeDir)
+    Assert-Equal 'removed (theme back to light-daltonized)' (Uninstall-ThemeSettings $themeSettings $themeDir) 'theme: uninstall gives back the exact theme (color-blind and ANSI ones too)'
+    Assert-Equal $false (Test-Path "$themeSettings$ThemeBeforeSuffix") 'theme: the saved theme goes with the uninstall'
     [IO.File]::WriteAllText($themeSettings, '{"model":"opus"}')
     Assert-Equal 'on (custom:maxx-theme:dark)' (Install-ThemeSettings $themeSettings $themeDir) 'theme: no theme (dark by default) becomes the dark one'
     [IO.File]::WriteAllText($themeSettings, '{"theme":"custom:mine"}')
@@ -1064,7 +1068,7 @@ try {
     [IO.File]::WriteAllText($themeSettings, '{ not json')
     Assert-Equal $true ((Install-ThemeSettings $themeSettings $themeDir) -like 'skipped*') 'theme: broken settings are left alone'
 } finally {
-    Remove-Item -LiteralPath $themeSettings, "$themeSettings.bak-claudemaxxing" -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $themeSettings, "$themeSettings.bak-claudemaxxing", "$themeSettings$ThemeBeforeSuffix" -ErrorAction SilentlyContinue
 }
 
 # --- Explorer menu: prebuilt files committed, and the MSIX built from the current manifest

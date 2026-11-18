@@ -522,6 +522,8 @@ function Install-ThemeSettings([string]$SettingsPath, [string]$ThemeDir) {
     if ($current.StartsWith('custom:')) { return "kept your theme $current (pick ClaudeMaxxing in /theme)" }
     $want = $ThemePrefix + $(if ($current -like 'light*') { 'light' } else { 'dark' })
     if (-not (Write-SettingsTheme $SettingsPath $text $want)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    # The exact theme it had (light-daltonized, dark-ansi...), for the uninstall to give it back.
+    [IO.File]::WriteAllText("$SettingsPath$ThemeBeforeSuffix", $current)
     "on ($want)"
 }
 
@@ -532,6 +534,12 @@ function Uninstall-ThemeSettings([string]$SettingsPath, [string]$ThemeDir) {
     $current = Get-SettingsTheme $text
     if (-not $current.StartsWith($ThemePrefix)) { return $dirs }
     $back = $current.Substring($ThemePrefix.Length)
+    $saved = "$SettingsPath$ThemeBeforeSuffix"
+    if (Test-Path -LiteralPath $saved) { $before = ([IO.File]::ReadAllText($saved)).Trim(); if ($before) { $back = $before } }
     if (-not (Write-SettingsTheme $SettingsPath $text $back)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    Remove-Item -LiteralPath $saved -ErrorAction SilentlyContinue
     "removed (theme back to $back)"
 }
+
+# Next to settings.json: the theme it had before ClaudeMaxxing's (Install-ThemeSettings / Uninstall-ThemeSettings).
+$ThemeBeforeSuffix = '.theme-before-claudemaxxing'
