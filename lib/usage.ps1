@@ -1,6 +1,5 @@
 # Pure helpers: turn the statusline snapshot into what the popup shows. No UI here, so tests can cover it.
 
-$script:EnUs = [System.Globalization.CultureInfo]::GetCultureInfo('en-US')
 
 # Snapshot older than this means no Claude Code session is reporting right now.
 $script:FreshMinutes = 10
@@ -275,8 +274,8 @@ $script:ExtrasMaxAgeHours = 12
 
 function Format-Money($Minor, [string]$Currency) {
     $amount = [double]$Minor / 100
-    if (-not $Currency -or $Currency -eq 'USD') { return $amount.ToString('C2', $script:EnUs) }
-    $amount.ToString('N2', $script:EnUs) + ' ' + $Currency
+    if (-not $Currency -or $Currency -eq 'USD') { return '$' + $amount.ToString('N2', $UiCulture) }
+    $amount.ToString('N2', $UiCulture) + ' ' + $Currency
 }
 
 function Get-ExtrasView($Extras, [datetime]$Now) {

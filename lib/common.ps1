@@ -37,6 +37,11 @@ $LegacyTrayLink = Join-Path $StartupDir 'ClaudeTray.lnk'
 # Non-ASCII UI text is written as \uXXXX escapes and decoded here.
 function Tx([string]$Text) { [regex]::Unescape($Text) }
 
+# Numbers, money and dates in the window follow one Spanish culture, like its text: the user's own when Windows is in
+# Spanish (es-CO, es-MX...), es-ES otherwise. Format-Clock (lib\schedule.ps1) and Format-Usd (lib\forecast.ps1) use it.
+$UiCulture = if ([Globalization.CultureInfo]::CurrentCulture.TwoLetterISOLanguageName -eq 'es') { [Globalization.CultureInfo]::CurrentCulture }
+    else { [Globalization.CultureInfo]::GetCultureInfo('es-ES') }
+
 function Read-JsonFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try { return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null }

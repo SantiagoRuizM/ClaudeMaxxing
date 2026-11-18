@@ -270,13 +270,15 @@ Assert-Equal 1 $both.limit_reset.resets_per_week 'limit reset per week'
 $notAvail = ConvertFrom-UsageExtras '{"juniper_tide":{"eligible":true,"available":false}}' 100
 Assert-Equal $null $notAvail.limit_reset 'unavailable reset is not stored'
 
-Assert-Equal '$12.40' (Format-Money 1240 'USD') 'money USD from cents'
-Assert-Equal '12.40 EUR' (Format-Money 1240 'EUR') 'money other currency'
+Assert-Equal ('$' + (12.4).ToString('N2', $UiCulture)) (Format-Money 1240 'USD') 'money USD from cents, in the window''s culture'
+Assert-Equal ((12.4).ToString('N2', $UiCulture) + ' EUR') (Format-Money 1240 'EUR') 'money other currency'
+Assert-Equal $true ((Format-Clock (Get-Date -Hour 13 -Minute 5)) -match '^(1:05 \S|13:05$)') 'clock: never a bare 1:05 (a culture without a.m./p.m. gets 13:05)'
+Assert-Equal 'es' $UiCulture.TwoLetterISOLanguageName 'numbers and dates follow a Spanish culture, like the text'
 
 $extrasNow = [DateTimeOffset]::FromUnixTimeSeconds(1000).LocalDateTime
 $ev = Get-ExtrasView ($both | ConvertTo-Json -Depth 5 | ConvertFrom-Json) $extrasNow.AddSeconds(-900)
 Assert-Equal 25 $ev.ExtraUsage.Percent 'extra usage percent rounds'
-Assert-Equal '$12.40 de $50.00 este mes' $ev.ExtraUsage.AmountText 'extra usage amount text'
+Assert-Equal ((Format-Money 1240 'USD') + ' de ' + (Format-Money 5000 'USD') + ' este mes') $ev.ExtraUsage.AmountText 'extra usage amount text'
 Assert-Equal (Tx 'Reinicio de l\u00edmite disponible') $ev.LimitReset.Title 'limit reset title'
 $old = Get-ExtrasView ($both | ConvertTo-Json -Depth 5 | ConvertFrom-Json) $extrasNow.AddHours(13)
 Assert-Equal $null $old.ExtraUsage 'stale extras are hidden'
@@ -1595,7 +1597,7 @@ foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {
         $n.Parent -is [System.Management.Automation.Language.CommandAst] }, $true))
     Assert-Equal 0 $bare.Count "no bare operators as arguments: $($file.Name)"
     $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
-    Assert-Equal 0 @($bytes | Where-Object { $_ -gt 127 }).Count "ascii: $($file.Name)"
+    Assert-Equal 0 @($bytes | Where-Object { $_ -gt 127 -or ($_ -lt 32 -and $_ -notin 9, 10, 13) }).Count "ascii (no control bytes either): $($file.Name)"
 }
 
 Write-Host ''

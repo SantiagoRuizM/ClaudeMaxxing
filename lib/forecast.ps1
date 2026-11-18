@@ -170,11 +170,11 @@ function Format-UsageSpread([double]$Cv) {
     'muy variables'
 }
 
-# "$25,95" (es-ES digits), "$0,04", "-".
+# "$25,95" (digits of $UiCulture, lib\common.ps1), "$0,04", "-". Format-Money (lib\usage.ps1) writes the same.
 function Format-Usd($Value) {
     if ($null -eq $Value) { return '-' }
     $v = [double]$Value
-    $culture = [Globalization.CultureInfo]::GetCultureInfo('es-ES')
+    $culture = $UiCulture
     if ($v -ge 100) { return '$' + $v.ToString('N0', $culture) }
     '$' + $v.ToString('N2', $culture)
 }

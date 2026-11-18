@@ -5,7 +5,7 @@ $script:SessionTaskPath = '\ClaudeMaxxing\'
 # Folder used before the rename; only cleaned up.
 $script:LegacySessionTaskPath = '\ClaudeTray\'
 
-# Prefix: Session- for the ones you schedule, Auto- for the automatic agenda (libutoplan.ps1).
+# Prefix: Session- for the ones you schedule, Auto- for the automatic agenda (lib\autoplan.ps1).
 function Get-SessionTaskName([datetime]$At, [string]$Prefix = 'Session-') {
     $Prefix + $At.ToString('yyyyMMdd-HHmm')
 }
@@ -159,12 +159,13 @@ function Get-DayLabel([datetime]$Date, [datetime]$Now) {
     if ($days -eq 0) { return 'Hoy' }
     if ($days -eq 1) { return (Tx 'Ma\u00f1ana') }
     if ($days -eq -1) { return 'Ayer' }
-    $text = $Date.ToString('ddd d MMM', [System.Globalization.CultureInfo]::CurrentCulture).TrimEnd('.')
+    $text = $Date.ToString('ddd d MMM', $UiCulture).TrimEnd('.')
     $text.Substring(0, 1).ToUpper() + $text.Substring(1)
 }
 
+# "1:05 p. m.", or "13:05" where the culture has no a.m./p.m. (es-ES): "1:05" alone would be ambiguous.
 function Format-Clock([datetime]$Value) {
-    $Value.ToString('h:mm tt', [System.Globalization.CultureInfo]::CurrentCulture)
+    if ($UiCulture.DateTimeFormat.AMDesignator) { $Value.ToString('h:mm tt', $UiCulture) } else { $Value.ToString('H:mm', $UiCulture) }
 }
 
 function Format-DialogDateTime([datetime]$Value, [datetime]$Now) {
