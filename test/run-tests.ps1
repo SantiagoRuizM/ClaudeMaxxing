@@ -97,6 +97,11 @@ Assert-Equal 1 @(Get-UsageAlerts $high @($jump[0].Keys)).Count 'alerts: a new wi
 Assert-Equal 0 @(Get-UsageAlerts (Get-UsageView $null $now) @()).Count 'alerts: no data, no warning'
 Assert-Equal 'Actualizado hace 3 min' (Format-Age 3.4) 'age text'
 Assert-Equal 'Actualizado hace 2 h' (Format-Age 150) 'age text in hours'
+$secret = Protect-Secret 'sk_test_123'
+Assert-Equal $true ($secret.StartsWith('dpapi:') -and -not $secret.Contains('sk_test')) 'secret: stored encrypted, not in plain text'
+Assert-Equal 'sk_test_123' (Unprotect-Secret $secret) 'secret: read back for this user'
+Assert-Equal 'sk_plain' (Unprotect-Secret 'sk_plain') 'secret: a key saved before (plain) still reads'
+Assert-Equal '' (Unprotect-Secret 'dpapi:bm90LWRwYXBp') 'secret: a value from another user or PC reads as no key'
 Assert-Equal 'Agendar sesi' (Tx 'Agendar sesi\u00f3n').Substring(0, 12) 'Tx decodes escapes'
 Assert-Equal 243 ([int](Tx 'Agendar sesi\u00f3n')[12]) 'Tx produces the accented char'
 

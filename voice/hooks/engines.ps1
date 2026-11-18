@@ -113,7 +113,7 @@ function New-EdgeAudio($Cfg, [string]$Text, [string]$Voice, [string]$Out) {
 }
 
 function New-ElevenAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) {
-    $key = [string](Get-Opt $Cfg 'elevenlabs.apiKey' '')
+    $key = Unprotect-Secret ([string](Get-Opt $Cfg 'elevenlabs.apiKey' ''))
     if (-not $key) { Write-Log 'elevenlabs: sin clave'; return $false }
     $voiceId = Get-ElevenVoiceId $Cfg $EdgeVoice (Get-TextLanguage $Text)
     if (-not $voiceId) { Write-Log 'elevenlabs: sin voces (vuelve a pegar la clave en ClaudeMaxxing > Voz)'; return $false }
@@ -141,7 +141,7 @@ function New-ElevenAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) 
 }
 
 function New-GeminiAudio($Cfg, [string]$Text, [string]$EdgeVoice, [string]$Out) {
-    $key = [string](Get-Opt $Cfg 'gemini.apiKey' '')
+    $key = Unprotect-Secret ([string](Get-Opt $Cfg 'gemini.apiKey' ''))
     if (-not $key) { Write-Log 'gemini: sin clave'; return $false }
     $voice = Get-GeminiVoiceName $Cfg $EdgeVoice
     $style = [string](Get-Opt $Cfg 'gemini.style' '')

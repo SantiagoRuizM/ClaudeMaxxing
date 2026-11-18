@@ -27,12 +27,12 @@ function Get-FreeLlmSettings {
     $saved = Read-JsonFile $FreeLlmFile
     [pscustomobject]@{
         Enabled = [bool]($saved -and $saved.enabled)
-        Key = $(if ($saved -and $saved.key) { [string]$saved.key } else { '' })
+        Key = $(if ($saved -and $saved.key) { Unprotect-Secret ([string]$saved.key) } else { '' })
     }
 }
 
 function Save-FreeLlmSettings([bool]$Enabled, [string]$Key) {
-    Write-JsonFile $FreeLlmFile ([ordered]@{ enabled = $Enabled; key = $Key })
+    Write-JsonFile $FreeLlmFile ([ordered]@{ enabled = $Enabled; key = (Protect-Secret $Key) })
 }
 
 # The unified key the FreeLLMAPI dashboard shows ("freellmapi-" and 48 hex digits). Only letters, digits,

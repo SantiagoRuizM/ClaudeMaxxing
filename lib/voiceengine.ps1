@@ -124,7 +124,7 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
             $voices = Invoke-RestMethod -Uri 'https://api.elevenlabs.io/v1/voices' -Headers @{ 'xi-api-key' = $Key } -TimeoutSec 15 -UseBasicParsing
             $pool = ConvertTo-ElevenVoicePool $voices
             if (-not $pool.Count) { return [pscustomobject]@{ Ok = $false; Message = 'La cuenta de ElevenLabs no tiene voces.' } }
-            Set-VoiceLocalValue $config 'elevenlabs' 'apiKey' $Key
+            Set-VoiceLocalValue $config 'elevenlabs' 'apiKey' (Protect-Secret $Key)
             Set-VoiceLocalValue $config 'elevenlabs' 'voices' $pool
             $message = "Clave de ElevenLabs guardada: $($pool.Count) voces."
             try {
@@ -133,7 +133,7 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
             } catch { }
         } else {
             [void](Invoke-RestMethod -Uri 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1' -Headers @{ 'x-goog-api-key' = $Key } -TimeoutSec 15 -UseBasicParsing)
-            Set-VoiceLocalValue $config 'gemini' 'apiKey' $Key
+            Set-VoiceLocalValue $config 'gemini' 'apiKey' (Protect-Secret $Key)
             $message = 'Clave de Gemini guardada.'
         }
     } catch {
@@ -155,7 +155,7 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
 
 function Update-ElevenCredits([string]$Root = $TrayRoot) {
     $config = Read-VoiceLocalConfig (Get-VoiceLocalConfigPath $Root)
-    $key = if ($config.elevenlabs) { [string]$config.elevenlabs.apiKey } else { '' }
+    $key = if ($config.elevenlabs) { Unprotect-Secret ([string]$config.elevenlabs.apiKey) } else { '' }
     if (-not $key) { return $null }
     Set-VoiceTls12
     try {

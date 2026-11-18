@@ -279,6 +279,11 @@ function Invoke-HubBusy([string]$BusyNote, [scriptblock]$BusyWork) {
     try { & $BusyWork } finally { if ($busyForm -and -not $busyForm.IsDisposed) { $busyForm.Cursor = [System.Windows.Forms.Cursors]::Default } }
 }
 
+# A key read from the clipboard and saved: it leaves the clipboard (and so Win+V's history from now on).
+function Clear-ClipboardSecret([string]$Key) {
+    try { if ($Key -and ([System.Windows.Forms.Clipboard]::GetText()).Trim() -eq $Key) { [System.Windows.Forms.Clipboard]::Clear() } } catch { }
+}
+
 function Set-HubFreeLlmKey {
     if ($script:Hub.Preview) { return }
     $key = ''
@@ -291,6 +296,7 @@ function Set-HubFreeLlmKey {
     $check = Invoke-HubBusy (Tx 'Comprobando la clave en FreeLLMAPI\u2026') { Test-FreeLlmKey (Get-FreeLlmPort) $key }
     if ($check.Status -eq 'bad-key') { Set-HubMessage (Tx 'FreeLLMAPI no acepta esa clave: c\u00f3piala otra vez de su p\u00e1gina Keys.'); return }
     try { Save-FreeLlmSettings $settings.Enabled $key } catch { Set-HubMessage ('No se pudo guardar: ' + $_.Exception.Message); return }
+    Clear-ClipboardSecret $key
     switch ($check.Status) {
         'ok'           { Set-HubMessage (Tx ('\u2713 Clave guardada: ' + $check.Models.Count + ' modelos disponibles')) }
         'no-providers' { Set-HubMessage (Tx 'Clave guardada, pero a\u00fan no hay claves de proveedores en FreeLLMAPI.') }
@@ -501,7 +507,7 @@ function Show-VoiceKeyDialog([string]$Engine, $Palette, $Owner) {
         $dlg.UseWaitCursor = $true; $save.Enabled = $false; $dlg.Refresh()
         $r = Save-VoiceKey $Engine $box.Text.Trim()
         $dlg.UseWaitCursor = $false; $save.Enabled = $true
-        if ($r.Ok) { $state.Result = $r; $dlg.DialogResult = 'OK' }
+        if ($r.Ok) { Clear-ClipboardSecret $box.Text.Trim(); $state.Result = $r; $dlg.DialogResult = 'OK' }
         else { $err.ForeColor = $P.Error; $err.Text = $r.Message; $box.Focus(); $box.SelectAll() }
     })
     $dlg.Add_Shown({ $box.Focus(); $box.SelectAll() })

@@ -75,6 +75,14 @@ function Read-JsonFile([string]$Path) {
     try { return [IO.File]::ReadAllText($Path, $Utf8) | ConvertFrom-Json } catch { return $null }
 }
 
+# An API key from config.local.json: "dpapi:<base64>" (lib\common.ps1, Protect-Secret) or a plain one saved before.
+function Unprotect-Secret([string]$Value) {
+    if (-not $Value.StartsWith('dpapi:')) { return $Value }
+    Add-Type -AssemblyName System.Security
+    try { [Text.Encoding]::UTF8.GetString([System.Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($Value.Substring(6)), $null, 'CurrentUser')) }
+    catch { '' }
+}
+
 # -InputObject keeps a one-item array an array. Written to a temporary file and renamed over the old one, so another
 # session's hook never reads it half written (in place when a reader blocks the rename).
 function Write-JsonFile([string]$Path, $Value) {
