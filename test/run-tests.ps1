@@ -448,6 +448,27 @@ Assert-Equal 2 @($eggs.Frames | ForEach-Object { $_.GetPixel([int]($_.Width / 2)
 $busyTitles = @(((Tx '\u2733') + ' Diego'), ((Tx '\u25d1') + ' Diego'), ((Tx '\u2810') + ' Diego'), 'C:\WINDOWS\system32\cmd.exe', '',
     ('Diego ' + (Tx '\u00b7') + ' asistente'), ('Diego ' + (Tx '\u00b7') + ' asistente' + [char]0x200B))
 Assert-Equal 'False True True False False False True' (($busyTitles | ForEach-Object { Test-SessionTitleBusy $_ }) -join ' ') 'session egg: spark title waits, spinner title works, plain titles do not count; a hook title works with its zero-width mark'
+# A turn ended by Esc or an API error runs no Stop hook: the transcript's last conversation line tells.
+$tUser = '{"parentUuid":"a","type":"user","message":{"role":"user","content":[{"type":"text","text":"haz algo"}]}}'
+$tStop = '{"parentUuid":"b","type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}'
+$tTool = '{"parentUuid":"b","type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}'
+$tApi = '{"parentUuid":"c","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"You''ve hit your limit"}]},"isApiErrorMessage":true}'
+$tSnap = '{"type":"file-history-snapshot","messageId":"x"}'
+Assert-Equal 'False True True True False False' ((@(
+    ($tStop, $tUser), ($tUser, $tStop, $tSnap), ($tUser, $tTool), ($tUser, $tApi), ($tStop, $tUser, $tSnap), ('cut line', $tSnap)
+) | ForEach-Object { Test-TranscriptTurnEnded ($_ -join "`n") }) -join ' ') 'session egg: interrupt or API error ends the turn, bookkeeping lines after it do not count, a new prompt starts one'
+$savedVoiceStateDir = $VoiceStateDir
+$VoiceStateDir = Join-Path ([IO.Path]::GetTempPath()) ('cmx-turn-test-{0}' -f [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force $VoiceStateDir | Out-Null
+try {
+    $tFile = Join-Path $VoiceStateDir 'transcript.jsonl'
+    [IO.File]::WriteAllText($tFile, (('x' * 70000) + "`n" + $tUser + "`n"))
+    Write-JsonFile (Join-Path $VoiceStateDir 'turn-abc') ([pscustomobject]@{ transcript = $tFile })
+    Assert-Equal $false (Test-SessionTurnEnded 'abc') 'session egg: a running turn keeps thinking'
+    [IO.File]::AppendAllText($tFile, $tStop + "`n" + $tSnap + "`n")
+    Assert-Equal $true (Test-SessionTurnEnded 'abc') 'session egg: reads the tail again once the transcript grows'
+    Assert-Equal $false (Test-SessionTurnEnded 'missing') 'session egg: no turn file, the title decides'
+} finally { Remove-Item -LiteralPath $VoiceStateDir -Recurse -Force -ErrorAction SilentlyContinue; $VoiceStateDir = $savedVoiceStateDir }
 # Speaking egg: who is talking (speaking.json, written by voice\hooks\play.ps1 while it holds the turn) and its look.
 $VoiceStateDir = Join-Path ([IO.Path]::GetTempPath()) ('cmx-speak-test-{0}' -f [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $VoiceStateDir | Out-Null

@@ -162,6 +162,17 @@ function Save-SessionOrigin([string]$SessionId, [int]$ParentId = $PID) {
     Write-JsonFile $file ([pscustomobject]@{ origin = $origin })
 }
 
+# The transcript of the turn that just started, in turn-<origin key> (the id the menu opened the window with, the
+# tray's key for its egg; the current id when there is none). The tray reads its tail: Claude Code runs no hook when
+# the user interrupts a turn (Test-SessionTurnEnded in lib\traysessions.ps1).
+function Save-SessionTurn([string]$SessionId, [string]$TranscriptPath) {
+    if ((Get-SessionKey $SessionId) -eq 'manual') { return }
+    Save-SessionOrigin $SessionId
+    $origin = Read-JsonFile (Get-SessionFile 'origin' $SessionId)
+    $key = if ($origin -and "$($origin.origin)") { "$($origin.origin)" } else { Get-SessionKey $SessionId }
+    Write-JsonFile (Join-Path $StateDir "turn-$key") ([pscustomobject]@{ transcript = $TranscriptPath })
+}
+
 # Archivos de un tipo (voice-*, name-*) usados en las ultimas horas = sesiones activas.
 function Get-ActiveStateFiles($Config, [string]$Kind) {
     $hours = [int](Get-Opt $Config 'sessionActiveHours' 12)

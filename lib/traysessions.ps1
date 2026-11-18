@@ -30,6 +30,40 @@ function Test-SessionTitleBusy([string]$Title) {
     $first -ne [char]0x2733 -and -not [char]::IsLetterOrDigit($first) -and -not [char]::IsWhiteSpace($first)
 }
 
+# A turn whose title still says working may have ended with no hook to clear it: Esc runs none (and an API error
+# runs StopFailure, which on-stop-failure.ps1 handles, but an older plugin copy may not). Its transcript (left by
+# on-prompt.ps1 in turn-<key>) then ends in the interrupt note or an API error message. Only conversation lines
+# count ({"parentUuid"...); the bookkeeping lines after them do not. Cached per transcript size.
+$script:SessionTurnCache = @{}
+function Test-SessionTurnEnded([string]$Key) {
+    $turn = Read-JsonFile (Join-Path $VoiceStateDir "turn-$Key")
+    if (-not $turn -or -not "$($turn.transcript)") { return $false }
+    $file = Get-Item -LiteralPath "$($turn.transcript)" -ErrorAction SilentlyContinue
+    if (-not $file) { return $false }
+    $cached = $script:SessionTurnCache[$Key]
+    if ($cached -and $cached.Path -eq $file.FullName -and $cached.Length -eq $file.Length) { return $cached.Ended }
+    $ended = Test-TranscriptTurnEnded (Read-FileTail $file.FullName 65536)
+    $script:SessionTurnCache[$Key] = @{ Path = $file.FullName; Length = $file.Length; Ended = $ended }
+    $ended
+}
+
+function Test-TranscriptTurnEnded([string]$Tail) {
+    $last = @($Tail -split "`n" | Where-Object { $_.StartsWith('{"parentUuid"') }) | Select-Object -Last 1
+    [bool]($last -and ($last.Contains('"text":"[Request interrupted by user') -or $last.Contains('"isApiErrorMessage":true')))
+}
+
+# The last $Bytes of a file as UTF-8, shared with the writer (Claude Code keeps appending to it).
+function Read-FileTail([string]$Path, [int]$Bytes) {
+    $stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+        $count = [int][Math]::Min($Bytes, $stream.Length)
+        [void]$stream.Seek(-$count, 'End')
+        $buffer = New-Object byte[] $count
+        $read = $stream.Read($buffer, 0, $count)
+        [System.Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+    } finally { $stream.Dispose() }
+}
+
 # Compiled once, on the first title read (the icon timer's first tick); Show-SessionGlow reuses it.
 function Initialize-SessionWindowApi {
     if ('ClaudeTray.SessionWindow' -as [type]) { return }
@@ -412,6 +446,7 @@ function Update-SessionIcons {
             if ($i -ne $speaking) { $notify.Icon = Get-SessionIcon $script:SessionIconColor[$i] }
         }
         $busy = $session -and (Test-SessionTitleBusy (Get-SessionWindowTitle $session.Hwnd))
+        if ($busy -and $session.Key) { try { if (Test-SessionTurnEnded $session.Key) { $busy = $false } } catch { } }
         if ($busy) { $anyBusy = $true; if ($script:SessionIconFrames[$i] -lt 0) { $script:SessionIconFrames[$i] = 0 } }
         elseif ($script:SessionIconFrames[$i] -ge 0) { $script:SessionIconFrames[$i] = -1; if ($i -ne $speaking) { $notify.Icon = Get-SessionIcon $script:SessionIconColor[$i] } }
         if ($docked) { if ($notify.Visible) { $notify.Visible = $false }; continue }

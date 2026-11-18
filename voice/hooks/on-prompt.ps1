@@ -56,5 +56,7 @@ try {
     # Menu sessions: the tab's title, marked as working until the Stop hook (speak.ps1) clears it. In finally:
     # the early exits above run it too, after any JSON was written.
     try { if ($evt) { Set-SessionTerminalTitle (Get-SessionName $evt.session_id) -Busy } } catch { Write-Log "title: $_" }
+    # Esc ends the turn without any hook, so that mark stays: the tray reads this turn's transcript to tell.
+    try { if ($evt -and $evt.transcript_path) { Save-SessionTurn $evt.session_id $evt.transcript_path } } catch { Write-Log "turn: $_" }
 }
 exit 0
