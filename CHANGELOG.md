@@ -2,6 +2,17 @@
 
 ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major** version changes how it installs or what it keeps on your PC in a way that needs you to act, a **minor** one adds tools or options, a **patch** one fixes things. The version lives in `lib/common.ps1` (`$AppVersion`) and must match the newest entry here; pushing the tag `v<version>` publishes a GitHub Release with the ZIP to install (`.github/workflows/release.yml`).
 
+## Unreleased
+
+- **Claude Whip follows the forecast**: past half the 5-hour window, if it is on pace to run out before it resets, Whip comes on before its threshold and says at what time the limit would come. The shell guard is tighter (a lone `&`, extra lines, `$(...)`, backticks, `git -c`/`config`/`apply`, `sort -o`, `VAR=` prefixes, a `whip-check.sh` planted in the repo) and MCP tools that run code or write are blocked. The check stops a test command after 20 minutes.
+- **The voice says when the plan ran out** and at what time it comes back.
+- **Opt-in**: Otros PCs sets up nothing on a new install until **Activar** (or `install.ps1 -Bridge`); environment detection stays off until you turn it on, and never runs without environments.
+- **Claude Whisper** asks once, before the first listen, after saying that the transcription is an undocumented service and that the call's audio goes to Anthropic; calls older than 30 days are deleted.
+- **Business**: the policy can also turn off Ambientes (off by default) and Claude Judge; a changed policy applies within 5 minutes; the Whip plugin reads IT's policy itself.
+- **Security fixes**: `get.ps1` no longer installs the unverified `main` branch when GitHub's API fails; **Permitir 1 hora** no longer allows requests already waiting, and a command too long to show can only be refused; Peek shows programs and scripts in Explorer instead of running them; a paired PC whose user has an apostrophe no longer breaks every `ssh`; the tamper check covers `sshd_config` and the gate.
+- **Fixes**: after `/clear` a session no longer lists itself among the other sessions; JSON state is written atomically and `history.json`/`cloud.json` under a lock; updates now refresh the statusline block; the window fits 1366x768 screens; uninstall gives back the exact theme; money and times follow one Spanish format; keys are stored encrypted (DPAPI); scheduled runs find Claude Code after it moved.
+- **CI** runs the Whip and Peek tests and draws every window; a release runs the whole CI.
+
 ## 1.1.0 - 2026-11-08
 
 - **Business edition**: `install.ps1 -Business` (or `--business`; `-Personal` is the default and switches back). The choice is kept on update, and a policy that IT puts in `%ProgramData%\ClaudeMaxxing\policy.json` makes the PC business. A new **Empresa** section shows:
