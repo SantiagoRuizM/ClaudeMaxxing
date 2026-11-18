@@ -7,5 +7,8 @@
   "os": ["win32"],
   "bin": {
     "claudemaxxing": "bin/claudemaxxing.js"
+  },
+  "scripts": {
+    "test": "node --test whip/test/rules.test.mjs peek/test/paths.test.mjs && node harness/test.js && powershell -NoProfile -ExecutionPolicy Bypass -File test/run-tests.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File voice/test/run-tests.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File test/render-hub.ps1"
   }
 }

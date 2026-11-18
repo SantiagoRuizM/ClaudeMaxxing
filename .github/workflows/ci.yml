@@ -24,6 +24,10 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1
 
+      - name: Every window and section draws (the hub, the popup, Otros PCs, the approval dialog)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File test\render-hub.ps1
+
       - name: Voice tests (no audio)
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1
