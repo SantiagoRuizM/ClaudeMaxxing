@@ -25,6 +25,12 @@ $stopped = Stop-RecordedTray
 if ($stopped) { Write-Host "tray stopped (PID $stopped)" }
 $stopped = Stop-RecordedWhisper
 if ($stopped) { Write-Host "Claude Whisper stopped (PID $stopped)" }
+# Hidden workers started from the install folder (a trial, a debate, the FreeLLMAPI download): they hold files in it.
+$workerPattern = [regex]::Escape((Join-Path $InstallDir 'lib') + '\') + '(judge-worker|debate-worker|maxx-worker|freellm-install)\.ps1'
+foreach ($proc in @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { "$($_.CommandLine)" -match $workerPattern })) {
+    & taskkill.exe /T /F /PID $proc.ProcessId 2>$null | Out-Null
+    Write-Host "stopped a background worker (PID $($proc.ProcessId))"
+}
 foreach ($link in $TrayLink, $LegacyTrayLink) {
     if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link; Write-Host "removed $link" }
 }
@@ -82,6 +88,18 @@ if ($RemoveData) {
     foreach ($dir in $TrayHome, (Join-Path $env:TEMP 'claude-voice'), $JudgeHome) {
         Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "removed $dir"
+    }
+    # The backups the installer made of the user's files, and the business edition's local report folder (a shared
+    # one from the policy is the team's: left alone).
+    foreach ($file in (Join-Path $env:USERPROFILE '.claude\settings.json.bak-claudemaxxing'), $(if ($statusline) { "$statusline.bak-claudetray" })) {
+        if ($file -and (Test-Path -LiteralPath $file)) { Remove-Item -LiteralPath $file -Force; Write-Host "removed $file" }
+    }
+    $reports = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "$AppName\informes"
+    if (Test-Path -LiteralPath $reports) {
+        Remove-Item -LiteralPath $reports -Recurse -Force -ErrorAction SilentlyContinue
+        $parent = Split-Path -Parent $reports
+        if (-not @(Get-ChildItem -LiteralPath $parent -Force -ErrorAction SilentlyContinue).Count) { Remove-Item -LiteralPath $parent -ErrorAction SilentlyContinue }
+        Write-Host "removed $reports"
     }
 } else {
     Write-Host "data kept in $TrayHome, $(Join-Path $env:TEMP 'claude-voice') and $JudgeHome (-RemoveData deletes them)"
