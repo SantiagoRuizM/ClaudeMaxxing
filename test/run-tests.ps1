@@ -749,6 +749,7 @@ foreach ($expected in 'Port 41022', 'ListenAddress 192.168.1.20', 'ListenAddress
 }
 $client = Format-SshClientConfig $ctx @($peerA, $peerB)
 Assert-Equal $true ($client.Contains("Host cmx-oficina-pc-bbbb`n    HostName 192.168.1.30`n    Port 41022`n    User `"John Smith`"")) 'ssh_config host block, user with a space quoted'
+Assert-Equal $false ($client -match "(?m)^    User [^`"]") 'ssh_config: every User quoted (OpenSSH also reads an apostrophe, as in O''Neil, as a quote)'
 Assert-Equal $true ($client.Contains('StrictHostKeyChecking yes') -and $client.Contains('HostKeyAlias claudemaxxing-aaaaaaaaaaaa')) 'ssh_config pins the host key under an alias'
 Assert-Equal "claudemaxxing-aaaaaaaaaaaa $keyA`nclaudemaxxing-bbbbbbbbbbbb $keyB`n" (Format-KnownHosts @($peerA, $peerB)) 'known_hosts by alias'
 

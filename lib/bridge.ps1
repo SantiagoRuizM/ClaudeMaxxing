@@ -198,7 +198,9 @@ function Format-SshClientConfig($Ctx, $Peers) {
     $all = @($Peers | Where-Object { $_ -and $_.hostKey -and $_.address })
     foreach ($peer in $all) {
         $user = [string]$peer.user
-        if ($user -match '\s') { $user = '"' + $user + '"' }
+        # Always quoted: OpenSSH also reads ' as a quote, and Test-BridgeName allows it (O'Neil); unquoted, the whole
+        # file fails to parse and every ssh on the PC with it. Quoted, only ssh to that one PC refuses the name.
+        $user = '"' + $user + '"'
         $lines += ''
         $lines += "Host $(Get-PeerAlias $peer $all)"
         $lines += "    HostName $($peer.address)"

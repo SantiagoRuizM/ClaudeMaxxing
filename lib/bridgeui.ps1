@@ -576,7 +576,7 @@ function Update-BridgeMenu($Item) {
     if ($sessions.Count) {
         [void]$Item.DropDownItems.Add('-')
         foreach ($session in $sessions) {
-            $ask = "Tx '\u00bfCerrar lo que $($session.PeerName) tiene abierto en este PC? Lo que est\u00e9 haciendo all\u00ed se corta.'"
+            $ask = "Tx '\u00bfCerrar lo que $(([string]$session.PeerName).Replace("'", "''")) tiene abierto en este PC? Lo que est\u00e9 haciendo all\u00ed se corta.'"
             [void]$Item.DropDownItems.Add("Desconectar a $($session.PeerName) ($(Get-SessionLabel $session))", $null, [scriptblock]::Create("if (Confirm-UiAction ($ask)) { Stop-BridgeSession '$($session.Id)' }"))
         }
     }
