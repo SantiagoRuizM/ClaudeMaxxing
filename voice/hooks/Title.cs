@@ -36,5 +36,48 @@ namespace ClaudeVoice
             }
             finally { FreeConsole(); }
         }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct ProcessEntry
+        {
+            public uint dwSize, cntUsage, th32ProcessID;
+            public IntPtr th32DefaultHeapID;
+            public uint th32ModuleID, cntThreads, th32ParentProcessID;
+            public int pcPriClassBase;
+            public uint dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+        }
+        [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint pid);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32FirstW(IntPtr snap, ref ProcessEntry entry);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32NextW(IntPtr snap, ref ProcessEntry entry);
+
+        // The nearest ancestor of $pid (itself included) whose exe starts with $prefix, or 0. One process snapshot
+        // instead of a WMI query per level: hooks run this on every prompt, and WMI costs ~200 ms a level.
+        public static int FindAncestor(int pid, string prefix, int depth)
+        {
+            var parents = new System.Collections.Generic.Dictionary<int, int>();
+            var names = new System.Collections.Generic.Dictionary<int, string>();
+            IntPtr snap = CreateToolhelp32Snapshot(2, 0);  // TH32CS_SNAPPROCESS
+            if (snap == new IntPtr(-1)) return 0;
+            try
+            {
+                var e = new ProcessEntry();
+                e.dwSize = (uint)Marshal.SizeOf(typeof(ProcessEntry));
+                for (bool ok = Process32FirstW(snap, ref e); ok; ok = Process32NextW(snap, ref e))
+                {
+                    parents[(int)e.th32ProcessID] = (int)e.th32ParentProcessID;
+                    names[(int)e.th32ProcessID] = e.szExeFile ?? "";
+                }
+            }
+            finally { CloseHandle(snap); }
+            for (int i = 0; i < depth && pid > 0; i++)
+            {
+                string name;
+                if (!names.TryGetValue(pid, out name)) return 0;
+                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return pid;
+                pid = parents[pid];
+            }
+            return 0;
+        }
     }
 }

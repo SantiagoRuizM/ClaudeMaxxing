@@ -73,8 +73,11 @@ try {
     $got = (Read-JsonFile (Get-SessionFile 'origin' 'sin-menu')).origin
     Check 'origen: vacio si nada de arriba lo trae' ($got -eq '') $got
 } finally { Stop-Process -Id $fakeClaude.Id -Force -ErrorAction SilentlyContinue }
+Import-Native
+Check 'FindAncestor: el propio proceso por su nombre' ([ClaudeVoice.Title]::FindAncestor($PID, 'powershell', 6) -eq $PID) ''
+Check 'FindAncestor: 0 si nadie de arriba se llama asi' ([ClaudeVoice.Title]::FindAncestor($PID, 'no-existe-zz', 6) -eq 0) ''
 
-$ctl = "$PSScriptRoot\..\ctl.ps1"
+$ctl ="$PSScriptRoot\..\ctl.ps1"
 & $ctl session aaaa-1111 off | Out-Null
 Check '/voz off silencia solo esa sesion' ((Test-Muted 'aaaa-1111') -and -not (Test-Muted 'bbbb-2222')) ''
 & $ctl session aaaa-1111 on | Out-Null
@@ -295,12 +298,24 @@ Write-JsonFile (Join-Path $tray 'sessions.json') @(
     [pscustomobject]@{ sessionId = 'cccc-3'; dir = 'C:\p\Tres'; name = 'Caro' })
 Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ 'aaaa-1' = 'idle'; 'bbbb-2' = 'thinking' })
 Write-JsonFile (Get-SessionFile 'name' 'bbbb-2') ([pscustomobject]@{ title = 'Beto - backend' })
-$note = Get-OtherSessionsNote 'aaaa-1' 'C:\p\Dos\' $tray
+Check 'otras sesiones: nada sin bandeja (eggs.json de una bandeja muerta)' ((Get-OtherSessionsNote 'aaaa-1' 'C:\p\Dos\' $tray 999999) -eq '') ''
+[IO.File]::WriteAllText((Join-Path $tray 'tray.pid'), [string]$PID)
+$note = Get-OtherSessionsNote 'aaaa-1' 'C:\p\Dos\' $tray 999999
 Check 'otras sesiones: la viva con su titulo y misma carpeta' ($note -match '- Beto - backend: C:\\p\\Dos, tu misma carpeta') $note
 Check 'otras sesiones: sin la propia ni las cerradas' ($note -notmatch 'Ana|Caro') $note
-Check 'otras sesiones: nada si es la unica' ((Get-OtherSessionsNote 'bbbb-2' 'C:\x' (Join-Path $env:TEMP 'no-tray')) -eq '') ''
+Check 'otras sesiones: nada si es la unica' ((Get-OtherSessionsNote 'bbbb-2' 'C:\x' (Join-Path $env:TEMP 'no-tray') 999999) -eq '') ''
+# Tras /clear: id nuevo sin origin todavia; la ventana es la sesion 1111... que abrio el menu, y no se lista a si misma.
+$menuId = '11111111-2222-3333-4444-555555555555'
+Write-JsonFile (Join-Path $tray 'sessions.json') @(
+    [pscustomobject]@{ sessionId = $menuId; dir = 'C:\p\Uno'; name = 'Ana' },
+    [pscustomobject]@{ sessionId = 'bbbb-2'; dir = 'C:\p\Dos'; name = 'Beto' })
+Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ $menuId = 'idle'; 'bbbb-2' = 'idle' })
+$fakeClaude = Start-Process cmd -ArgumentList '/c', "ping -n 20 127.0.0.1 >nul & rem --session-id $menuId" -WindowStyle Hidden -PassThru
+try { $note = Get-OtherSessionsNote 'tras-clear-1' 'C:\p\Uno' $tray $fakeClaude.Id }
+finally { Stop-Process -Id $fakeClaude.Id -Force -ErrorAction SilentlyContinue }
+Check 'otras sesiones: tras /clear no se lista a si misma' ($note -match 'Beto' -and $note -notmatch 'Ana') $note
 Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ 'aaaa-1' = 'idle' })
-Check 'otras sesiones: vacio sin otras vivas' ((Get-OtherSessionsNote 'aaaa-1' 'C:\x' $tray) -eq '') ''
+Check 'otras sesiones: vacio sin otras vivas' ((Get-OtherSessionsNote 'aaaa-1' 'C:\x' $tray 999999) -eq '') ''
 
 Remove-Item $tmp -Recurse -Force
 Remove-Item $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue

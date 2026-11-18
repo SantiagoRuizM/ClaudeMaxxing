@@ -131,18 +131,12 @@ function Get-SessionFile([string]$Kind, [string]$SessionId) {
 # animar el huevo (Test-SessionTitleBusy en lib\traysessions.ps1). Va al final del hook, ya escrito su JSON.
 function Set-SessionTerminalTitle($Info, [switch]$Busy) {
     if ("$env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE" -ne '1' -or -not $Info -or -not "$($Info.title)") { return }
-    $procId = $PID
-    for ($depth = 0; $depth -lt 6 -and $procId -gt 0; $depth++) {
-        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
-        if (-not $proc) { return }
-        if ($proc.Name -like 'claude*') { break }
-        $procId = [int]$proc.ParentProcessId
-    }
-    if (-not $proc -or $proc.Name -notlike 'claude*') { return }
     Import-Native
+    $claudePid = [ClaudeVoice.Title]::FindAncestor($PID, 'claude', 6)
+    if (-not $claudePid) { return }
     $text = "$($Info.title)"
     if ($Busy) { $text += [char]0x200B }
-    [void][ClaudeVoice.Title]::Set([int]$proc.ProcessId, $text)
+    [void][ClaudeVoice.Title]::Set($claudePid, $text)
 }
 
 # El id con que el menu abrio esta ventana: claude conserva su --session-id en la linea de comandos aunque /clear
@@ -339,11 +333,19 @@ function Complete-SessionRole($Config, [string]$SessionId, $Info, [string]$Promp
 # kept to the ones the tray shows as live in eggs.json), with their name, role and folder, so this one knows who
 # else is working and leaves their changes alone. Empty when there are none or the tray is not running.
 function Get-OtherSessionsNote([string]$SessionId, [string]$Cwd,
-        [string]$TrayDir = (Join-Path $env:USERPROFILE '.claude\usage-tray')) {
+        [string]$TrayDir = (Join-Path $env:USERPROFILE '.claude\usage-tray'), [int]$ParentId = $PID) {
+    # eggs.json outlives a tray that was killed: it only counts while the tray in tray.pid is running.
+    $trayPid = 0
+    $pidFile = Join-Path $TrayDir 'tray.pid'
+    if (Test-Path -LiteralPath $pidFile) { [void][int]::TryParse(([IO.File]::ReadAllText($pidFile)).Trim(), [ref]$trayPid) }
+    if (-not $trayPid -or -not (Get-Process -Id $trayPid -ErrorAction SilentlyContinue)) { return '' }
     $live = Read-JsonFile (Join-Path $TrayDir 'eggs.json')
     if (-not $live) { return '' }
     $liveKeys = @($live.PSObject.Properties.Name)
     $own = Get-SessionKey $SessionId
+    # After /clear this is a new id with no origin yet (Save-SessionTurn runs later): without it, this window's own
+    # menu session would be listed as another one.
+    Save-SessionOrigin $SessionId $ParentId
     $ownOrigin = Read-JsonFile (Get-SessionFile 'origin' $SessionId)
     # Assigned first: PowerShell 5.1's ConvertFrom-Json sends a JSON array down the pipeline as one object.
     $all = Read-JsonFile (Join-Path $TrayDir 'sessions.json')

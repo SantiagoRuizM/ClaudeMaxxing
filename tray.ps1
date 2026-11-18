@@ -590,5 +590,6 @@ try {
     $Notify.Visible = $false
     $Notify.Dispose()
     Remove-Item -LiteralPath $TrayPidFile -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $TrayHome 'eggs.json') -ErrorAction SilentlyContinue
     $script:TrayMutex.ReleaseMutex()
 }
