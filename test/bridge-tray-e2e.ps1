@@ -23,6 +23,9 @@ $work = Join-Path $env:TEMP ('cmx-smoke-' + [guid]::NewGuid().ToString('N').Subs
 # The gates refuse everyone unless the tray of their PC runs: this script plays that tray (tray.pid next to the
 # fake PCs' folders names this PowerShell).
 New-Item -ItemType Directory -Force -Path $work | Out-Null
+# Only this user, SYSTEM and Administrators, like ~/.claude: OpenSSH refuses keys and configs that another group can
+# read, and %TEMP% may hand down more (Codex's sandbox adds CodexSandboxUsers there).
+& icacls.exe $work /inheritance:r /grant:r "*$([Security.Principal.WindowsIdentity]::GetCurrent().User.Value):(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
 [IO.File]::WriteAllText((Join-Path $work 'tray.pid'), [string]$PID)
 function New-Pc([string]$Name, [int]$Ssh, [int]$Udp) {
     $b = New-BridgeState $SshDir

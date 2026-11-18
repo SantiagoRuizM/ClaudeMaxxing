@@ -38,6 +38,7 @@ function Initialize-BridgeTray([string]$SshDir) {
         $b.Identity = Get-BridgeIdentity $b.Ctx
         $b.Keys = Initialize-BridgeKeys $b.Ctx
         $b.Gate = Import-BridgeGate $b.Ctx
+        $b.GateHash = (Get-FileHash -LiteralPath $b.Gate -Algorithm SHA256).Hash
     } catch {
         $b.Problem = 'error'; $b.Detail = $_.Exception.Message
         Write-BridgeLog $b.Ctx "init failed: $($b.Detail)"
@@ -480,9 +481,23 @@ function Remove-BridgePeer([string]$Id) {
 function Repair-BridgeTampering {
     $b = $script:Bridge
     if (-not $b.Ready -or -not $b.Gate) { return }
-    $changed = @(Get-BridgeTampered $b.Ctx $b.Gate)
+    # sshd_config as the running server wrote it, and the gate exe as it was when the tray loaded it: the gate is
+    # what decides what a connection may run, so a swapped one is rebuilt and the server restarted with it.
+    $sshdText = if ($b.ServerListen) { Format-SshdConfig $b.Ctx (Join-Path $b.Ctx.SshDir 'sftp-server.exe') @($b.ServerListen -split ',') } else { '' }
+    $changed = @(Get-BridgeTampered $b.Ctx $b.Gate $sshdText)
+    $gateNow = try { (Get-FileHash -LiteralPath $b.Gate -Algorithm SHA256).Hash } catch { '' }
+    if ($b.GateHash -and $gateNow -ne $b.GateHash) {
+        $changed += 'gate'
+        Remove-Item -LiteralPath $b.Gate -Force -ErrorAction SilentlyContinue
+        $b.Gate = Import-BridgeGate $b.Ctx
+        $b.GateHash = (Get-FileHash -LiteralPath $b.Gate -Algorithm SHA256).Hash
+    }
     if (-not $changed.Count) { return }
     Update-BridgeFiles $b.Ctx $b.Gate
+    if ($changed -contains 'sshd_config' -or $changed -contains 'gate') {
+        [void](Stop-BridgeServer $b.Ctx); $b.Server = $null; $b.ServerListen = ''
+        Update-BridgeServer
+    }
     Write-BridgeLog $b.Ctx "restored after an outside change: $($changed -join ', ')"
     Show-BridgeBalloon (Tx 'Otro programa cambi\u00f3 los permisos de Otros PCs y se restauraron. Si no fuiste t\u00fa, revisa en Otros PCs a qu\u00e9 PCs dejas entrar.') 'dialog'
 }
