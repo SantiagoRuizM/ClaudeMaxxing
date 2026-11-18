@@ -14,10 +14,9 @@ $life = if ($env:PEEK_LIFE) { [int]$env:PEEK_LIFE } else { 60 }
 if (-not (Test-Path -LiteralPath $file)) { [Console]::Out.WriteLine('error: not there'); exit 1 }
 # The popup (shown without taking the focus, topmost, the pointer passing through) and the Explorer's
 # thumbnail of any file, compiled once into the temp folder: compiling takes a second.
-$assembly = Join-Path $env:TEMP 'maxx-peek-3.dll'
-if (-not (Test-Path -LiteralPath $assembly)) {
-  try {
-  Add-Type -OutputAssembly $assembly -OutputType Library -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
+# Named after the source's hash, so a change compiles a new one; written under another name and renamed, so a
+# preview starting at the same moment never loads a half-written file.
+$source = @'
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -83,8 +82,17 @@ public static class MaxxPeekThumb {
   }
 }
 '@
+$sha = [Security.Cryptography.SHA256]::Create()
+$hash = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($source))) -replace '-', '').Substring(0, 12)
+$assembly = Join-Path $env:TEMP "maxx-peek-$hash.dll"
+if (-not (Test-Path -LiteralPath $assembly)) {
+  $tmp = Join-Path $env:TEMP ('maxx-peek-' + [guid]::NewGuid().ToString('N') + '.dll')
+  try {
+    Add-Type -OutputAssembly $tmp -OutputType Library -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition $source
+    Move-Item -LiteralPath $tmp -Destination $assembly -ErrorAction Stop
   } catch {
-    # Another preview compiling it at the same time: its file is used.
+    # Another preview compiled it at the same time: its file is used.
+    Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
   }
 }
 Add-Type -Path $assembly
