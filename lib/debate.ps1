@@ -13,6 +13,15 @@ $DebateMaxMessageBytes = 16KB
 
 function Get-DebateRoot($Ctx) { Join-Path $Ctx.Home 'debates' }
 function New-DebateId { [guid]::NewGuid().ToString('N') }
+
+# Each debate folder keeps the prompts, both Claudes' answers and what they quoted from the files: gone after 30 days
+# (checked when a new debate starts). Returns how many went.
+function Remove-OldDebates([string]$Root, [int]$Days = 30, [datetime]$Now = (Get-Date)) {
+    if (-not (Test-Path -LiteralPath $Root)) { return 0 }
+    $old = @(Get-ChildItem -LiteralPath $Root -Directory | Where-Object { $_.LastWriteTime -lt $Now.AddDays(-$Days) })
+    $old | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    $old.Count
+}
 function Test-DebateId([string]$Id) { $Id -cmatch '^[0-9a-f]{32}$' }
 
 # "cmx-debate <id> open" -> the id; $null for anything else.
@@ -194,6 +203,7 @@ function Get-DebateStatus([string]$Dir) {
 # side declines: the worker only tells the host.
 # -WorkerArgs is for tests (a fake claude, short limits).
 function Start-DebateWorker($Ctx, [string]$Dir, [string]$Role, [string]$PeerId, [string]$Topic, [string]$ContextDir, [string]$Root = $TrayRoot, [string]$WorkerArgs = '') {
+    Remove-OldDebates (Split-Path -Parent $Dir)
     New-Item -ItemType Directory -Force $Dir | Out-Null
     # The host's gate takes the guest's messages only for a debate it holds with that PC (the guest's gate wrote
     # its own peer.txt when the user accepted).
