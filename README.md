@@ -98,7 +98,7 @@ Use Settings > Apps > ClaudeMaxxing, or run:
 powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\ClaudeMaxxing\uninstall.ps1"
 ```
 
-This removes everything listed above, including the menu entry, its certificate and the Otros PCs firewall rules (one UAC prompt for both). Data in `~/.claude/usage-tray`, `%TEMP%\claude-voice` and `%LOCALAPPDATA%\ClaudeJudge` is kept unless you pass `-RemoveData`. `-KeepMenu` keeps the menu entry, which then opens a plain Windows Terminal.
+This removes everything listed above, including the menu entry, its certificate and the Otros PCs firewall rules (one UAC prompt for both). Data in `~/.claude/usage-tray`, `%TEMP%\claude-voice` and `%LOCALAPPDATA%\ClaudeJudge` is kept unless you pass `-RemoveData`, which also removes the backups the installer made of your `settings.json` and statusline script, and the local report folder. Background workers (a trial, a debate) are stopped first. `-KeepMenu` keeps the menu entry, which then opens a plain Windows Terminal.
 
 ## How it works
 
