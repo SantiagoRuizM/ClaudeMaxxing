@@ -1414,8 +1414,8 @@ Assert-Equal $true (Test-JudgeProtectedPath (Join-Path $env:USERPROFILE '.claude
 Assert-Equal $true (Test-JudgeProtectedPath 'D:\repo\.git\x') 'judge: .git is protected'
 Assert-Equal $false (Test-JudgeProtectedPath 'D:\repo\claudeJudge\court') 'judge: a name that only contains claude is not'
 $fakes = Join-Path $TrayRoot 'test\fakes'
-Assert-Equal (Join-Path $fakes 'claude.cmd') (Resolve-JudgeClaude (Join-Path $fakes 'claude.cmd')) 'judge claude: an existing preferred path wins'
-Assert-Equal $true ((Resolve-JudgeClaude 'D:\nowhere\claude.exe') -ne 'D:\nowhere\claude.exe') 'judge claude: a missing path is skipped'
+Assert-Equal (Join-Path $fakes 'claude.cmd') (Resolve-ClaudePath (Join-Path $fakes 'claude.cmd')) 'judge claude: an existing preferred path wins'
+Assert-Equal $true ((Resolve-ClaudePath 'D:\nowhere\claude.exe') -ne 'D:\nowhere\claude.exe') 'judge claude: a missing path is skipped'
 $denied = [pscustomobject]@{ is_error = $false; result = 'x'; permission_denials = @(
     [pscustomobject]@{ tool_name = 'Write'; tool_input = [pscustomobject]@{ file_path = 'D:\j\.court\r\case.md' } },
     [pscustomobject]@{ tool_name = 'Bash'; tool_input = [pscustomobject]@{ command = 'ls' } }) }

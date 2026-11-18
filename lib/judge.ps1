@@ -19,20 +19,6 @@ function Test-JudgeProtectedPath([string]$Path) {
     [bool](@($parts | Where-Object { $JudgeProtectedFolders -contains $_.ToLowerInvariant() }).Count)
 }
 
-# The claude command line to run: the one the installer recorded, else claude.exe or claude.cmd on PATH. Only real
-# programs: an npm claude.ps1 shim may point at an exe that no longer exists.
-function Resolve-JudgeClaude([string]$Preferred) {
-    $candidates = New-Object System.Collections.Generic.List[string]
-    if ($Preferred) { $candidates.Add($Preferred) }
-    $config = Read-JsonFile $ConfigFile
-    if ($config -and $config.claudePath) { $candidates.Add([string]$config.claudePath) }
-    foreach ($name in 'claude.exe', 'claude.cmd') {
-        foreach ($cmd in @(Get-Command $name -CommandType Application -All -ErrorAction SilentlyContinue)) { $candidates.Add($cmd.Source) }
-    }
-    $candidates.Add((Join-Path $env:USERPROFILE '.local\bin\claude.exe'))
-    foreach ($path in $candidates) { if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) { return $path } }
-    $null
-}
 
 # Claude's output file, read even while a claude stopped at the time limit (or its children) still holds it open.
 function Read-SharedText([string]$Path) {

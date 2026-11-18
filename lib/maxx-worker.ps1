@@ -15,8 +15,8 @@ function Set-Status([string]$State, [string]$Message) {
 }
 
 function Invoke-Claude([string[]]$Arguments) {
-    $config = Read-JsonFile $ConfigFile
-    $claude = if ($config -and $config.claudePath -and (Test-Path -LiteralPath $config.claudePath)) { [string]$config.claudePath } else { 'claude' }
+    $claude = Resolve-ClaudePath
+    if (-not $claude) { $claude = 'claude' }
     $output = & $claude @Arguments 2>&1 | Out-String
     [pscustomobject]@{ Ok = ($LASTEXITCODE -eq 0); Output = $output.Trim() }
 }

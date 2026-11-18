@@ -49,7 +49,7 @@ try {
     $pythonVersion = try { (& $Python --version 2>&1 | Out-String).Trim() } catch { '' }
     if ($LASTEXITCODE -ne 0 -or -not $pythonVersion) { throw "Falta Python 3 (no funciona el comando $Python)." }
     Write-Log "python: $pythonVersion"
-    $claude = Resolve-JudgeClaude $ClaudePath
+    $claude = Resolve-ClaudePath $ClaudePath
     if (-not $claude) { throw "No encuentro Claude Code (claude.exe o claude.cmd). Rev$(Tx '\u00ed')salo con: claude --version" }
     Write-Log "claude: $claude"
     $probe = Join-Path $JudgeHome '.write-test'

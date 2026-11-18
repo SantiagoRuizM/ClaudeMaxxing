@@ -4,7 +4,7 @@
 # Each side's Claude runs on its own PC (its own plan) with --restricted: Read, Glob and Grep inside the folder its
 # person picked, no shell, no web, no MCP servers. lib\debate-worker.ps1 runs one side; lib\debateui.ps1 is the tray.
 # Flow: open (topic) -> turn0 written blind by both -> turn1, turn2 replies -> final (the host's neutral moderator).
-# Needs common.ps1, bridge.ps1 and judge.ps1 (Resolve-JudgeClaude). Keep this file ASCII.
+# Needs common.ps1, bridge.ps1 and judge.ps1 (Get-JudgeFailure). Keep this file ASCII.
 
 $DebateTurns = 3
 $DebateMaxTextChars = 12000

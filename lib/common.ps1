@@ -72,6 +72,22 @@ function Unprotect-Secret([string]$Value) {
     catch { '' }
 }
 
+# The claude to run: the preferred path, the one install.ps1 recorded (it may be stale: Claude Code moved from npm to
+# the native installer), then claude.exe or claude.cmd on PATH and the native installer's. Only real programs: an npm
+# claude.ps1 shim may point at an exe that no longer exists. The workers, start-session.ps1 and cloud-schedule.ps1.
+function Resolve-ClaudePath([string]$Preferred) {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($Preferred) { $candidates.Add($Preferred) }
+    $config = Read-JsonFile $ConfigFile
+    if ($config -and $config.claudePath) { $candidates.Add([string]$config.claudePath) }
+    foreach ($name in 'claude.exe', 'claude.cmd') {
+        foreach ($cmd in @(Get-Command $name -CommandType Application -All -ErrorAction SilentlyContinue)) { $candidates.Add($cmd.Source) }
+    }
+    $candidates.Add((Join-Path $env:USERPROFILE '.local\bin\claude.exe'))
+    foreach ($path in $candidates) { if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) { return $path } }
+    $null
+}
+
 # Writes a whole file at once: a temporary file next to it, then a rename over it, so a reader in another process
 # (the statusline, the Whip plugin, a hook) never sees it empty or half written.
 # shortcut: a reader that holds the file without FILE_SHARE_DELETE blocks the rename; then it is written in place.

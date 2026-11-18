@@ -129,7 +129,7 @@ try {
     if (-not $topic) { throw 'El debate no tiene tema.' }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw "La carpeta $folder no existe." }
     if (Test-DebateFolderTooBroad $folder) { throw ("La carpeta $folder es demasiado amplia: elige la de un proyecto.") }
-    $script:Claude = Resolve-JudgeClaude $ClaudePath
+    $script:Claude = Resolve-ClaudePath $ClaudePath
     if (-not $script:Claude) { throw ("No encuentro Claude Code (claude.exe o claude.cmd). Rev" + (Tx '\u00ed') + 'salo con: claude --version') }
 
     Add-Transcript "# Debate: $topic"
