@@ -289,6 +289,22 @@ Check 'motor sin apartar' (-not (Test-EngineSnoozed 'elevenlabs')) ''
 Set-EngineSnooze 'elevenlabs' 10 'prueba'
 Check 'motor apartado tras quedarse sin creditos' (Test-EngineSnoozed 'elevenlabs') ''
 
+'Get-PlanLimitNotice'
+$lt = Join-Path $env:TEMP 'tray-limit'
+New-Item -ItemType Directory -Force -Path $lt | Out-Null
+$ln = Get-Date -Year 2026 -Month 11 -Day 18 -Hour 12 -Minute 0 -Second 0
+$lsec = ([DateTimeOffset]$ln).ToUnixTimeSeconds()
+Write-JsonFile (Join-Path $lt 'usage.json') ([pscustomobject]@{ rate_limits = [pscustomobject]@{ five_hour = [pscustomobject]@{ used_percentage = 40; resets_at = $lsec + 3600 } } })
+Check 'limite: nada si ninguna ventana esta llena (un rate limit pasajero)' ((Get-PlanLimitNotice $ln $lt) -eq '') ''
+Write-JsonFile (Join-Path $lt 'usage.json') ([pscustomobject]@{ rate_limits = [pscustomobject]@{ five_hour = [pscustomobject]@{ used_percentage = 100; resets_at = $lsec + 5400 } } })
+$said = Get-PlanLimitNotice $ln $lt
+Check 'limite: dice que se acabo y a que hora vuelve' ($said -match 'plan de Claude\. Vuelve a las 13:30\.$') $said
+Check 'limite: una vez cada 10 minutos para todas las sesiones' ((Get-PlanLimitNotice $ln $lt) -eq '') ''
+$hooksJson = Get-Content "$PSScriptRoot\..\plugin\hooks\hooks.json" -Raw
+$named = @([regex]::Matches($hooksJson, 'hooks/([\w-]+\.ps1)') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+$missing = @($named | Where-Object { -not (Test-Path "$PSScriptRoot\..\hooks\$_") })
+Check 'hooks.json: cada script que nombra existe' ($named.Count -gt 0 -and $missing.Count -eq 0) ($missing -join ',')
+
 'Write-JsonFile'
 $jf = Join-Path $env:TEMP 'uno.json'
 Write-JsonFile $jf @([pscustomobject]@{ a = 1 })

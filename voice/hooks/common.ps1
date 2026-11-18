@@ -339,6 +339,33 @@ function Complete-SessionRole($Config, [string]$SessionId, $Info, [string]$Promp
     return $done
 }
 
+# What the voice says when a turn ends on the plan's limit: the window that is full (from the statusline's usage.json)
+# and when it comes back. Empty when no window is full (a passing rate limit) or another session said it in the last
+# 10 minutes: several sessions hit the same limit together.
+function Get-PlanLimitNotice([datetime]$Now = (Get-Date),
+        [string]$TrayDir = (Join-Path $env:USERPROFILE '.claude\usage-tray')) {
+    $usage = Read-JsonFile (Join-Path $TrayDir 'usage.json')
+    if (-not $usage -or -not $usage.rate_limits) { return '' }
+    $nowSec = ([DateTimeOffset]$Now).ToUnixTimeSeconds()
+    $reset = $null
+    foreach ($w in @($usage.rate_limits.five_hour, $usage.rate_limits.seven_day)) {
+        if (-not $w -or $null -eq $w.used_percentage -or [double]$w.used_percentage -lt 99 -or [long]$w.resets_at -le $nowSec) { continue }
+        $at = [DateTimeOffset]::FromUnixTimeSeconds([long]$w.resets_at).LocalDateTime
+        if (-not $reset -or $at -gt $reset) { $reset = $at }
+    }
+    if (-not $reset) { return '' }
+    $mark = Join-Path $StateDir 'limit-notice'
+    $last = 0L
+    if (Test-Path -LiteralPath $mark) { [void][long]::TryParse(([IO.File]::ReadAllText($mark)).Trim(), [ref]$last) }
+    if ($nowSec - $last -lt 600 -and $nowSec -ge $last) { return '' }
+    [IO.File]::WriteAllText($mark, [string]$nowSec)
+    $es = [Globalization.CultureInfo]::GetCultureInfo('es-ES')
+    $when = if ($reset.Date -eq $Now.Date) { 'a las ' + $reset.ToString('H:mm') }
+        elseif ($reset.Date -eq $Now.Date.AddDays(1)) { 'ma' + [char]0x00F1 + 'ana a las ' + $reset.ToString('H:mm') }
+        else { 'el ' + $reset.ToString('dddd', $es) + ' a las ' + $reset.ToString('H:mm') }
+    'Se acab' + [char]0x00F3 + " el plan de Claude. Vuelve $when."
+}
+
 # Context for a session's first prompt: the other menu sessions still open (sessions.json from open-session.ps1,
 # kept to the ones the tray shows as live in eggs.json), with their name, role and folder, so this one knows who
 # else is working and leaves their changes alone. Empty when there are none or the tray is not running.
