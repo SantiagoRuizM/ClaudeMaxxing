@@ -286,6 +286,22 @@ Check 'motor sin apartar' (-not (Test-EngineSnoozed 'elevenlabs')) ''
 Set-EngineSnooze 'elevenlabs' 10 'prueba'
 Check 'motor apartado tras quedarse sin creditos' (Test-EngineSnoozed 'elevenlabs') ''
 
+'Get-OtherSessionsNote'
+$tray = Join-Path $env:TEMP 'tray-fake'
+New-Item -ItemType Directory -Force -Path $tray | Out-Null
+Write-JsonFile (Join-Path $tray 'sessions.json') @(
+    [pscustomobject]@{ sessionId = 'aaaa-1'; dir = 'C:\p\Uno'; name = 'Ana' },
+    [pscustomobject]@{ sessionId = 'bbbb-2'; dir = 'C:\p\Dos'; name = 'Beto' },
+    [pscustomobject]@{ sessionId = 'cccc-3'; dir = 'C:\p\Tres'; name = 'Caro' })
+Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ 'aaaa-1' = 'idle'; 'bbbb-2' = 'thinking' })
+Write-JsonFile (Get-SessionFile 'name' 'bbbb-2') ([pscustomobject]@{ title = 'Beto - backend' })
+$note = Get-OtherSessionsNote 'aaaa-1' 'C:\p\Dos\' $tray
+Check 'otras sesiones: la viva con su titulo y misma carpeta' ($note -match '- Beto - backend: C:\\p\\Dos, tu misma carpeta') $note
+Check 'otras sesiones: sin la propia ni las cerradas' ($note -notmatch 'Ana|Caro') $note
+Check 'otras sesiones: nada si es la unica' ((Get-OtherSessionsNote 'bbbb-2' 'C:\x' (Join-Path $env:TEMP 'no-tray')) -eq '') ''
+Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ 'aaaa-1' = 'idle' })
+Check 'otras sesiones: vacio sin otras vivas' ((Get-OtherSessionsNote 'aaaa-1' 'C:\x' $tray) -eq '') ''
+
 Remove-Item $tmp -Recurse -Force
 Remove-Item $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue
 $env:TEMP = $realTemp

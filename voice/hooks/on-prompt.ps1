@@ -33,6 +33,8 @@ try {
         if (-not $evt.session_title -and (Get-Opt $cfg 'naming.setTitle' $true)) {
             $out.hookSpecificOutput.sessionTitle = $info.title
         }
+        $others = Get-OtherSessionsNote $evt.session_id $evt.cwd
+        if ($others) { $out.hookSpecificOutput.additionalContext = $others }
         Write-HookOutput $out
         Write-Log ('name {0}: {1}' -f $key.Substring(0, [Math]::Min(8, $key.Length)), $info.title)
     } elseif ($info.pendingRole -and "$($evt.prompt)".TrimStart() -notmatch '^/') {
@@ -43,6 +45,8 @@ try {
             hookSpecificOutput = [ordered]@{ hookEventName = 'UserPromptSubmit' }
         }
         if (Get-Opt $cfg 'naming.setTitle' $true) { $out.hookSpecificOutput.sessionTitle = $info.title }
+        $others = Get-OtherSessionsNote $evt.session_id $evt.cwd
+        if ($others) { $out.hookSpecificOutput.additionalContext = $others }
         Write-HookOutput $out
         Write-Log ('role {0}: {1}' -f $key.Substring(0, [Math]::Min(8, $key.Length)), $info.title)
     }

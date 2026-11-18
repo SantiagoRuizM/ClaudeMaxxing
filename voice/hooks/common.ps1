@@ -324,6 +324,32 @@ function Complete-SessionRole($Config, [string]$SessionId, $Info, [string]$Promp
     return $done
 }
 
+# Context for a session's first prompt: the other menu sessions still open (sessions.json from open-session.ps1,
+# kept to the ones the tray shows as live in eggs.json), with their name, role and folder, so this one knows who
+# else is working and leaves their changes alone. Empty when there are none or the tray is not running.
+function Get-OtherSessionsNote([string]$SessionId, [string]$Cwd,
+        [string]$TrayDir = (Join-Path $env:USERPROFILE '.claude\usage-tray')) {
+    $live = Read-JsonFile (Join-Path $TrayDir 'eggs.json')
+    if (-not $live) { return '' }
+    $liveKeys = @($live.PSObject.Properties.Name)
+    $own = Get-SessionKey $SessionId
+    $ownOrigin = Read-JsonFile (Get-SessionFile 'origin' $SessionId)
+    # Assigned first: PowerShell 5.1's ConvertFrom-Json sends a JSON array down the pipeline as one object.
+    $all = Read-JsonFile (Join-Path $TrayDir 'sessions.json')
+    $lines = foreach ($s in @($all)) {
+        if (-not $s -or -not $s.sessionId) { continue }
+        $key = Get-SessionKey $s.sessionId
+        if ($liveKeys -notcontains $s.sessionId -or $key -eq $own -or ($ownOrigin -and $key -eq "$($ownOrigin.origin)")) { continue }
+        $info = Read-JsonFile (Get-SessionFile 'name' $s.sessionId)
+        $who = if ($info -and $info.title) { "$($info.title)" } else { "$($s.name)" }
+        $same = if ($Cwd -and "$($s.dir)".TrimEnd('\') -eq $Cwd.TrimEnd('\')) { ', tu misma carpeta' } else { '' }
+        '- {0}: {1}{2}' -f $who, $s.dir, $same
+    }
+    if (-not @($lines).Count) { return '' }
+    "Otras sesiones de Claude Code abiertas en este PC (nombre: carpeta):`n" + (@($lines) -join "`n") +
+        "`nLas que trabajan en tu carpeta pueden tener cambios sin commitear: no los toques ni los commitees. No las saludes ni les escribas salvo que el usuario lo pida."
+}
+
 # Borra estado de sesiones viejas para que %TEMP% no crezca sin limite.
 function Remove-StaleState {
     Get-ChildItem $StateDir -ErrorAction SilentlyContinue |
