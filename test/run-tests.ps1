@@ -135,6 +135,10 @@ try {
     Assert-Equal 'updated' (Install-StatuslineBlock $slScript) 'statusline: an update swaps an older block for the new one'
     Assert-Equal $current ([IO.File]::ReadAllText($slScript)) 'statusline: the updated script has the current block'
     Assert-Equal 'already installed' (Install-StatuslineBlock $slScript) 'statusline: the current block is left alone'
+    # The user's script changed since the block went in (no input=$(cat) line to insert after): swapped in place.
+    [IO.File]::WriteAllText($slScript, $old.Replace("input=`$(cat)`n", ''))
+    Assert-Equal 'updated' (Install-StatuslineBlock $slScript) 'statusline: an older block is swapped in place, whatever surrounds it'
+    Assert-Equal $current.Replace("input=`$(cat)`n", '') ([IO.File]::ReadAllText($slScript)) 'statusline: only the block changed'
 } finally { Remove-Item -LiteralPath $slScript, "$slScript.bak-claudetray" -ErrorAction SilentlyContinue }
 # The block run by bash: an idle session's older numbers never replace fresher ones (skipped without Git bash or jq).
 $slBash = "$env:ProgramFiles\Git\bin\bash.exe"

@@ -90,8 +90,12 @@ function Remove-StatuslineBlockText([string]$Text) {
 function Install-StatuslineBlock([string]$Path) {
     $text = Read-TextFile $Path
     if ($text.Contains($script:BlockStart)) {
-        # An update brings a newer block: swap the old one for it, so a fix in the block reaches installed PCs.
-        $updated = Add-StatuslineBlock (Remove-StatuslineBlockText $text)
+        # An update brings a newer block: swap the old one for it in place (the script may have changed around it
+        # since it was added), so a fix in the block reaches installed PCs.
+        $nl = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+        $block = ($script:StatuslineBlock -replace "`r`n", "`n") -replace "`n", $nl
+        $pattern = [regex]::Escape($script:BlockStart) + '[\s\S]*?' + [regex]::Escape($script:BlockEnd)
+        $updated = [regex]::Replace($text, $pattern, { param($m) $block.TrimEnd("`r", "`n") }, 'None')
         if ($updated -eq $text) { return 'already installed' }
         Write-TextFile $Path $updated
         return 'updated'
