@@ -21,6 +21,7 @@ fi
 
 dir="${TMP:-/tmp}/claude-whip"
 mkdir -p "$dir"
+find "$dir" -type f -mtime +7 -delete 2>/dev/null
 stamp="$(date +%Y%m%d-%H%M%S)-$agent-$$"
 log="$dir/$stamp.log"
 last="$dir/$stamp.last.txt"
