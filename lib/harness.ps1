@@ -114,19 +114,22 @@ function Start-HarnessDetect([string]$Dir, [switch]$Force) {
     if (-not (Test-HarnessDir $Dir)) { return $null }
     $node = Get-HarnessNode
     if (-not $node) { return $null }
-    $arguments = '"{0}" detect{1}' -f (Join-Path $Dir 'env.js'), $(if ($Force) { ' --force' } else { '' })
+    $arguments = '"{0}" detect{1}{2}' -f (Join-Path $Dir 'env.js'), $(if ($Force) { ' --force' } else { '' }), $(if ((Get-SelfHarnessSettings).judge -eq 'jev') { ' --jev' } else { '' })
     Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirectory $Dir -WindowStyle Hidden -PassThru
 }
 
 # SelfHarness: the watcher's settings, per PC. Values missing from the file, or not among the choices the window
-# offers, fall back to the defaults (3 minutes, 60 %, quiet while Gaming is on: a game may be full screen).
+# offers, fall back to the defaults (3 minutes, 60 %, quiet while Gaming is on: a game may be full screen, judged by
+# Haiku with the plan; "jev" asks TypeSafe's Jev first, with its API key).
 $SelfHarnessFile = Join-Path $TrayHome 'selfharness.json'
 $SelfHarnessMinutes = @(1, 2, 3, 5, 10, 15, 30)
 $SelfHarnessConfidences = @(0.5, 0.6, 0.7, 0.8, 0.9)
+$SelfHarnessJudges = @('haiku', 'jev')
 
 function Get-SelfHarnessSettings($Saved = (Read-JsonFile $SelfHarnessFile)) {
-    $s = [ordered]@{ detect = $false; minutes = 3; minConfidence = 0.6; quiet = @('gaming') }
+    $s = [ordered]@{ detect = $false; minutes = 3; minConfidence = 0.6; quiet = @('gaming'); judge = 'haiku' }
     if ($Saved) {
+        if ($SelfHarnessJudges -contains [string]$Saved.judge) { $s.judge = [string]$Saved.judge }
         if ($null -ne $Saved.detect) { $s.detect = [bool]$Saved.detect }
         if ($SelfHarnessMinutes -contains [int]$Saved.minutes) { $s.minutes = [int]$Saved.minutes }
         if ($SelfHarnessConfidences -contains [double]$Saved.minConfidence) { $s.minConfidence = [double]$Saved.minConfidence }

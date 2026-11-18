@@ -8,7 +8,7 @@
 //   node env.js <name> [on|off]          preview
 //   node env.js <name> [on|off] --yes    apply (records the active environment in run/active.json)
 //   node env.js status [--json]          which environment is on, the last job and the list of environments
-//   node env.js detect [--json] [--force] [--state]   which environment what is open belongs to (run/detect.json),
+//   node env.js detect [--json] [--force] [--state] [--jev]   which environment what is open belongs to (run/detect.json),
 //                                        plus focus drift and dev servers (run/focus.json)
 //   --job                                also record progress in run/job.json (ClaudeMaxxing reads it)
 // Every switch and the time spent in each environment go to run/history.json.
@@ -58,6 +58,12 @@ function classify(tab, env) {
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const sameDir = (a, b) => !!a && !!b && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+// dir is root or inside it (Windows paths, any case).
+const within = (dir, root) => {
+  if (!dir || !root) return false;
+  const rel = path.win32.relative(path.win32.resolve(root).toLowerCase(), path.win32.resolve(dir).toLowerCase());
+  return !rel.startsWith('..') && !path.win32.isAbsolute(rel);
+};
 const composeProject = (dir) => path.basename(dir).toLowerCase();
 const playlistName = (env) => `${env.name.toLowerCase()}.m3u`;
 
@@ -160,13 +166,23 @@ function plan(env, snap, mode = 'on') {
   const wsl = !off && !!env.wslShutdown && snap.procs.some((p) => /^vmmem/i.test(p.ProcessName));
   const open = off ? [] : opens.filter((o) => !claimed.has(o));
 
-  // Claude Code session: "on" opens one in claude.dir unless one is already open there; "off" never closes it (unsaved work).
+  // ClaudeMaxxing sessions, like Explorer folders: "on" closes those outside the project (folder or claude.dir, and
+  // their subfolders; every one with closeAllFolders and no project); "off" closes the project's. apply waits for a
+  // busy one to end its turn.
+  const roots = [env.folder, env.claude?.dir].filter(Boolean);
+  const inProject = (d) => roots.some((r) => within(d, r));
+  const sessions = snap.claude?.sessions || [];
+  const closeSessions = (off ? (roots.length ? sessions.filter((x) => inProject(x.dir)) : [])
+    : (roots.length || env.closeAllFolders ? sessions.filter((x) => !inProject(x.dir)) : []))
+    .map((x) => ({ ...x, reason: off ? `es de ${env.name}` : roots.length ? `fuera de la carpeta de ${env.name}` : `${env.name} no usa sesiones de Claude Code` }));
+
+  // Claude Code session: "on" opens one in claude.dir unless one is already open there.
   let claude = null;
   if (!off && env.claude?.dir && !(snap.claude?.dirs || []).some((d) => sameDir(d, env.claude.dir))) {
     if (snap.claude?.launcher) claude = { dir: env.claude.dir, launcher: snap.claude.launcher };
     else warnings.push('no encuentro el lanzador de Claude Code de ClaudeMaxxing: no se abre la sesión');
   }
-  return { mode, env: env.name, tabs, closeTabs: tabs.filter((t) => t.action === 'close'), apps, launch, closeFolders, openFolder, stopPorts, startServers, docker, wsl, music, open, opens, claude, claimed: [...claimed].map((o) => o.name), warnings };
+  return { mode, env: env.name, tabs, closeTabs: tabs.filter((t) => t.action === 'close'), apps, launch, closeFolders, openFolder, stopPorts, startServers, docker, wsl, music, open, opens, claude, closeSessions, claimed: [...claimed].map((o) => o.name), warnings };
 }
 
 // One Chrome profile's tabs judged against an environment, for the extension (badge, nudge, popup): the same plan as
@@ -179,7 +195,7 @@ function judgeTabs(env, tabs, { email = '', emails = {}, gdocs = {} } = {}) {
 // Nothing to do: the machine already matches the environment (or, for "off", nothing of it is left).
 function isSatisfied(p) {
   return !p.closeTabs.length && !p.apps.length && !p.launch.length && !p.closeFolders.length && !p.openFolder && !p.stopPorts.length &&
-    !p.startServers.length && !p.open.length && !(p.music && p.music.play) && !p.claude && !p.wsl &&
+    !p.startServers.length && !p.open.length && !(p.music && p.music.play) && !p.claude && !p.wsl && !p.closeSessions.length &&
     !(p.docker && (p.docker.kind === 'stop' ? p.docker.containers || p.docker.quit : p.docker.startDesktop || !p.docker.running));
 }
 
@@ -203,17 +219,45 @@ const dockerRunning = () => { try { return execFileSync('docker', ['ps', '--form
 
 // ClaudeMaxxing's Explorer-menu launcher (registry, written by its install.ps1) and the folders of its live sessions
 // (sessions.json, kept by open-session.ps1; a closed window leaves a stale entry, so each hwnd is checked).
+const WIN_API = `Add-Type -Namespace YH -Name W -MemberDefinition '[DllImport("user32.dll")] public static extern bool IsWindow(System.IntPtr h); [DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr h); [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(System.IntPtr h, System.Text.StringBuilder s, int n); [DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr h, uint m, System.IntPtr w, System.IntPtr l);'; function Get-YHTitle($h) { $b = New-Object System.Text.StringBuilder 512; [void][YH.W]::GetWindowText([IntPtr][long]$h, $b, 512); $b.ToString() }`;
 function claudeSessions() {
   let launcher = null;
   try { launcher = ps(`(Get-ItemProperty 'HKCU:\\Software\\ClaudeCodeMenu' -ErrorAction Stop).Launcher`) || null; } catch {}
   const file = path.join(process.env.USERPROFILE, '.claude', 'usage-tray', 'sessions.json');
-  let dirs = [];
+  let sessions = [];
   if (fs.existsSync(file)) {
     try {
-      dirs = psJson(`Add-Type -Namespace YH -Name W -MemberDefinition '[DllImport("user32.dll")] public static extern bool IsWindow(System.IntPtr h); [DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr h);'; $s = Get-Content -LiteralPath '${file}' -Raw -Encoding UTF8 | ConvertFrom-Json; $s | Where-Object { $_ -and [YH.W]::IsWindow([IntPtr][long]$_.hwnd) -and [YH.W]::IsWindowVisible([IntPtr][long]$_.hwnd) } | ForEach-Object { $_.dir }`);
+      sessions = psJson(`${WIN_API}; $s = Get-Content -LiteralPath '${file}' -Raw -Encoding UTF8 | ConvertFrom-Json; $s | Where-Object { $_ -and [YH.W]::IsWindow([IntPtr][long]$_.hwnd) -and [YH.W]::IsWindowVisible([IntPtr][long]$_.hwnd) } | ForEach-Object { [pscustomobject]@{ hwnd = [long]$_.hwnd; dir = [string]$_.dir; name = [string]$_.name } }`);
     } catch {}
   }
-  return { launcher, dirs };
+  return { launcher, dirs: sessions.map((x) => x.dir), sessions };
+}
+
+// Each window's title, or null once it is gone.
+const windowTitles = (hwnds) => Object.fromEntries(psJson(`${WIN_API}; @(${hwnds.join(',')}) | ForEach-Object { [pscustomobject]@{ h = $_; t = $(if ([YH.W]::IsWindow([IntPtr][long]$_)) { Get-YHTitle $_ } else { $null }) } }`).map((x) => [x.h, x.t]));
+// The same rule as Test-SessionTitleBusy (lib\traysessions.ps1): the voice hooks end the title with a zero-width
+// space while a turn runs; without them Claude Code puts a spinner first (a spark when it waits).
+const titleBusy = (t) => !!t && (t.endsWith(String.fromCharCode(0x200b)) || (t.charCodeAt(0) !== 0x2733 && !/[\p{L}\p{N}\s]/u.test(t[0])));
+
+// Closes ClaudeMaxxing session windows (WM_CLOSE, the terminal's own close), each once its turn has ended: the
+// conversation stays in Claude Code's history (claude --resume). After SESSION_WAIT a busy one is left open.
+const SESSION_WAIT = 30 * 60 * 1000;
+async function closeSessions(list, step, note) {
+  const left = new Map(list.map((x) => [x.hwnd, x]));
+  const label = (x) => x.name ? `${x.name} (${path.basename(x.dir)})` : path.basename(x.dir);
+  for (const end = Date.now() + SESSION_WAIT; left.size;) {
+    const titles = windowTitles([...left.keys()]);
+    for (const [hwnd, x] of left) {
+      const t = titles[hwnd];
+      if (t != null && titleBusy(t)) continue;
+      if (t != null) { ps(`${WIN_API}; [void][YH.W]::PostMessage([IntPtr][long]${hwnd}, 0x10, [IntPtr]::Zero, [IntPtr]::Zero)`); note(`claude code: cerrada la sesión de ${label(x)}`); }
+      left.delete(hwnd);
+    }
+    if (!left.size) break;
+    if (Date.now() > end) { for (const x of left.values()) note(`NO se cerró la sesión de ${label(x)}: sigue trabajando`); break; }
+    step(`Esperando a que ${[...left.values()].map(label).join(', ')} termine para cerrar su sesión`);
+    await sleep(5000);
+  }
 }
 
 // What judgeTabs needs from this PC: Chrome profile directories to emails and the gdocs' ids.
@@ -240,7 +284,7 @@ async function snapshot(env) {
   if (env.docker) { const up = dockerUp(); docker = { up, running: up ? dockerRunning() : [] }; }
   const gdocs = {};
   for (const o of env.tabs.open.filter((x) => x.gdoc)) gdocs[o.gdoc] = readJson(o.gdoc)?.doc_id || null;
-  const claude = env.claude ? claudeSessions() : null;
+  const claude = env.claude || env.folder || env.closeAllFolders ? claudeSessions() : null;
   return { profiles, emails: profileEmails(), folders, procs, player, ports, listening, protectedPids: protectedPids(), docker, gdocs, claude };
 }
 
@@ -311,7 +355,7 @@ async function apply(env, p, step = () => {}) {
     try { execFileSync('wsl', ['--shutdown'], { stdio: 'pipe', timeout: 60000 }); note('wsl: apagado'); } catch (e) { note(`NO se apagó WSL: ${e.message.split('\n')[0]}`); }
   }
   note(`Cerrado: ${p.closeTabs.length} pestañas, ${p.apps.length} apps, ${p.stopPorts.length} servidores, ${p.closeFolders.length} carpetas.`);
-  if (p.mode === 'off') return report;
+  if (p.mode === 'off') { await closeSessions(p.closeSessions, step, note); return report; }
 
   for (const a of p.launch) {
     step(`Abriendo ${a.name}`);
@@ -373,6 +417,8 @@ async function apply(env, p, step = () => {}) {
     spawn(p.claude.launcher.replace('%1', `"${p.claude.dir}"`), { shell: true, detached: true, stdio: 'ignore', windowsHide: true }).unref();
     note(`claude code: ${p.claude.dir}`);
   } else if (env.claude?.dir) note(`claude code: ya hay una sesión en ${env.claude.dir}`);
+  // Last: waiting for a busy session must not hold back what the environment opens.
+  await closeSessions(p.closeSessions, step, note);
   return report;
 }
 
@@ -394,6 +440,7 @@ function printPlan(env, p) {
     console.log(`          Docker Desktop ${d.quit ? 'se apaga después' : d.others ? 'se queda: hay contenedores de otros proyectos' : 'se queda'}\n        motivo: ${d.reason}`);
   }
   if (p.wsl) console.log('  wsl     wsl --shutdown\n        motivo: libera la memoria de vmmem');
+  for (const x of p.closeSessions) console.log(`  claude  ${x.dir}${x.name ? ` (${x.name})` : ''}, al terminar lo que esté haciendo\n        motivo: ${x.reason}`);
   if (isSatisfied(p)) console.log('  nada: ya está así');
   else console.log(`  (apagado suave: se pide cerrar y se fuerza solo tras ${env.graceSeconds ?? 5} s)`);
   if (p.mode === 'off') return;
@@ -447,8 +494,8 @@ function recordSwitch(hist, prev, mode, id, now) {
 
 // ---------------------------------------------------------------- which environment am I in?
 // detect: everything open, reduced to a fingerprint of sites, apps, servers, folders and sessions (not titles: they
-// change with every notification). Only a new fingerprint asks a judge: Jev (TypeSafe's decision model, a Choice
-// with probabilities) when TYPESAFE_API_KEY is set, then claude -p when Jev is missing, fails or is unsure.
+// change with every notification). Only a new fingerprint asks a judge: claude -p with Haiku, or with --jev first Jev
+// (TypeSafe's decision model, a Choice with probabilities, needs TYPESAFE_API_KEY) and Haiku when Jev is unsure.
 // The verdict goes to run/detect.json; ClaudeMaxxing offers the switch when it is not the environment that is on.
 const DETECT_FILE = path.join(RUN_DIR, 'detect.json');
 const FOCUS_FILE = path.join(RUN_DIR, 'focus.json');
@@ -537,11 +584,13 @@ function askClaude(state, options) {
   return a;
 }
 
-// The cascade: Jev first (fast), claude -p when Jev is missing, fails or is unsure. Returns the verdict and who gave it.
-async function judge(state, options, { jev = askJev, claude = askClaude, key = typesafeKey() } = {}) {
+// Haiku (claude -p, the plan, no API key) by default. With useJev (detect --jev, SelfHarness > Juez): Jev first
+// (fast), claude -p when Jev has no key, fails or is unsure. Returns the verdict and who gave it.
+async function judge(state, options, { useJev = false, jev = askJev, claude = askClaude, key = useJev ? typesafeKey() : '' } = {}) {
   const notes = [];
   let verdict = null;
-  if (key) {
+  if (useJev && !key) notes.push('Jev sin TYPESAFE_API_KEY');
+  if (useJev && key) {
     try { verdict = { ...(await jev(key, state, options)), juez: 'jev' }; } catch (e) { notes.push(e.message); }
   }
   if (!verdict || verdict.confianza < SURE) {
@@ -581,7 +630,7 @@ async function detect(flags) {
   const options = Object.fromEntries([...envs.map((e) => [e.id, `${e.name}: ${e.focus}`]), ['ninguno', 'ninguno encaja: una mezcla sin foco']]);
   const result = { at: new Date().toISOString(), fingerprint, active: active?.id || null };
   try {
-    const v = await judge(state, options);
+    const v = await judge(state, options, { useJev: flags.includes('--jev') });
     const suggestion = envs.some((e) => e.id === v.ambiente) ? v.ambiente : null;
     const name = envs.find((e) => e.id === suggestion)?.name || null;
     Object.assign(result, { suggestion, name, confidence: v.confianza, reason: v.motivo, judge: v.juez, notes: v.notas,
@@ -661,4 +710,4 @@ async function main(argv) {
 if (require.main === module) {
   main(process.argv.slice(2)).catch((e) => { console.error(`error: ${e.message}`); process.exitCode = 1; });
 }
-module.exports = { classify, plan, isSatisfied, status, recordSwitch, describe, judge, focusOf, judgeTabs, tabsContext, loadEnv, lastDetect: () => readJson(DETECT_FILE), ENV_JS: __filename };
+module.exports = { classify, plan, isSatisfied, titleBusy, status, recordSwitch, describe, judge, focusOf, judgeTabs, tabsContext, loadEnv, lastDetect: () => readJson(DETECT_FILE), ENV_JS: __filename };

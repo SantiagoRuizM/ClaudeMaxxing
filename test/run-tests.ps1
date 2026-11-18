@@ -455,6 +455,9 @@ try {
     [IO.File]::WriteAllText($SelfHarnessFile, '{"detect":false,"minutes":7,"minConfidence":0.8,"quiet":["vacio","bad id!"]}')
     $saved = Get-SelfHarnessSettings
     Assert-Equal 'False 3 0.8 vacio' ('{0} {1} {2} {3}' -f $saved.detect, $saved.minutes, ([double]$saved.minConfidence).ToString([cultureinfo]::InvariantCulture), ($saved.quiet -join ',')) 'selfharness settings: unknown values fall back, bad ids dropped'
+    Assert-Equal 'haiku' $saved.judge 'selfharness settings: Haiku judges unless Jev is chosen'
+    [IO.File]::WriteAllText($SelfHarnessFile, '{"judge":"jev"}')
+    Assert-Equal 'jev' (Get-SelfHarnessSettings).judge 'selfharness settings: Jev kept when chosen'
     Set-SelfHarnessSetting 'minutes' 10
     Set-SelfHarnessSetting 'quiet' @()
     $saved = Get-SelfHarnessSettings

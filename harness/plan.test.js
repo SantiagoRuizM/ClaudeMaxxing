@@ -4,7 +4,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { plan, isSatisfied, recordSwitch, describe, judge, focusOf, judgeTabs } = require('./env');
+const { plan, isSatisfied, titleBusy, recordSwitch, describe, judge, focusOf, judgeTabs } = require('./env');
 
 const load = (id) => JSON.parse(fs.readFileSync(path.join(__dirname, 'test', 'environments', `${id}.json`), 'utf8'));
 const G = load('trabajo');
@@ -242,17 +242,34 @@ it('History: switches are counted between any two environments, time per environ
   assert.equal(slept.time['2026-11-07'].trabajo, 7200 + 12 * 3600);
 });
 
-it('Judge cascade: Jev decides when sure, claude -p when Jev is unsure, missing or failing', async () => {
+it('Judge: Haiku by default even with a key; with useJev, Jev decides when sure, claude -p when Jev is unsure, missing or failing', async () => {
   const opts = { trabajo: 'Trabajo', ninguno: 'ninguno' };
   const jev = (p) => async () => ({ ambiente: 'trabajo', confianza: p, motivo: 'jev' });
   const claude = async () => ({ ambiente: 'ninguno', confianza: 0.9, motivo: 'claude' });
-  assert.equal((await judge({}, opts, { key: 'k', jev: jev(0.9), claude })).juez, 'jev');
-  assert.equal((await judge({}, opts, { key: 'k', jev: jev(0.3), claude })).juez, 'claude');
-  assert.equal((await judge({}, opts, { key: '', jev: jev(0.9), claude })).juez, 'claude');
+  assert.equal((await judge({}, opts, { key: 'k', jev: jev(0.9), claude })).juez, 'claude');
+  const on = { useJev: true };
+  assert.equal((await judge({}, opts, { ...on, key: 'k', jev: jev(0.9), claude })).juez, 'jev');
+  assert.equal((await judge({}, opts, { ...on, key: 'k', jev: jev(0.3), claude })).juez, 'claude');
+  const noKey = await judge({}, opts, { ...on, key: '', jev: jev(0.9), claude });
+  assert.deepEqual([noKey.juez, noKey.notas], ['claude', ['Jev sin TYPESAFE_API_KEY']]);
   const down = async () => { throw new Error('sin red'); };
-  const kept = await judge({}, opts, { key: 'k', jev: jev(0.4), claude: down });
+  const kept = await judge({}, opts, { ...on, key: 'k', jev: jev(0.4), claude: down });
   assert.deepEqual([kept.juez, kept.notas], ['jev', ['sin red']]);
-  await assert.rejects(judge({}, opts, { key: 'k', jev: down, claude: down }), /sin red · sin red/);
+  await assert.rejects(judge({}, opts, { ...on, key: 'k', jev: down, claude: down }), /sin red · sin red/);
+});
+
+it('Claude Code sessions: on closes those outside the project (subfolders stay), off closes the project\'s, closeAllFolders closes all', () => {
+  const s = (hwnd, dir) => ({ hwnd, dir, name: `s${hwnd}` });
+  const sessions = [s(1, G.claude.dir), s(2, `${TRABAJO_DIR}\\docs`), s(3, TRABAJO_DIR.toLowerCase()), s(4, 'C:\\Users\\me\\Documents\\Projects\\Trabajo2'), s(5, 'D:\\Otro')];
+  const snap = machine({ claude: { launcher: LAUNCHER, dirs: sessions.map((x) => x.dir), sessions } });
+  const hwnds = (p) => p.closeSessions.map((x) => x.hwnd);
+  assert.deepEqual(hwnds(plan(G, snap)), [4, 5], 'a sibling folder with the same prefix is not inside');
+  assert.deepEqual(hwnds(plan(G, snap, 'off')), [1, 2, 3]);
+  assert.deepEqual(hwnds(plan(S, snap)), [1, 2, 3, 4, 5]);
+  assert.deepEqual(hwnds(plan(S, snap, 'off')), []);
+  assert.ok(!isSatisfied(plan(G, snap)));
+  const c = String.fromCharCode;
+  assert.deepEqual([`Camila - dev${c(0x200b)}`, 'Camila - dev', `${c(0x2733)} Claude Code`, `${c(0x2810)} Claude Code`, ''].map(titleBusy), [true, false, false, true, false], 'busy titles');
 });
 
 it('Fingerprint: a new title is the same machine, a new site is not; fit comes from each plan', () => {
