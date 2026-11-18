@@ -642,6 +642,15 @@ try {
     Assert-Equal 'Siempre|Desde 85%' ((Format-WhipThreshold 0) + '|' + (Format-WhipThreshold 85)) 'whip: threshold labels'
     $mode = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex') }
     Assert-Equal 'armed|active' ((Get-WhipMode $mode 84) + '|' + (Get-WhipMode $mode 85)) 'whip: armed under the threshold, active at it'
+    $fcFile = "$whipFile.forecast"
+    $wNow = Get-Date
+    Save-WhipForecast ([pscustomobject]@{ ProjectedPercent = 131.6; LimitAt = $wNow.Date.AddHours(15).AddMinutes(40) }) $wNow $fcFile
+    $wfc = Read-JsonFile $fcFile
+    Assert-Equal '132|15:40' "$($wfc.projectedPercent)|$($wfc.limitAt)" 'whip forecast: percent and the time the limit is hit'
+    Assert-Equal 'forecast|armed' ((Get-WhipMode $mode 62 $wfc $wNow) + '|' + (Get-WhipMode $mode 40 $wfc $wNow)) 'whip: on pace to hit the limit turns it on from half the plan'
+    Assert-Equal 'armed' (Get-WhipMode $mode 62 $wfc $wNow.AddMinutes(20)) 'whip: a stale forecast does not count'
+    Save-WhipForecast ([pscustomobject]@{ ProjectedPercent = $null }) $wNow $fcFile
+    Assert-Equal $false (Test-Path $fcFile) 'whip forecast: removed when there is none'
     $mode.Agents = @()
     Assert-Equal 'noagent' (Get-WhipMode $mode 99) 'whip: on with no agent'
     Assert-Equal $false (Sync-WhipPolicy $true $whipFile) 'whip: an allowed module is left alone'

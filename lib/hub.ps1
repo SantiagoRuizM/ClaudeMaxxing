@@ -1862,6 +1862,24 @@ function Get-HubPlanPercent {
     $pct
 }
 
+# Every 5 minutes from the tray: the open window's forecast for the Whip plugin (whip-forecast.json), only while the
+# whip is on and the 5-hour window is past half (below, the plugin ignores it). A stale statistics scan underestimates
+# the spending so far: past 5 minutes a background scan is started and the next tick uses it.
+function Update-WhipForecast {
+    $now = Get-Date
+    $settings = Get-WhipSettings
+    $view = $script:View
+    $session = if ($view -and $view.HasData -and $view.Session.Active) { $view.Session } else { $null }
+    if (-not $settings.Enabled -or -not (Test-ModuleAllowed 'whip') -or -not $session -or [int]$session.Percent -lt $WhipForecastFloor) {
+        Save-WhipForecast $null $now
+        return
+    }
+    $stats = Get-BusinessStats
+    if (-not $stats -or (Get-StatsAgeMinutes $stats) -gt 5) { Start-HubStatsScan }
+    if (-not $stats -or (Get-StatsAgeMinutes $stats) -gt 15) { Save-WhipForecast $null $now; return }
+    Save-WhipForecast (Get-UsageForecast $stats.recent.usage $session $now) $now
+}
+
 function Update-HubWhip([scriptblock]$Change, [string]$Message) {
     if ($script:Hub.Preview -or -not (Test-HubModule 'whip')) { return }
     $settings = Get-WhipSettings
@@ -1889,7 +1907,8 @@ function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $s = $c.Whip
     if (-not $s) { return }
     $pct = Get-HubPlanPercent
-    $mode = Get-WhipMode $s $pct
+    $forecast = Read-JsonFile $WhipForecastFile
+    $mode = Get-WhipMode $s $pct $forecast
     $agents = @($c.WhipAgents)
     $names = @($agents | Where-Object { $s.Agents -contains $_.Id } | ForEach-Object { $_.Label }) -join ', '
 
@@ -1903,7 +1922,8 @@ function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $status, $color = switch ($mode) {
         'off'     { (Tx 'Apagado. Cuando el plan llegue al umbral, un agente programa y Claude revisa el git, ejecuta los tests y le devuelve lo que falle.'), $P.Muted }
         'noagent' { (Tx 'Activa al menos un agente abajo: sin agentes, Claude Whip no entra en acci\u00f3n.'), $P.Warn }
-        'armed'   { (Tx "Listo: entra en acci\u00f3n cuando el plan llegue al $($s.Threshold)% (ahora $pct%)."), $P.Muted }
+        'armed'   { (Tx "Listo: entra en acci\u00f3n cuando el plan llegue al $($s.Threshold)% (ahora $pct%) o vaya a agotarse antes de reiniciarse."), $P.Muted }
+        'forecast' { (Tx "\u2713 En acci\u00f3n antes del umbral: a este ritmo el plan ($pct%) se agota a las $($forecast.limitAt). Programa $names."), $P.Ok }
         default   { (Tx "\u2713 En acci\u00f3n (plan al $pct%): programa $names; Claude revisa el git y los tests."), $P.Ok }
     }
     Draw-Text $G $status $F.Small $color $tx ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 18)

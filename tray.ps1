@@ -470,6 +470,8 @@ $timer.Add_Tick({
     try { Invoke-HarnessWatch } catch { }
     # Business edition (lib\hubbusiness.ps1): calibrate the seat and send the weekly report, every 5 minutes.
     if ($script:Ticks % 20 -eq 1) { try { Invoke-BusinessTick } catch { } }
+    # Claude Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
+    if ($script:Ticks % 20 -eq 2) { try { Update-WhipForecast } catch { } }
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }
 })

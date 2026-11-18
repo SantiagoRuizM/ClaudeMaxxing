@@ -53,3 +53,10 @@ test('no whip.json at all: nothing changes', async ($, on) => {
   const write = await $.tool.call({ tool: 'Write', file_path: 'a.ts', content: 'x' })
   expect(write.deny).toBeUndefined()
 })
+
+test('under the threshold but on pace to hit the limit: on, and it says when', async ($, on) => {
+  const forecast = JSON.stringify({ projectedPercent: 130, limitAt: '15:40', at: NOW_MS / 1000 - 60 })
+  world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(62), [`${DIR}/whip-forecast.json`]: forecast })
+  const edit = await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'a', new_string: 'b' })
+  expect(String(edit.deny)).toMatch(/plan at 62%, on pace to hit the limit at 15:40/)
+})

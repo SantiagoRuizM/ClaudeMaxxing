@@ -1,7 +1,7 @@
 // node --test whip/test (Node 22.6+ reads the .ts module, its types stripped)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedCommand, blockedTool, enabledAgents, isActive, parseJson, usagePercent } from '../hooks/rules.ts'
+import { allowedCommand, blockedTool, enabledAgents, forecastHit, isActive, parseJson, usagePercent } from '../hooks/rules.ts'
 
 const NOW = 1_800_000_000
 
@@ -111,3 +111,15 @@ test('tools: MCP tools that run code or write are blocked, readers pass', () => 
     assert.equal(blockedTool(ok), false, ok)
 })
 
+
+test('forecast: on pace to hit the limit turns it on under the threshold, from half the plan, while fresh', () => {
+  const on = { enabled: true, threshold: 85, agents: ['codex'] }
+  const fc = { projectedPercent: 120, limitAt: '15:40', at: NOW - 60 }
+  assert.equal(forecastHit(fc, 62, NOW), true)
+  assert.equal(isActive(on, 62, forecastHit(fc, 62, NOW)), true)
+  assert.equal(forecastHit(fc, 40, NOW), false, 'under half the plan a forecast is a guess')
+  assert.equal(forecastHit({ ...fc, projectedPercent: 95 }, 62, NOW), false, 'ends under the limit')
+  assert.equal(forecastHit({ ...fc, at: NOW - 3600 }, 62, NOW), false, 'stale: the tray stopped writing it')
+  assert.equal(forecastHit(undefined, 99, NOW), false)
+  assert.equal(isActive({ ...on, enabled: false }, 62, true), false, 'off stays off')
+})

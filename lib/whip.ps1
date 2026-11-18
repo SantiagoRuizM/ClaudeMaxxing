@@ -53,12 +53,36 @@ function Step-WhipThreshold([int]$Current, [int]$Delta) {
 
 function Format-WhipThreshold([int]$Threshold) { if ($Threshold -le 0) { 'Siempre' } else { "Desde $Threshold%" } }
 
-# 'off' (switched off), 'noagent' (on with no agent), 'armed' (on, under the threshold) or 'active': what the plugin
-# does now. $Percent is the plan's highest window, as the plugin computes it.
-function Get-WhipMode($Settings, [int]$Percent) {
+# The open window's forecast for the plugin (whip-forecast.json): it turns the whip on before the threshold when the
+# window is on pace to hit its limit. Same rule as forecastHit in whip\hooks\rules.ts: from half the plan, while fresh.
+$WhipForecastFile = Join-Path $TrayHome 'whip-forecast.json'
+$WhipForecastFloor = 50
+$WhipForecastMaxAge = 15 * 60
+
+# $Forecast: Get-UsageForecast's result (lib\forecast.ps1), or $null to remove it.
+function Save-WhipForecast($Forecast, [datetime]$Now, [string]$Path = $WhipForecastFile) {
+    if (-not $Forecast -or $null -eq $Forecast.ProjectedPercent) { Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue; return }
+    Write-JsonFile $Path ([ordered]@{
+        projectedPercent = [int][Math]::Round([double]$Forecast.ProjectedPercent)
+        limitAt = $(if ($Forecast.LimitAt) { ([datetime]$Forecast.LimitAt).ToString('HH:mm') } else { '' })
+        at = ([DateTimeOffset]$Now).ToUnixTimeSeconds()
+    })
+}
+
+function Test-WhipForecastHit($Forecast, [int]$Percent, [datetime]$Now) {
+    if (-not $Forecast -or $null -eq $Forecast.projectedPercent -or $null -eq $Forecast.at) { return $false }
+    [int]$Forecast.projectedPercent -ge 100 -and $Percent -ge $WhipForecastFloor -and
+        (([DateTimeOffset]$Now).ToUnixTimeSeconds() - [long]$Forecast.at) -le $WhipForecastMaxAge
+}
+
+# 'off' (switched off), 'noagent' (on with no agent), 'armed' (on, under the threshold), 'active', or 'forecast'
+# (under the threshold, on pace to hit the limit): what the plugin does now. $Percent is the plan's highest window,
+# as the plugin computes it; $Forecast what Read-JsonFile gives for whip-forecast.json.
+function Get-WhipMode($Settings, [int]$Percent, $Forecast = $null, [datetime]$Now = (Get-Date)) {
     if (-not $Settings.Enabled) { return 'off' }
     if (-not @($Settings.Agents).Count) { return 'noagent' }
-    if ($Percent -ge $Settings.Threshold) { 'active' } else { 'armed' }
+    if ($Percent -ge $Settings.Threshold) { return 'active' }
+    if (Test-WhipForecastHit $Forecast $Percent $Now) { 'forecast' } else { 'armed' }
 }
 
 # A company policy that turns the module off also turns off a switch left on (the plugin only reads whip.json).

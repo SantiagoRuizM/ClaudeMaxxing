@@ -49,12 +49,28 @@ export function enabledAgents(settings: Settings | undefined): string[] {
   return (settings?.agents ?? []).filter(a => AGENTS.includes(a))
 }
 
-// On, with an agent to hand work to, and the plan at or past the threshold (0 = always).
-export function isActive(settings: Settings | undefined, percent: number): boolean {
+// The tray's forecast for the open 5-hour window (whip-forecast.json, rewritten every 5 minutes while the whip is on).
+export type Forecast = { projectedPercent?: number; limitAt?: string; at?: number }
+// Below half the plan a forecast is mostly a guess; a stale one (the tray stopped) does not count.
+export const FORECAST_FLOOR = 50
+const FORECAST_MAX_AGE = 15 * 60
+
+// Whether, at this pace, the window hits its limit before it resets.
+export function forecastHit(forecast: Forecast | undefined, percent: number, nowSec: number): boolean {
+  if (!forecast || typeof forecast.projectedPercent !== 'number' || typeof forecast.at !== 'number') return false
+  return forecast.projectedPercent >= 100 && percent >= FORECAST_FLOOR && nowSec - forecast.at <= FORECAST_MAX_AGE
+}
+
+// On, with an agent to hand work to, and the plan at or past the threshold (0 = always), or on pace to hit the limit.
+export function isActive(settings: Settings | undefined, percent: number, hit = false): boolean {
   if (!settings?.enabled || enabledAgents(settings).length === 0) return false
   const threshold = typeof settings.threshold === 'number' ? settings.threshold : 85
-  return percent >= threshold
+  return percent >= threshold || hit
 }
+
+// "plan at 62%, on pace to hit the limit at 15:40" when the forecast is what turned it on.
+const planText = (percent: number, limitAt?: string) =>
+  limitAt ? `plan at ${percent}%, on pace to hit the limit at ${limitAt}` : `plan at ${percent}%`
 
 const words = (segment: string) => segment.replace(/["']/g, '').trim().split(/\s+/).filter(Boolean)
 const slashes = (path: string) => path.split('\\').join('/')
@@ -116,15 +132,16 @@ function allowedLine(raw: string, agents: string[], runnerDir?: string): boolean
 
 const checkOf = (runner: string) => runner.replace(/whip-run\.sh$/, 'whip-check.sh')
 
-export function denyText(percent: number, runner: string, agents: string[]): string {
-  return `Claude Whip is on (plan at ${percent}%): an agent writes the code, you watch git, run the tests and send it ` +
+export function denyText(percent: number, runner: string, agents: string[], limitAt?: string): string {
+  return `Claude Whip is on (${planText(percent, limitAt)}): an agent writes the code, you watch git, run the tests and send it ` +
     `feedback. Editing, subagents and shell commands other than git, reading, the agents and the check are blocked. ` +
     `Hand it a task: bash "${runner}" <${agents.join('|')}> [--resume] <<'EOF' ... EOF (Bash, run_in_background: true); ` +
     `run tests with: bash "${checkOf(runner)}" "<test command>". The claude-whip skill has the loop.`
 }
 
-export function contextText(percent: number, threshold: number, runner: string, agents: string[]): string {
-  return `[Claude Whip] The Claude plan is at ${percent}% (threshold ${threshold}%), so this session directs a feedback ` +
+export function contextText(percent: number, threshold: number, runner: string, agents: string[], limitAt?: string): string {
+  const why = limitAt ? `at ${percent}% and on pace to hit its limit at ${limitAt}` : `at ${percent}% (threshold ${threshold}%)`
+  return `[Claude Whip] The Claude plan is ${why}, so this session directs a feedback ` +
     `loop with an agent: plan and brief -> the agent writes the code -> you check git and run the tests -> you send the ` +
     `agent what failed (--resume keeps its conversation) -> repeat until green, at most 3 rounds, then report. ` +
     `Agents on: ${agents.join(', ')}. Agent: bash "${runner}" <agent> [--resume] <<'EOF' <task or feedback> EOF ` +
