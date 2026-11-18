@@ -1,7 +1,7 @@
 // node --test whip/test (Node 22.6+ reads the .ts module, its types stripped)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedCommand, enabledAgents, isActive, parseJson, usagePercent } from '../hooks/rules.ts'
+import { allowedCommand, blockedTool, enabledAgents, isActive, parseJson, usagePercent } from '../hooks/rules.ts'
 
 const NOW = 1_800_000_000
 
@@ -61,3 +61,53 @@ test('bash: anything that edits or does the work is blocked', () => {
     '',
   ]) assert.equal(allowedCommand(bad, agents), false, bad)
 })
+
+const BIN = 'C:/x/whip/bin'
+
+test('bash: the bypasses found in the audit are blocked', () => {
+  const agents = ['codex']
+  for (const bad of [
+    'git status & rm -rf build',
+    'git status\nrm -rf build',
+    'echo $(node -e 1)',
+    'ls `rm x`',
+    'cat <(node evil.js)',
+    'echo "$(node -e 1)"',
+    "git apply <<'EOF'\n--- a/x\n+++ b/x\nEOF",
+    'git -c alias.x="!node evil.js" x',
+    'git -c core.pager=evil log',
+    'git config alias.x "!rm -rf ."',
+    'git rebase -x "node evil.js" HEAD~1',
+    'sort -o out.txt in.txt',
+    'sort -uo out.txt in.txt',
+    'uniq in.txt out.txt',
+    'PATH=. git status',
+    'GIT_EXTERNAL_DIFF=evil git diff',
+    `bash "${BIN}/whip-run.sh" codex <<'EOF'\ntask\nEOF\nrm -rf build`,
+    `bash "${BIN}/whip-run.sh" codex <<EOF\nrun $(rm -rf build)\nEOF`,
+    'bash ./whip-check.sh "sed -i s/a/b/ f.ts"',
+    'bash C:/repo/evil/whip-check.sh "x"',
+  ]) assert.equal(allowedCommand(bad, agents, BIN), false, bad)
+})
+
+test('bash: what the loop needs still passes with the plugin folder known', () => {
+  const agents = ['codex']
+  for (const ok of [
+    `bash "${BIN}/whip-run.sh" codex <<'EOF'\nFix x; then $(npm test) | tail > out.txt\nEOF`,
+    `bash "${BIN}/whip-check.sh" "npm run build && npm test | tail -5"`,
+    'bash C:\\x\\whip\\bin\\whip-check.sh "npm test"',
+    "echo '$(not run)'",
+    'git log --oneline | sort | uniq -c',
+    'git commit -m "fix: login"',
+    'git -C /c/repo status',
+    'sort -u notes.txt',
+  ]) assert.equal(allowedCommand(ok, agents, BIN), true, ok)
+})
+
+test('tools: MCP tools that run code or write are blocked, readers pass', () => {
+  for (const bad of ['Edit', 'Agent', 'mcp__plugin_context-mode_context-mode__ctx_execute', 'mcp__fs__write_file', 'mcp__srv__run_command', 'mcp__blender__execute_blender_code'])
+    assert.equal(blockedTool(bad), true, bad)
+  for (const ok of ['Read', 'Grep', 'mcp__plugin_context-mode_context-mode__ctx_search', 'mcp__fs__read_file', 'mcp__claude-in-chrome__read_page', 'mcp__runtime__status'])
+    assert.equal(blockedTool(ok), false, ok)
+})
+

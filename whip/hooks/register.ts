@@ -2,7 +2,7 @@
 // Off, or under its threshold, every hook just passes through. The settings come from the tray's whip.json and the
 // plan use from the statusline's usage.json, both read on each event (small files, read in process).
 import type { EngineInterface, Register } from 'claude-code'
-import { allowedCommand, BLOCKED_TOOLS, contextText, denyText, enabledAgents, isActive, parseJson, usagePercent } from './rules'
+import { allowedCommand, blockedTool, contextText, denyText, enabledAgents, isActive, parseJson, usagePercent } from './rules'
 import type { Settings, Usage } from './rules'
 
 type State = { active: boolean; percent: number; threshold: number; agents: string[]; runner: string }
@@ -31,10 +31,11 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     const isShell = e.tool === 'Bash'
-    if (!isShell && !BLOCKED_TOOLS.has(e.tool)) return next(e)
+    if (!isShell && !blockedTool(e.tool)) return next(e)
     const s = await stateOf($)
     if (!s.active) return next(e)
-    if (isShell && allowedCommand(String((e as { command?: unknown }).command ?? ''), s.agents)) return next(e)
+    const bin = s.runner.slice(0, s.runner.lastIndexOf('/'))
+    if (isShell && allowedCommand(String((e as { command?: unknown }).command ?? ''), s.agents, bin)) return next(e)
     return { deny: denyText(s.percent, s.runner, s.agents) }
     // A broken guard fails open: it must never stop the session's work.
   }).catch(($, e, next) => next(e))

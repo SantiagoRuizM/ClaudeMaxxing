@@ -14,6 +14,21 @@ export const BLOCKED_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdi
 // Shell words allowed besides git, the runner and the agents: moving around and reading/filtering output.
 const READ_WORDS = new Set(['cd', 'ls', 'pwd', 'cat', 'head', 'tail', 'grep', 'wc', 'sort', 'uniq', 'echo', 'which'])
 
+// git subcommands and options that run other programs or write files from text Claude typed (a patch, an alias, a
+// pager): with them git would be a way to edit or run anything. Commit, checkout, stash, diff and the rest pass.
+const GIT_BLOCKED = new Set(['config', 'apply', 'am', 'difftool', 'mergetool', 'filter-branch', 'filter-repo', 'bisect', 'submodule', 'archive'])
+const GIT_BLOCKED_OPTIONS = /^(-c|--config-env(=.*)?|--exec-path(=.*)?|-x|--exec(=.*)?|--extcmd(=.*)?|--output(=.*)?|-o)$/
+
+// MCP tools that run code or write files (context-mode's ctx_execute, a server's run_command, write_file...).
+const MCP_BLOCKED_WORDS = new Set(['execute', 'exec', 'run', 'write', 'edit', 'shell', 'bash', 'eval', 'apply', 'patch'])
+
+export function blockedTool(tool: string): boolean {
+  if (BLOCKED_TOOLS.has(tool)) return true
+  if (!tool.startsWith('mcp__')) return false
+  const name = tool.slice(tool.lastIndexOf('__') + 2).toLowerCase()
+  return name.split(/[_-]/).some(word => MCP_BLOCKED_WORDS.has(word))
+}
+
 export function parseJson<T>(text: string | undefined): T | undefined {
   if (!text) return undefined
   try { return JSON.parse(text.replace(/^﻿/, '')) as T } catch { return undefined }
@@ -42,25 +57,58 @@ export function isActive(settings: Settings | undefined, percent: number): boole
 }
 
 const words = (segment: string) => segment.replace(/["']/g, '').trim().split(/\s+/).filter(Boolean)
+const slashes = (path: string) => path.split('\\').join('/')
+const samePath = (a: string, b: string) => slashes(a).toLowerCase() === slashes(b).toLowerCase()
 
-// Whether a Bash command only reads, runs git, the runner, the check (git + tests) or an enabled agent. Only its
-// first line is checked: the
-// rest is a heredoc body (the task for the agent), which is data. Writing to a file with ">" is editing.
-export function allowedCommand(command: string, agents: string[]): boolean {
-  let line = command.split('\n')[0].replace(/<<-?\s*['"]?\w+['"]?/g, '')
+// Whether a Bash command only reads, runs git, the runner, the check (git + tests) or an enabled agent. A quoted
+// heredoc's body is data (the task for the agent) and is not checked; every other line is. Writing to a file with
+// ">" is editing. $runnerDir: the plugin's bin folder, the only whip-run.sh / whip-check.sh that count (one planted
+// in the repo would run anything). This is a guard on the plan, not a sandbox: whip-check.sh runs its argument.
+export function allowedCommand(command: string, agents: string[], runnerDir?: string): boolean {
+  const lines = command.replace(/\r/g, '').split('\n')
+  const checked: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    checked.push(line)
+    const heredoc = /<<-?\s*(['"]?)(\w+)\1/.exec(line)
+    if (!heredoc) continue
+    const end = lines.findIndex((l, j) => j > i && l.trim() === heredoc[2])
+    const body = lines.slice(i + 1, end < 0 ? lines.length : end)
+    // An unquoted heredoc expands $(...) and `...` in its body: that is running code.
+    if (!heredoc[1] && body.some(l => /\$\(|`/.test(l))) return false
+    if (end < 0) break
+    i = end
+  }
+  const commands = checked.filter(line => line.trim() !== '')
+  return commands.length > 0 && commands.every(line => allowedLine(line, agents, runnerDir))
+}
+
+function allowedLine(raw: string, agents: string[], runnerDir?: string): boolean {
+  let line = raw.replace(/<<-?\s*['"]?\w+['"]?/g, '')
+  // $(...), `...` and <(...) run a command anywhere but inside single quotes.
+  if (/\$\(|`|[<>]\(/.test(line.replace(/'[^']*'/g, ''))) return false
   // Inside quotes an operator is text (whip-check.sh "npm run build && npm test").
   line = line.replace(/"[^"]*"|'[^']*'/g, quoted => quoted.replace(/[&|;<>]/g, ' '))
   line = line.replace(/\d?>&\d|&?\d?>\s*\/dev\/null/g, '')
   if (line.includes('>')) return false
-  const segments = line.split(/&&|\|\||;|\|/).map(s => s.trim()).filter(Boolean)
+  // A lone & runs what precedes it in the background: it separates commands like ; does.
+  const segments = line.split(/&&|\|\||;|\||&/).map(s => s.trim()).filter(Boolean)
   if (segments.length === 0) return false
+  const isRunner = (x: string) => /(^|[\\/])whip-(run|check)\.sh$/.test(x) &&
+    (!runnerDir || samePath(slashes(x).slice(0, slashes(x).lastIndexOf('/')), runnerDir))
   return segments.every(segment => {
     const w = words(segment)
-    while (w.length && /^\w+=/.test(w[0])) w.shift()
-    if (w.length === 0) return false
+    // VAR=value before a command changes what it runs (PATH, GIT_EXTERNAL_DIFF, GIT_PAGER...).
+    if (w.length === 0 || /^\w+=/.test(w[0])) return false
     const [first, second = ''] = w
-    const isRunner = (x: string) => /(^|[\\/])whip-(run|check)\.sh$/.test(x)
-    if (first === 'git' || READ_WORDS.has(first) || isRunner(first)) return true
+    if (first === 'git') {
+      const sub = w.slice(1).find(x => !x.startsWith('-') && !/^-C$/.test(x)) ?? ''
+      return !GIT_BLOCKED.has(sub) && !w.slice(1).some(x => GIT_BLOCKED_OPTIONS.test(x))
+    }
+    // sort -o and uniq <in> <out> write files.
+    if (first === 'sort') return !w.some(x => /^(-o|--output(=.*)?)$/.test(x) || /^-[a-z]*o/.test(x))
+    if (first === 'uniq') return w.slice(1).filter(x => !x.startsWith('-')).length <= 1
+    if (READ_WORDS.has(first) || isRunner(first)) return true
     if ((first === 'bash' || first === 'sh') && isRunner(second)) return true
     return agents.includes(first)
   })
