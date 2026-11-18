@@ -1480,7 +1480,7 @@ foreach ($script in 'install.ps1', 'get.ps1') {
 }
 
 $policy = Merge-BusinessPolicy $null
-Assert-Equal 'bridge,freellm,whip,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs, Whisper and Whip off by default'
+Assert-Equal 'ambientes,bridge,freellm,whip,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs, Whisper, Whip and Ambientes off by default'
 $policy = Merge-BusinessPolicy ([pscustomobject]@{ disabled = @('whisper'); seatMonthlyUsd = '150'; autoReport = 1; unknown = 'x'; plugins = 'one@kit' })
 Assert-Equal 'whisper' (@($policy.disabled) -join ',') 'policy: a list replaces the default'
 Assert-Equal 150 $policy.seatMonthlyUsd 'policy: the seat price is a number'

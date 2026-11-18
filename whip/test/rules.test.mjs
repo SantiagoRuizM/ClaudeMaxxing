@@ -1,7 +1,7 @@
 // node --test whip/test (Node 22.6+ reads the .ts module, its types stripped)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedCommand, blockedTool, enabledAgents, forecastHit, isActive, parseJson, usagePercent } from '../hooks/rules.ts'
+import { allowedCommand, blockedTool, enabledAgents, forecastHit, isActive, parseJson, policyAllows, usagePercent } from '../hooks/rules.ts'
 
 const NOW = 1_800_000_000
 
@@ -122,4 +122,10 @@ test('forecast: on pace to hit the limit turns it on under the threshold, from h
   assert.equal(forecastHit({ ...fc, at: NOW - 3600 }, 62, NOW), false, 'stale: the tray stopped writing it')
   assert.equal(forecastHit(undefined, 99, NOW), false)
   assert.equal(isActive({ ...on, enabled: false }, 62, true), false, 'off stays off')
+})
+
+test('policy: an IT policy that turns the whip off wins over whip.json', () => {
+  assert.equal(policyAllows(undefined), true)
+  assert.equal(policyAllows({ disabled: ['bridge'] }), true)
+  assert.equal(policyAllows({ disabled: ['whip', 'bridge'] }), false)
 })

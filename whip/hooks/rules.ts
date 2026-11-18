@@ -2,6 +2,13 @@
 // The tray (ClaudeMaxxing > Claude Whip) writes whip.json; the statusline keeps usage.json up to date.
 
 export type Settings = { enabled?: boolean; threshold?: number; agents?: string[] }
+// The company policy IT puts in %ProgramData%\ClaudeMaxxing\policy.json (lib\business.ps1). Read here too, so editing
+// whip.json does not get around a policy that turns the whip off.
+export type Policy = { disabled?: string[] }
+
+export function policyAllows(policy: Policy | undefined): boolean {
+  return !Array.isArray(policy?.disabled) || !policy.disabled.includes('whip')
+}
 type Window = { used_percentage?: number; resets_at?: number }
 export type Usage = { rate_limits?: { five_hour?: Window; seven_day?: Window } }
 

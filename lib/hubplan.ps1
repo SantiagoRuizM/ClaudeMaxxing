@@ -37,7 +37,7 @@ function Open-HubJudgeIdea([string]$Text = '') {
     try {
         # Business edition: the jury also weighs the company's objectives (lib\business.ps1).
         $idea = if (Test-HubBusiness) { Add-JudgeObjectives $request.Idea (Get-BusinessObjectives) } else { $request.Idea }
-        Start-JudgeJob $idea $request.Jury
+        if (Test-HubModule 'judge') { Start-JudgeJob $idea $request.Jury }
         Set-HubMessage ((Tx 'Claude Judge est\u00e1 deliberando') + '...')
     } catch { Set-HubMessage ('No se pudo empezar: ' + $_.Exception.Message) }
     Update-HubNow

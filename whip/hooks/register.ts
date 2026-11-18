@@ -3,8 +3,8 @@
 // plan use from the statusline's usage.json and the window's forecast from the tray's whip-forecast.json, all read
 // on each event (small files, read in process).
 import type { EngineInterface, Register } from 'claude-code'
-import { allowedCommand, blockedTool, contextText, denyText, enabledAgents, forecastHit, isActive, parseJson, usagePercent } from './rules'
-import type { Forecast, Settings, Usage } from './rules'
+import { allowedCommand, blockedTool, contextText, denyText, enabledAgents, forecastHit, isActive, parseJson, policyAllows, usagePercent } from './rules'
+import type { Forecast, Policy, Settings, Usage } from './rules'
 
 // limitAt: set only when the forecast, not the threshold, is what turned it on.
 type State = { active: boolean; percent: number; threshold: number; agents: string[]; runner: string; limitAt?: string }
@@ -19,8 +19,10 @@ async function stateOf($: EngineInterface): Promise<State> {
   const threshold = settings?.threshold ?? 85
   const forecast = parseJson<Forecast>(await read('whip-forecast.json'))
   const hit = forecastHit(forecast, percent, nowSec)
+  const programData = ((await $.env.get('ProgramData')) ?? (await $.env.get('PROGRAMDATA')) ?? '').replace(/\\/g, '/')
+  const policy = programData ? parseJson<Policy>(await $.fs.read(`${programData}/ClaudeMaxxing/policy.json`).catch(() => undefined)) : undefined
   return {
-    active: isActive(settings, percent, hit),
+    active: policyAllows(policy) && isActive(settings, percent, hit),
     percent,
     threshold,
     agents: enabledAgents(settings),

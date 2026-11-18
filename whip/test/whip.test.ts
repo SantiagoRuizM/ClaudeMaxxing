@@ -5,8 +5,8 @@ const DIR = 'C:/Users/u/.claude/usage-tray'
 const NOW_MS = 1_800_000_000_000
 const usage = (pct: number) => JSON.stringify({ rate_limits: { five_hour: { used_percentage: pct, resets_at: NOW_MS / 1000 + 3600 } } })
 
-function world(on: Parameters<Parameters<typeof test>[1]>[1], files: Record<string, string>) {
-  mock.env(on, { USERPROFILE: 'C:\\Users\\u' })
+function world(on: Parameters<Parameters<typeof test>[1]>[1], files: Record<string, string>, env: Record<string, string> = {}) {
+  mock.env(on, { USERPROFILE: 'C:\\Users\\u', ...env })
   mock.clock(on, { now: NOW_MS })
   on('fs.read', (_, e) => {
     const text = files[(e as { path: string }).path.replace(/\\/g, '/')]
@@ -59,4 +59,11 @@ test('under the threshold but on pace to hit the limit: on, and it says when', a
   world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(62), [`${DIR}/whip-forecast.json`]: forecast })
   const edit = await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'a', new_string: 'b' })
   expect(String(edit.deny)).toMatch(/plan at 62%, on pace to hit the limit at 15:40/)
+})
+
+test('an IT policy that turns it off: nothing is blocked, whatever whip.json says', async ($, on) => {
+  world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(99), ['C:/ProgramData/ClaudeMaxxing/policy.json']: '{"disabled":["whip"]}' },
+    { ProgramData: 'C:\\ProgramData' })
+  const edit = await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'a', new_string: 'b' })
+  expect(edit.deny).toBeUndefined()
 })

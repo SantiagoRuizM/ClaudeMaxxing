@@ -33,9 +33,9 @@ $script:HubFonts = @{
 $script:HubSections = @(
     @{ Id = 'home'; Label = 'Inicio'; Glyph = '\ue80f' },
     @{ Id = 'business'; Label = 'Empresa'; Glyph = '\ue821'; Business = $true },
-    @{ Id = 'plan'; Label = (Tx 'Planear sesi\u00f3n'); Glyph = '\uea80' },
-    @{ Id = 'envs'; Label = 'Ambientes'; Glyph = '\ue7e8' },
-    @{ Id = 'self'; Label = 'SelfHarness'; Glyph = '\ue83d' },
+    @{ Id = 'plan'; Label = (Tx 'Planear sesi\u00f3n'); Glyph = '\uea80'; Module = 'judge' },
+    @{ Id = 'envs'; Label = 'Ambientes'; Glyph = '\ue7e8'; Module = 'ambientes' },
+    @{ Id = 'self'; Label = 'SelfHarness'; Glyph = '\ue83d'; Module = 'ambientes' },
     @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
     @{ Id = 'stats'; Label = (Tx 'Estad\u00edsticas'); Glyph = '\ue9d2' },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },

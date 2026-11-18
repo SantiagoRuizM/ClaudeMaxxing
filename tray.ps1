@@ -394,7 +394,7 @@ $Notify.Visible = -not $Rendering
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 # Grouped like the ClaudeMaxxing window: the window, usage, scheduling, the other tools. Names match its sections.
 [void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
-[void]$menu.Items.Add((Tx 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' })
+if (Test-HubModule 'judge') { [void]$menu.Items.Add((Tx 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' }) }
 [void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
 [void]$menu.Items.Add('Actualizar uso', $null, { Start-UsageRefresh; Show-Popup })
@@ -467,9 +467,9 @@ $timer.Add_Tick({
     Invoke-AutoSchedule
     Test-MeetingStarted
     # Ambientes (lib\harness.ps1): which environment what is open belongs to, and the offer to switch.
-    try { Invoke-HarnessWatch } catch { }
+    if (Test-HubModule 'ambientes') { try { Invoke-HarnessWatch } catch { } }
     # Business edition (lib\hubbusiness.ps1): calibrate the seat and send the weekly report, every 5 minutes.
-    if ($script:Ticks % 20 -eq 1) { try { Invoke-BusinessTick } catch { } }
+    if ($script:Ticks % 20 -eq 1) { try { Update-PolicyAtRuntime; Invoke-BusinessTick } catch { } }
     # Claude Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
     if ($script:Ticks % 20 -eq 2) { try { Update-WhipForecast } catch { } }
     Update-UsageState

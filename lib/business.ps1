@@ -15,18 +15,19 @@ $SeatStateFile      = Join-Path $BusinessHome 'seat.json'
 $MachinePolicyDir   = Join-Path $env:ProgramData $AppName
 
 # What a policy can switch off, with its name in the window.
-$script:BusinessModules = [ordered]@{ freellm = 'FreeLLMAPI'; bridge = 'Otros PCs'; whisper = 'Claude Whisper'; whip = 'Claude Whip' }
+$script:BusinessModules = [ordered]@{ freellm = 'FreeLLMAPI'; bridge = 'Otros PCs'; whisper = 'Claude Whisper'; whip = 'Claude Whip'; ambientes = 'Ambientes'; judge = 'Claude Judge' }
 $script:ObjectivesMarker = '--- Objetivos de la empresa ---'
 
 # ---------------------------------------------------------------- edition and policy
 
 # Off by default for a company: FreeLLMAPI sends prompts to free third-party providers (some train on them), Otros
 # PCs runs an SSH server that gives a shell as the user, Claude Whisper sends calls to an undocumented service and
-# Claude Whip hands the code to other companies' agents (Codex, Gemini...).
+# Claude Whip hands the code to other companies' agents (Codex, Gemini...) and Ambientes reads every tab of Chrome and
+# sends their titles to TypeSafe or Anthropic. Claude Judge only spends the user's own plan: on.
 function New-DefaultPolicy {
     [pscustomobject][ordered]@{
         company = ''
-        disabled = @('freellm', 'bridge', 'whisper', 'whip')
+        disabled = @('freellm', 'bridge', 'whisper', 'whip', 'ambientes')
         seatName = ''
         seatMonthlyUsd = 0
         reportDir = ''

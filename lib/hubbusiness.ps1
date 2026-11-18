@@ -45,6 +45,18 @@ function Get-HubSeatReport($Seat) {
     Get-SeatReport (Get-BusinessStats) $script:Business.Policy ([double]$Seat.capacity) $weekly (Get-Date)
 }
 
+# Every 5 minutes from the tray: a policy IT changes while the tray runs applies without a restart. A module turned
+# off stops: the Whip switch goes off and the Otros PCs server and discovery close. (Turning one back on, or the
+# tray menu's items, wait for the next start.)
+function Update-PolicyAtRuntime {
+    $script:Business = Get-BusinessState
+    [void](Sync-WhipPolicy (Test-HubModule 'whip'))
+    if (-not (Test-HubModule 'bridge') -and $script:BridgeTimer -and $script:BridgeTimer.Enabled) {
+        $script:BridgeTimer.Stop()
+        Stop-BridgeTray
+    }
+}
+
 # Every 5 minutes from the tray: calibrate, and send the weekly report when the policy asks for it.
 function Invoke-BusinessTick {
     if (-not (Test-HubBusiness)) { return }
