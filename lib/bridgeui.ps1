@@ -18,7 +18,7 @@ $BridgeSeenSeconds = 120
 function New-BridgeState([string]$SshDir) {
     @{
         Ctx = (New-BridgeContext -SshDir $SshDir); SshdPath = (Join-Path $SshDir 'sshd.exe')
-        Ready = $false; Problem = ''; Detail = ''
+        Ready = $false; Problem = ''; Detail = ''; SetupJob = $null; SetupFailed = $false
         Identity = $null; Keys = $null; Gate = $null; Udp = $null; FirewallOk = $false; FirewallJob = $null; FirewallState = ''
         Server = $null; ServerListen = ''; ServerStarts = @(); Peers = @(); Settings = $null
         Discovered = @{}; Networks = @(); NetworksAt = [datetime]::MinValue
@@ -496,6 +496,22 @@ function Set-BridgeAccept([bool]$On) {
     $b.Dirty = $true
 }
 
+# "Activar...": Otros PCs is opt-in, so a new install has no OpenSSH. A hidden process downloads the pinned release
+# and adds the ssh_config include (lib\bridgeinstall.ps1, as install.ps1 -Bridge does); once it ends, the next tick
+# sets the module up and the status asks for the firewall rules (one UAC prompt).
+function Enable-BridgeModule {
+    $b = $script:Bridge
+    if ($b.SetupJob -or -not (Test-HubModule 'bridge')) { return }
+    $lib = (Join-Path $TrayRoot 'lib').Replace("'", "''")
+    $root = $TrayRoot.Replace("'", "''")
+    $script = "`$ErrorActionPreference = 'Stop'; . '$lib\common.ps1'; . '$lib\bridge.ps1'; . '$lib\bridgeinstall.ps1'; " +
+        "[void](Install-BridgeOpenSsh '$root'); [void](Install-SshInclude (New-BridgeContext -SshDir (Join-Path '$root' 'ssh')))"
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+    $b.SetupJob = Start-Process -FilePath $BridgePowerShell -PassThru -WindowStyle Hidden `
+        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
+    $b.Dirty = $true
+}
+
 # "Permitir...": the UAC prompt runs in its own process; Complete-BridgeFirewall picks up the result.
 function Repair-BridgeFirewall {
     $b = $script:Bridge
@@ -585,6 +601,11 @@ function Invoke-BridgeTick {
         return
     }
     if ($b.FirewallJob -and $b.FirewallJob.HasExited) { Complete-BridgeFirewall }
+    if ($b.SetupJob -and $b.SetupJob.HasExited) {
+        # Set up from scratch on the next tick; a failed download keeps the module off with a retry.
+        if ($b.SetupJob.ExitCode -eq 0) { $script:Bridge = $null; return }
+        $b.SetupJob = $null; $b.SetupFailed = $true; $b.Dirty = $true
+    }
     if (-not $b.Ready -or $b.Busy) { return }
     $b.Busy = $true
     try {
@@ -651,7 +672,11 @@ function Get-BridgeStatus {
     $P = $script:Palette
     if (-not $b) { return @{ Text = 'Preparando...'; Color = $P.Muted } }
     switch ($b.Problem) {
-        'openssh' { return @{ Text = (Tx 'Falta OpenSSH: reinstala ClaudeMaxxing (install.ps1 desde el repo).'); Color = $P.Error } }
+        'openssh' {
+            if ($b.SetupJob) { return @{ Text = (Tx 'Activando: descargando OpenSSH\u2026'); Color = $P.Warn } }
+            if ($b.SetupFailed) { return @{ Text = (Tx 'No se pudo activar (sin conexi\u00f3n o descarga fallida).'); Color = $P.Error; Fix = 'Reintentar...'; FixAction = { Enable-BridgeModule } } }
+            return @{ Text = (Tx 'Apagado: act\u00edvalo para encontrar tus otros PCs en esta red.'); Color = $P.Muted; Fix = 'Activar...'; FixAction = { Enable-BridgeModule } }
+        }
         'error'   { return @{ Text = "No se pudo preparar: $($b.Detail)"; Color = $P.Error } }
     }
     if (-not $b.FirewallOk) {

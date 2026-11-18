@@ -1870,7 +1870,7 @@ function Update-WhipForecast {
     $settings = Get-WhipSettings
     $view = $script:View
     $session = if ($view -and $view.HasData -and $view.Session.Active) { $view.Session } else { $null }
-    if (-not $settings.Enabled -or -not (Test-ModuleAllowed 'whip') -or -not $session -or [int]$session.Percent -lt $WhipForecastFloor) {
+    if (-not $settings.Enabled -or -not (Test-HubModule 'whip') -or -not $session -or [int]$session.Percent -lt $WhipForecastFloor) {
         Save-WhipForecast $null $now
         return
     }

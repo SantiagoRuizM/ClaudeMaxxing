@@ -412,7 +412,7 @@ try {
     # SelfHarness settings: defaults, and only the choices the window offers are kept.
     $SelfHarnessFile = Join-Path $harnessTmp 'selfharness.json'
     $defaults = Get-SelfHarnessSettings
-    Assert-Equal 'True 3 0.6 gaming' ('{0} {1} {2} {3}' -f $defaults.detect, $defaults.minutes, ([double]$defaults.minConfidence).ToString([cultureinfo]::InvariantCulture), ($defaults.quiet -join ',')) 'selfharness settings: defaults without a file'
+    Assert-Equal 'False 3 0.6 gaming' ('{0} {1} {2} {3}' -f $defaults.detect, $defaults.minutes, ([double]$defaults.minConfidence).ToString([cultureinfo]::InvariantCulture), ($defaults.quiet -join ',')) 'selfharness settings: defaults without a file (detection is opt-in)'
     [IO.File]::WriteAllText($SelfHarnessFile, '{"detect":false,"minutes":7,"minConfidence":0.8,"quiet":["vacio","bad id!"]}')
     $saved = Get-SelfHarnessSettings
     Assert-Equal 'False 3 0.8 vacio' ('{0} {1} {2} {3}' -f $saved.detect, $saved.minutes, ([double]$saved.minConfidence).ToString([cultureinfo]::InvariantCulture), ($saved.quiet -join ',')) 'selfharness settings: unknown values fall back, bad ids dropped'

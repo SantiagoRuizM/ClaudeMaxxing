@@ -14,6 +14,7 @@ param(
     [switch]$SkipVoiceDeps,
     [switch]$NoHotkeys,
     [switch]$SkipBridge,
+    [switch]$Bridge,
     [switch]$Personal,
     [Alias('Bussines')][switch]$Business,
     [string]$PolicyFile
@@ -69,7 +70,7 @@ try {
     if (-not $installer) { throw 'The download has no install.ps1.' }
     $options = @()
     if ($InstallDir) { $options += @('-InstallDir', $InstallDir) }
-    foreach ($name in 'NoStart', 'SkipMenu', 'SkipVoiceDeps', 'NoHotkeys', 'SkipBridge', 'Personal', 'Business') {
+    foreach ($name in 'NoStart', 'SkipMenu', 'SkipVoiceDeps', 'NoHotkeys', 'SkipBridge', 'Bridge', 'Personal', 'Business') {
         if ((Get-Variable $name -ValueOnly).IsPresent) { $options += "-$name" }
     }
     # The installer runs from a temporary folder: a relative path must not change meaning.

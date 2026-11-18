@@ -9,9 +9,9 @@
 #      UAC prompt to trust this PC's signing certificate) and points it at the installed open-session.ps1,
 #   6. voice: /voz for menu sessions, edge-tts and ffplay (winget and pip, unless -SkipVoiceDeps) and the
 #      global hotkeys (unless -NoHotkeys),
-#   7. Otros PCs (unless -SkipBridge): the pinned, Microsoft-signed portable OpenSSH in <install>\ssh, the
-#      Include in ~/.ssh/config, and the firewall rules (Private networks, local subnet; one UAC prompt the
-#      first time),
+#   7. Otros PCs, opt-in (-Bridge, the "Activar" button in the tray, or already set up by an earlier install;
+#      never with -SkipBridge): the pinned, Microsoft-signed portable OpenSSH in <install>\ssh, the Include in
+#      ~/.ssh/config, and the firewall rules (Private networks, local subnet; one UAC prompt the first time),
 #   8. startup shortcut, an entry in Settings > Apps (its uninstall runs the installed uninstall.ps1), and
 #      starts the tray.
 # Edition: -Personal (the default) or -Business (--personal / --business work too, and --bussines). The choice is
@@ -26,6 +26,7 @@ param(
     [switch]$SkipVoiceDeps,
     [switch]$NoHotkeys,
     [switch]$SkipBridge,
+    [switch]$Bridge,
     [switch]$Personal,
     [Alias('Bussines')][switch]$Business,
     [string]$PolicyFile
@@ -220,6 +221,9 @@ if (-not (Test-ModuleAllowed $businessState 'bridge')) {
     }
 } elseif ($SkipBridge) {
     Write-Host 'skipped (-SkipBridge)'
+} elseif (-not $Bridge -and -not (Test-Path -LiteralPath (Join-Path $InstallDir 'ssh\sshd.exe'))) {
+    # Opt-in: a user-run sshd and a LAN beacon only for whoever asks (-Bridge, or "Activar" in the tray).
+    Write-Host 'off (turn it on in ClaudeMaxxing > Otros PCs > Activar, or run install.ps1 -Bridge)'
 } else {
     try {
         Write-Host (Install-BridgeOpenSsh $InstallDir)

@@ -125,7 +125,7 @@ $SelfHarnessMinutes = @(1, 2, 3, 5, 10, 15, 30)
 $SelfHarnessConfidences = @(0.5, 0.6, 0.7, 0.8, 0.9)
 
 function Get-SelfHarnessSettings($Saved = (Read-JsonFile $SelfHarnessFile)) {
-    $s = [ordered]@{ detect = $true; minutes = 3; minConfidence = 0.6; quiet = @('gaming') }
+    $s = [ordered]@{ detect = $false; minutes = 3; minConfidence = 0.6; quiet = @('gaming') }
     if ($Saved) {
         if ($null -ne $Saved.detect) { $s.detect = [bool]$Saved.detect }
         if ($SelfHarnessMinutes -contains [int]$Saved.minutes) { $s.minutes = [int]$Saved.minutes }
@@ -167,6 +167,8 @@ function Invoke-HarnessWatch {
     $dir = Get-HarnessDir
     if (-not $dir) { return }
     $state = Get-HarnessState $dir
+    # No environment set up yet: nothing to detect, and no Haiku question with the tab titles.
+    if (-not @($state.Envs).Count) { return }
     $settings = Get-SelfHarnessSettings
     # A verdict that was already there when the tray started is not asked.
     if ($null -eq $w.Asked) { $w.Asked = if ($state.Detect) { [string]$state.Detect.at } else { '' } }
