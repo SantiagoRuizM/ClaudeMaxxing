@@ -122,6 +122,36 @@ foreach ($nl in "`n", "`r`n") {
     Assert-Equal $original (Remove-StatuslineBlockText $patched) "remove restores original ($label)"
     if ($nl -eq "`n") { Assert-Equal $false ($patched.Contains("`r")) 'LF file stays LF' }
 }
+# The block run by bash: an idle session's older numbers never replace fresher ones (skipped without Git bash or jq).
+$slBash = "$env:ProgramFiles\Git\bin\bash.exe"
+$slJq = (Get-Command jq -ErrorAction SilentlyContinue).Source
+if (-not $slJq) { $slJq = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe\jq.exe" }
+if ((Test-Path -LiteralPath $slBash) -and (Test-Path -LiteralPath $slJq)) {
+    $slHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-sl-test-{0}' -f [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force $slHome | Out-Null
+    $slSaved = @($env:HOME, $env:JQ_BIN)
+    try {
+        [IO.File]::WriteAllText((Join-Path $slHome 'sl.sh'), "input=`$(cat)`n" + ($script:StatuslineBlock -replace "`r`n", "`n"))
+        $env:HOME = $slHome; $env:JQ_BIN = $slJq -replace '\\', '/'
+        $slFile = Join-Path $slHome '.claude\usage-tray\usage.json'
+        $slReset = 1794531600
+        function Invoke-SlBlock([int]$Used, [long]$Reset) {
+            ('{"rate_limits":{"five_hour":{"used_percentage":' + $Used + ',"resets_at":' + $Reset + '}}}') | & $slBash "$slHome/sl.sh"
+            [int](Read-JsonFile $slFile).rate_limits.five_hour.used_percentage
+        }
+        Assert-Equal 100 (Invoke-SlBlock 100 $slReset) 'statusline: first snapshot written'
+        Assert-Equal 100 (Invoke-SlBlock 85 $slReset) 'statusline: a lower percentage for the same window is stale'
+        Assert-Equal 5 (Invoke-SlBlock 5 ($slReset + 18000)) 'statusline: a new window replaces it'
+        Assert-Equal 5 (Invoke-SlBlock 100 $slReset) 'statusline: the previous window is stale'
+        # The tray's own refresh writes indented JSON (Write-JsonFile): read the same way.
+        Write-JsonFile $slFile ([ordered]@{ rate_limits = [ordered]@{ five_hour = [ordered]@{ used_percentage = 60; resets_at = $slReset } }; updated_at = 1; source = 'api' })
+        Assert-Equal 60 (Invoke-SlBlock 40 $slReset) 'statusline: stale against the tray refresh copy'
+        Assert-Equal 70 (Invoke-SlBlock 70 $slReset) 'statusline: higher in the same window is written'
+    } finally {
+        $env:HOME = $slSaved[0]; $env:JQ_BIN = $slSaved[1]
+        Remove-Item -LiteralPath $slHome -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 
 # --- session planning
 $w = Get-ProjectedWindow (Get-Date -Year 2026 -Month 10 -Day 10 -Hour 7 -Minute 40 -Second 30)
