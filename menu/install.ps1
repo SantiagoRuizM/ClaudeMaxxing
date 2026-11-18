@@ -51,8 +51,10 @@ function Get-SigningCertificate {
         $cer = Join-Path $env:TEMP "ClaudeCodeMenu-$($cert.Thumbprint).cer"
         Export-Certificate -Cert $cert -FilePath $cer | Out-Null
         Write-Host 'Trusting the package certificate (accept the UAC prompt)...'
-        $command = "Import-Certificate -FilePath '$cer' -CertStoreLocation Cert:\LocalMachine\TrustedPeople"
-        $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList "-NoProfile -Command $command"
+        # Encoded, so a profile path with an apostrophe (C:\Users\O'Brien) cannot break the quoting.
+        $command = "`$ErrorActionPreference = 'Stop'; Import-Certificate -FilePath '$($cer.Replace("'", "''"))' -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null"
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($command))
+        $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList "-NoProfile -EncodedCommand $encoded"
         Remove-Item -LiteralPath $cer -ErrorAction SilentlyContinue
         if ($p.ExitCode -ne 0) { throw 'could not trust the package certificate' }
     }
