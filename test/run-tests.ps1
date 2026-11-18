@@ -127,6 +127,15 @@ foreach ($nl in "`n", "`r`n") {
     Assert-Equal $original (Remove-StatuslineBlockText $patched) "remove restores original ($label)"
     if ($nl -eq "`n") { Assert-Equal $false ($patched.Contains("`r")) 'LF file stays LF' }
 }
+$slScript = Join-Path ([IO.Path]::GetTempPath()) ('cmx-sl-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.sh')
+try {
+    $current = Add-StatuslineBlock "#!/usr/bin/env bash`ninput=`$(cat)`necho hi`n"
+    $old = $current.Replace('usage.json.tmp.$$', 'usage.json.tmp')
+    [IO.File]::WriteAllText($slScript, $old)
+    Assert-Equal 'updated' (Install-StatuslineBlock $slScript) 'statusline: an update swaps an older block for the new one'
+    Assert-Equal $current ([IO.File]::ReadAllText($slScript)) 'statusline: the updated script has the current block'
+    Assert-Equal 'already installed' (Install-StatuslineBlock $slScript) 'statusline: the current block is left alone'
+} finally { Remove-Item -LiteralPath $slScript, "$slScript.bak-claudetray" -ErrorAction SilentlyContinue }
 # The block run by bash: an idle session's older numbers never replace fresher ones (skipped without Git bash or jq).
 $slBash = "$env:ProgramFiles\Git\bin\bash.exe"
 $slJq = (Get-Command jq -ErrorAction SilentlyContinue).Source

@@ -89,7 +89,13 @@ function Remove-StatuslineBlockText([string]$Text) {
 
 function Install-StatuslineBlock([string]$Path) {
     $text = Read-TextFile $Path
-    if ($text.Contains($script:BlockStart)) { return 'already installed' }
+    if ($text.Contains($script:BlockStart)) {
+        # An update brings a newer block: swap the old one for it, so a fix in the block reaches installed PCs.
+        $updated = Add-StatuslineBlock (Remove-StatuslineBlockText $text)
+        if ($updated -eq $text) { return 'already installed' }
+        Write-TextFile $Path $updated
+        return 'updated'
+    }
     $backup = "$Path.bak-claudetray"
     if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $Path -Destination $backup }
     Write-TextFile $Path (Add-StatuslineBlock $text)
