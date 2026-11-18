@@ -571,6 +571,12 @@ function Invoke-HubHarnessDetect {
     Update-HubNow
 }
 
+# How much the window shrinks to fit the screen's work area (with a margin), 1 when it fits; never under 0.6.
+function Get-HubZoom([int]$AreaWidth, [int]$AreaHeight, [int]$Width, [int]$Height, [int]$Margin = 24) {
+    $zoom = [Math]::Min(1.0, [Math]::Min(($AreaWidth - $Margin) / [double]$Width, ($AreaHeight - $Margin) / [double]$Height))
+    [Math]::Max(0.6, $zoom)
+}
+
 function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "stats-hours", "stats-models-all"...: a tab (and the all-time range) of Estadisticas.
     $statsTab = 'summary'; $statsRange = 'recent'
@@ -597,7 +603,10 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.StartPosition = 'CenterScreen'
     $dlg.BackColor = $P.Back
     $dlg.KeyPreview = $true
-    $dlg.ClientSize = New-Object System.Drawing.Size((Px $HubWidth), (Px $HubHeight))
+    # The window is drawn at its full size; on a screen too small for it (1366x768 at 125 %), shown smaller.
+    $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
+    $zoom = if ($RenderPath) { 1.0 } else { Get-HubZoom $area.Width $area.Height (Px $HubWidth) (Px $HubHeight) }
+    $dlg.ClientSize = New-Object System.Drawing.Size([int]((Px $HubWidth) * $zoom), [int]((Px $HubHeight) * $zoom))
     $appIcon = Get-AppIcon; if ($appIcon) { $dlg.Icon = $appIcon }
     Enable-DoubleBuffer $dlg
     $dlg.Tag = New-HitMap
@@ -605,7 +614,9 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $script:HubDialog = $dlg
     $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Logo = (New-BrandMark $P.Accent (Px 26)); Watermark = (New-BrandMark $P.Accent (Px 380) 0.07); NavMark = (New-BrandMark $P.Accent (Px 96) 0.12); Cache = @{}
         SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = ''
-        StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview; EnvsPreview = $envsPreview }
+        StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview; EnvsPreview = $envsPreview
+        W = (Px $HubWidth); H = (Px $HubHeight); Zoom = $zoom }
+    $dlg.Tag.Zoom = $zoom
     # A damaged data file must not take the click handler (and the tray) down: the section just shows less.
     if ($RenderPath) { Set-HubPreview } else { try { Update-HubCache -Full; if ($script:Hub.Section -eq 'stats') { Update-HubStats } } catch { } }
 
@@ -613,7 +624,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # Drag the window by the header or the brand area.
     $dlg.Add_MouseDown({
         param($sender, $e)
-        if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left -or $e.Y -gt (Px 56)) { return }
+        if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left -or $e.Y -gt (Px 56) * $script:Hub.Zoom) { return }
         if (Find-Hit $sender.Tag $e.Location) { return }
         [void][ClaudeTray.Native]::ReleaseCapture()
         [void][ClaudeTray.Native]::SendMessage($sender.Handle, 0xA1, [IntPtr]2, [IntPtr]::Zero)
@@ -621,7 +632,25 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.Add_HandleCreated({ param($sender, $e) Set-RoundedWindow $sender $script:Palette.Border })
     $dlg.Add_Paint({
         param($sender, $e)
-        try { Draw-Hub $sender $e.Graphics }
+        try {
+            if ($script:Hub.Zoom -ge 1) { Draw-Hub $sender $e.Graphics }
+            else {
+                # TextRenderer ignores a Graphics transform: draw at full size, then scale the picture down.
+                # Drawn through the bitmap's HDC, as on screen: TextRenderer (GDI) on a Graphics.FromImage would blend
+                # its ClearType text against the wrong background where GDI+ filled a shape (the accent buttons).
+                $full = New-Object System.Drawing.Bitmap($script:Hub.W, $script:Hub.H, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+                $image = [System.Drawing.Graphics]::FromImage($full)
+                $hdc = $image.GetHdc()
+                try {
+                    $g = [System.Drawing.Graphics]::FromHdc($hdc)
+                    try { $g.Clear($script:Palette.Back); Draw-Hub $sender $g } finally { $g.Dispose() }
+                } finally { $image.ReleaseHdc($hdc); $image.Dispose() }
+                try {
+                    $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                    $e.Graphics.DrawImage($full, 0, 0, $sender.ClientSize.Width, $sender.ClientSize.Height)
+                } finally { $full.Dispose() }
+            }
+        }
         catch {
             $script:Hub.Error = "$($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))"
             if ($script:Hub.Preview) { [Console]::Error.WriteLine('hub paint: ' + $script:Hub.Error + "`n" + $_.ScriptStackTrace) }
@@ -990,8 +1019,8 @@ function Draw-Hub($Form, $G) {
     $map = $Form.Tag
     $map.Items.Clear()
     $hover = $map.Hover
-    $w = $Form.ClientSize.Width
-    $h = $Form.ClientSize.Height
+    $w = $script:Hub.W
+    $h = $script:Hub.H
     $navW = Px $HubNavWidth
 
     # side menu

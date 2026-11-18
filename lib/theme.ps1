@@ -231,6 +231,7 @@ function Draw-HitFocus($G, $Map) {
     $item = @($Map.Items | Where-Object { $_.Id -eq $Map.Focus }) | Select-Object -First 1
     if (-not $item) { $Map.Focus = $null; return }
     $r = $item.Rect
+    if ($Map.Zoom -and $Map.Zoom -lt 1) { $z = $Map.Zoom; $r = New-Rect ([int]($r.X * $z)) ([int]($r.Y * $z)) ([int]($r.Width * $z)) ([int]($r.Height * $z)) }
     $G.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     Stroke-Round $G (New-Rect ($r.X - (Px 2)) ($r.Y - (Px 2)) ($r.Width + (Px 4)) ($r.Height + (Px 4))) (Px 8) $script:Palette.Accent 2
 }
@@ -248,6 +249,8 @@ function Move-HitFocus($Form, [int]$Step) {
 }
 
 function Find-Hit($Map, [System.Drawing.Point]$Point) {
+    # A window drawn at full size and shown smaller (the hub on a small screen): back to drawing coordinates.
+    if ($Map.Zoom -and $Map.Zoom -lt 1) { $Point = New-Object System.Drawing.Point([int]($Point.X / $Map.Zoom), [int]($Point.Y / $Map.Zoom)) }
     for ($i = $Map.Items.Count - 1; $i -ge 0; $i--) {
         if ($Map.Items[$i].Rect.Contains($Point)) { return $Map.Items[$i] }
     }

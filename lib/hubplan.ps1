@@ -134,14 +134,14 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
 
     # Flujo previo: the ideas already judged, newest first
-    $fit = [Math]::Max(0, [int][Math]::Floor(($script:HubDialog.ClientSize.Height - (Px 16) - ($y + (Px 24))) / (Px 44)))
+    $fit = [Math]::Max(0, [int][Math]::Floor(($script:Hub.H - (Px 16) - ($y + (Px 24))) / (Px 44)))
     Draw-HubCaption $G (Tx 'FLUJO PREVIO \u00b7 IDEAS YA JUZGADAS') $X0 $y $Inner $(if ($trials.Count -gt $fit) { Tx "+$($trials.Count - $fit) m\u00e1s antiguas" } else { '' })
     $y += Px 24
     if (-not $trials.Count) {
         Draw-Wrapped $G (Tx 'Aqu\u00ed aparecer\u00e1n tus ideas con su veredicto. Empieza con Nueva idea.') $F.Small $P.Faint $X0 $y $Inner (Px 36)
         return
     }
-    $bottom = $script:HubDialog.ClientSize.Height - (Px 16)
+    $bottom = $script:Hub.H - (Px 16)
     for ($i = 0; $i -lt $trials.Count -and ($y + (Px 44)) -le $bottom; $i++) {
         $t = $trials[$i]
         $row = New-Rect $X0 $y $Inner (Px 40)

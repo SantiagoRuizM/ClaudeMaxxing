@@ -320,14 +320,14 @@ function Draw-HubStatsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
     $form = $script:HubDialog
     $ts = $hub.Cache.ToolStats
-    $signature = '{0}|{1}|{2}|{3}x{4}|{5}|{6}' -f $hub.StatsTab, $hub.StatsRange, $stats.scannedAt, $form.ClientSize.Width, $form.ClientSize.Height,
+    $signature = '{0}|{1}|{2}|{3}x{4}|{5}|{6}' -f $hub.StatsTab, $hub.StatsRange, $stats.scannedAt, $hub.W, $hub.H,
         $(if ($ts) { "$($ts.Calls),$($ts.Runs),$($ts.MenuOpens),$($ts.Paired)" } else { '' }), (Get-Date).ToString('yyyyMMddHH')
     # Consumo follows the plan's percentage and the clock (the forecast moves within the hour).
     if ($hub.StatsTab -eq 'usage') { $signature += '|' + $(if ($script:View -and $script:View.HasData) { $script:View.Session.Percent } else { '' }) + '|' + (Get-Date).ToString('HHmm').Substring(0, 3) }
     $body = New-Rect $X0 (Px 100) $Inner ($footY - (Px 100) - (Px 4))
     if ($hub.StatsSignature -ne $signature -or -not $hub.StatsBitmap) {
         if ($hub.StatsBitmap) { $hub.StatsBitmap.Dispose() }
-        $bitmap = New-Object System.Drawing.Bitmap($form.ClientSize.Width, $form.ClientSize.Height)
+        $bitmap = New-Object System.Drawing.Bitmap($hub.W, $hub.H)
         $bg = [System.Drawing.Graphics]::FromImage($bitmap)
         $bg.Clear($P.Back)
         $bg.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
