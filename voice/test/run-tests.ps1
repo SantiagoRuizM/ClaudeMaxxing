@@ -289,6 +289,18 @@ Check 'motor sin apartar' (-not (Test-EngineSnoozed 'elevenlabs')) ''
 Set-EngineSnooze 'elevenlabs' 10 'prueba'
 Check 'motor apartado tras quedarse sin creditos' (Test-EngineSnoozed 'elevenlabs') ''
 
+'Remove-StaleState'
+foreach ($n in 'origin-viejo', 'turn-viejo', 'engine-off-viejo.json', 'name-viejo', 'origin-nuevo', 'Native-AAAA.dll', 'Native-BBBB.dll') {
+    [IO.File]::WriteAllText((Join-Path $StateDir $n), 'x')
+}
+foreach ($n in 'origin-viejo', 'turn-viejo', 'engine-off-viejo.json', 'name-viejo', 'Native-AAAA.dll') { (Get-Item (Join-Path $StateDir $n)).LastWriteTime = (Get-Date).AddDays(-30) }
+(Get-Item (Join-Path $StateDir 'Native-BBBB.dll')).LastWriteTime = (Get-Date).AddDays(-20)
+Remove-StaleState
+$left = @(Get-ChildItem $StateDir -File | Where-Object { $_.Name -match 'viejo|nuevo|Native-(AAAA|BBBB)' } | ForEach-Object { $_.Name } | Sort-Object)
+Check 'estado viejo: borra origin, turn, engine-off, name y DLLs de hace una semana; deja lo reciente' (($left -join ',') -eq 'origin-nuevo') ($left -join ',')
+Check 'estado viejo: la DLL en uso se queda' (@(Get-ChildItem $StateDir -Filter 'Native-*.dll').Count -ge 1) ''
+Remove-Item (Join-Path $StateDir 'origin-nuevo'), (Join-Path $StateDir 'Native-BBBB.dll') -ErrorAction SilentlyContinue
+
 'Get-PlanLimitNotice'
 $lt = Join-Path $env:TEMP 'tray-limit'
 New-Item -ItemType Directory -Force -Path $lt | Out-Null

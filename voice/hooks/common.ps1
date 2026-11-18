@@ -410,8 +410,12 @@ function Get-OtherSessionsNote([string]$SessionId, [string]$Cwd,
 
 # Borra estado de sesiones viejas para que %TEMP% no crezca sin limite.
 function Remove-StaleState {
-    Get-ChildItem $StateDir -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^(voice|muted|name|chime)-' -and $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+    Get-ChildItem $StateDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^(voice|muted|name|chime|origin|turn|engine-off)-' -and $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    # Native-<hash>.dll from older hook versions: the newest is the one in use (a loaded one is locked anyway).
+    Get-ChildItem $StateDir -Filter 'Native-*.dll' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending |
+        Select-Object -Skip 1 | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
