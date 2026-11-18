@@ -75,8 +75,18 @@ function Read-JsonFile([string]$Path) {
     try { return [IO.File]::ReadAllText($Path, $Utf8) | ConvertFrom-Json } catch { return $null }
 }
 
+# -InputObject keeps a one-item array an array. Written to a temporary file and renamed over the old one, so another
+# session's hook never reads it half written (in place when a reader blocks the rename).
 function Write-JsonFile([string]$Path, $Value) {
-    [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 6), $Utf8)
+    $json = ConvertTo-Json -InputObject $Value -Depth 6
+    $tmp = '{0}.{1}.tmp' -f $Path, [guid]::NewGuid().ToString('N').Substring(0, 8)
+    try {
+        [IO.File]::WriteAllText($tmp, $json, $Utf8)
+        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [IO.File]::Move($tmp, $Path) }
+    } catch {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        [IO.File]::WriteAllText($Path, $json, $Utf8)
+    }
 }
 
 # Lee el JSON del evento desde stdin como bytes UTF-8. No usa [Console]::InputEncoding

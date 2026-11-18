@@ -47,7 +47,22 @@ function Write-JsonFile([string]$Path, $Object) {
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     # -InputObject keeps arrays as arrays (the pipeline would unroll a one-item array).
     $json = ConvertTo-Json -InputObject $Object -Depth 6
-    [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
+    Write-TextFileAtomic $Path $json
+}
+
+# Writes a whole file at once: a temporary file next to it, then a rename over it, so a reader in another process
+# (the statusline, the Whip plugin, a hook) never sees it empty or half written.
+# shortcut: a reader that holds the file without FILE_SHARE_DELETE blocks the rename; then it is written in place.
+function Write-TextFileAtomic([string]$Path, [string]$Text) {
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    $tmp = '{0}.{1}.tmp' -f $Path, [guid]::NewGuid().ToString('N').Substring(0, 8)
+    try {
+        [System.IO.File]::WriteAllText($tmp, $Text, $encoding)
+        if ([System.IO.File]::Exists($Path)) { [System.IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [System.IO.File]::Move($tmp, $Path) }
+    } catch {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        [System.IO.File]::WriteAllText($Path, $Text, $encoding)
+    }
 }
 
 # A process started from inside a Claude Code session inherits its markers (CLAUDE_CODE_CHILD_SESSION,

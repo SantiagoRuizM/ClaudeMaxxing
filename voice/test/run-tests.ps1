@@ -289,6 +289,13 @@ Check 'motor sin apartar' (-not (Test-EngineSnoozed 'elevenlabs')) ''
 Set-EngineSnooze 'elevenlabs' 10 'prueba'
 Check 'motor apartado tras quedarse sin creditos' (Test-EngineSnoozed 'elevenlabs') ''
 
+'Write-JsonFile'
+$jf = Join-Path $env:TEMP 'uno.json'
+Write-JsonFile $jf @([pscustomobject]@{ a = 1 })
+Write-JsonFile $jf @([pscustomobject]@{ a = 2 })
+Check 'un arreglo de un elemento sigue siendo arreglo, y reescribe' ([IO.File]::ReadAllText($jf).TrimStart().StartsWith('[') -and (Read-JsonFile $jf).a -eq 2) ([IO.File]::ReadAllText($jf))
+Check 'sin archivos temporales' (@(Get-ChildItem $env:TEMP -Filter '*.tmp').Count -eq 0) ''
+
 'Get-OtherSessionsNote'
 $tray = Join-Path $env:TEMP 'tray-fake'
 New-Item -ItemType Directory -Force -Path $tray | Out-Null

@@ -34,7 +34,7 @@ if [ -n "$tray_jq" ]; then
     if (( tray_stale )); then
       :
     elif [ "${tray_old%,\"updated_at\"*}" != "${tray_snap%,\"updated_at\"*}" ] || (( tray_now - tray_at >= 60 )); then
-      printf '%s' "$tray_snap" > "$tray_dir/usage.json.tmp" 2>/dev/null && mv -f "$tray_dir/usage.json.tmp" "$tray_dir/usage.json" 2>/dev/null
+      printf '%s' "$tray_snap" > "$tray_dir/usage.json.tmp.$$" 2>/dev/null && mv -f "$tray_dir/usage.json.tmp.$$" "$tray_dir/usage.json" 2>/dev/null
     fi
   fi
 fi

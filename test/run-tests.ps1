@@ -147,6 +147,7 @@ if ((Test-Path -LiteralPath $slBash) -and (Test-Path -LiteralPath $slJq)) {
         Write-JsonFile $slFile ([ordered]@{ rate_limits = [ordered]@{ five_hour = [ordered]@{ used_percentage = 60; resets_at = $slReset } }; updated_at = 1; source = 'api' })
         Assert-Equal 60 (Invoke-SlBlock 40 $slReset) 'statusline: stale against the tray refresh copy'
         Assert-Equal 70 (Invoke-SlBlock 70 $slReset) 'statusline: higher in the same window is written'
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath (Split-Path $slFile) -Filter '*.tmp*').Count 'statusline and Write-JsonFile leave no temporary file'
     } finally {
         $env:HOME = $slSaved[0]; $env:JQ_BIN = $slSaved[1]
         Remove-Item -LiteralPath $slHome -Recurse -Force -ErrorAction SilentlyContinue
