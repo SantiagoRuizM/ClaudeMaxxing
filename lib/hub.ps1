@@ -1332,7 +1332,8 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $ix = $card.X + (Px 12)
     $iw = $card.Width - (Px 24)
     $iy = $card.Y + (Px 10)
-    $tabs = if ($fresh) { @($focus.tabs | Where-Object { $hiddenTabs -notcontains [long]$_.id }) } else { @() }
+    # @(...) outside the if: an if returns one item unwrapped, and a lone pscustomobject has no .Count in PS 5.1.
+    $tabs = @(if ($fresh) { $focus.tabs | Where-Object { $hiddenTabs -notcontains [long]$_.id } })
     if (-not $hs.Active) {
         Draw-Wrapped $G (Tx 'Enciende un ambiente en Ambientes: aqu\u00ed saldr\u00e1 lo que no encaja con \u00e9l, cada cosa con su motivo.') $F.Small $P.Muted $ix $iy $iw (Px 54)
     } elseif (-not $fresh) {
@@ -1372,7 +1373,7 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
 
     # ---- dev servers (right, top)
-    $servers = if ($focus) { @($focus.servers | Where-Object { $hiddenPorts -notcontains [int]$_.port }) } else { @() }
+    $servers = @(if ($focus) { $focus.servers | Where-Object { $hiddenPorts -notcontains [int]$_.port } })
     Draw-HubCaption $G 'SERVIDORES' $rx $y $colW $(if ($servers.Count) { [string]$servers.Count + ' escuchando' } else { '' })
     $shown = [Math]::Min(3, $servers.Count)
     $card = New-Rect $rx ($y + (Px 24)) $colW ((Px 16) + [Math]::Max(1, $shown) * (Px 32) + $(if ($servers.Count -gt 3) { Px 18 } else { 0 }))
