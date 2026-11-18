@@ -1,14 +1,24 @@
 name: CI
 
+# Also called by release.yml, so a release runs exactly these tests.
 on:
   push:
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The Whip and Peek tests import their .ts modules directly (Node strips the types).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - name: Tray, slots, installer and menu package tests
         shell: powershell
@@ -21,6 +31,14 @@ jobs:
       - name: Ambientes (harness) plan cases and the native host
         shell: cmd
         run: node harness\test.js
+
+      - name: Claude Whip rules (the shell guard)
+        shell: cmd
+        run: node --test whip\test\rules.test.mjs
+
+      - name: Peek paths (Windows, Linux and WSL)
+        shell: cmd
+        run: node --test peek\test\paths.test.mjs
 
       - name: Menu DLL and stub build from source
         shell: cmd
