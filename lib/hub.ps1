@@ -1408,16 +1408,17 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $cx += $cw + (Px 6)
     }
     $chipRows = if ($chips.Count) { $crow + 1 } else { 0 }
-    $card = New-Rect $rx ($ay + (Px 24)) $colW ((Px 150) + $chipRows * (Px 30))
+    $card = New-Rect $rx ($ay + (Px 24)) $colW ((Px 184) + $chipRows * (Px 30))
     Draw-HubCard $G $card
     $rowX = $card.X + (Px 6)
     $rowW = $card.Width - (Px 12)
     Draw-HubToggleRow $G $Map $Hover 'self-detect' (New-Rect $rowX ($card.Y + (Px 6)) $rowW (Px 42)) 'Detectar y preguntar' (Tx 'Si lo abierto es de otro ambiente') ([bool]$set.detect) { Switch-HubSelfDetect }
     Draw-HubPicker $G $Map $Hover 'self-min' (New-Rect $rowX ($card.Y + (Px 52)) $rowW (Px 30)) 'Cada' ("$($set.minutes) min") 'Step-HubSelfMinutes' ([bool]$set.detect)
     Draw-HubPicker $G $Map $Hover 'self-conf' (New-Rect $rowX ($card.Y + (Px 86)) $rowW (Px 30)) (Tx 'Confianza m\u00ednima') ("$([int]([double]$set.minConfidence * 100)) %") 'Step-HubSelfConfidence' ([bool]$set.detect)
-    Draw-Text $G (Tx 'No molestar en (sin detecci\u00f3n ni aviso):') $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 122)) ($card.Width - (Px 32)) (Px 18)
+    Draw-HubPicker $G $Map $Hover 'self-judge' (New-Rect $rowX ($card.Y + (Px 120)) $rowW (Px 30)) 'Juez' $(if ($set.judge -eq 'jev') { 'Jev (API)' } else { 'Haiku (plan)' }) 'Step-HubSelfJudge' ([bool]$set.detect)
+    Draw-Text $G (Tx 'No molestar en (sin detecci\u00f3n ni aviso):') $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 156)) ($card.Width - (Px 32)) (Px 18)
     foreach ($c in $chips) {
-        $rect = New-Rect ($card.X + (Px 12) + $c.X) ($card.Y + (Px 144) + $c.Row * (Px 30)) $c.W (Px 26)
+        $rect = New-Rect ($card.X + (Px 12) + $c.X) ($card.Y + (Px 178) + $c.Row * (Px 30)) $c.W (Px 26)
         $quiet = @($set.quiet) -contains [string]$c.Env.Id
         $action = [scriptblock]::Create("Switch-HubSelfQuiet '$($c.Env.Id)'")
         if ($quiet) { Draw-PillButton $G $Map $Hover "self-quiet-$($c.Env.Id)" $rect ([string]$c.Env.Name) $action -Accent }
@@ -1737,6 +1738,7 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
     $F = $script:Fonts
+function Step-HubSelfJudge([int]$Delta) { Step-HubSelfChoice 'judge' $SelfHarnessJudges $Delta }
     $c = $script:Hub.Cache
     $screens = [Math]::Max(1, [int]$c.Screens)
     $slots = 2 * $screens
