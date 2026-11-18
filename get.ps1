@@ -3,8 +3,8 @@
 # With install.ps1's options:
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1))) -SkipBridge
 # The business edition: the same with -Business (and -PolicyFile <json> for the company policy).
-# It downloads the newest release (or the branch -Ref names; main when there is no release yet), checks the ZIP
-# against the release's SHA256SUMS.txt, unzips it to a temporary folder, runs its install.ps1 and deletes the
+# It downloads the newest release (or the branch -Ref names; main, unverified, only while the repo has no release),
+# checks the ZIP against the release's SHA256SUMS.txt (and stops when it can't), unzips it to a temporary folder, runs its install.ps1 and deletes the
 # folder: everything runs from %LOCALAPPDATA%\ClaudeMaxxing afterwards. Run it again to update. Keep this file ASCII.
 param(
     [string]$Ref,
@@ -37,9 +37,17 @@ if (-not $Ref) {
             $line = @(([string](Invoke-RestMethod $sums.browser_download_url -Headers $headers)) -split "`n" | Where-Object { $_ -match [regex]::Escape($asset.name) })[0]
             if ($line) { $expected = ($line.Trim() -split '\s+')[0].ToUpperInvariant() }
         }
+        if (-not $expected) { throw "release $($release.tag_name) has no SHA-256 for $($asset.name)" }
         Write-Host "ClaudeMaxxing $($release.tag_name)"
     } catch {
-        Write-Host "No release to download ($($_.Exception.Message)); installing the main branch."
+        # Fails closed: main (unverified) only when GitHub says there is no release at all (404), never because its
+        # API failed (its 60 requests an hour per address run out on shared networks) or a release lacks its SHA-256.
+        $status = 0
+        if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+        if ($status -ne 404) {
+            throw "Could not get the latest release ($($_.Exception.Message)). Nothing was installed. Try again later, or pass -Ref main to install the unreleased main branch, unverified."
+        }
+        Write-Host 'No release yet; installing the main branch (unverified).'
         $Ref = 'main'
     }
 }
