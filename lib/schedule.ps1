@@ -92,12 +92,29 @@ function Get-CloudScheduleOutcome([string]$Output) {
 
 function ConvertTo-LocalTime([string]$Text) { [DateTimeOffset]::Parse($Text).LocalDateTime }
 
+# Runs $Body holding a lock on $Path across processes: history.json and cloud.json are read, changed and written
+# by the tray, the dialog, start-session.ps1 (Task Scheduler) and cloud-schedule.ps1, and two at once lose an entry.
+function Use-JsonFileLock([string]$Path, [scriptblock]$Body) {
+    $name = 'Local\ClaudeTrayFile-' + [Math]::Abs($Path.ToLowerInvariant().GetHashCode())
+    $lock = New-Object System.Threading.Mutex($false, $name)
+    $owned = $false
+    try {
+        try { $owned = $lock.WaitOne(5000) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+        & $Body
+    } finally {
+        if ($owned) { $lock.ReleaseMutex() }
+        $lock.Dispose()
+    }
+}
+
 # Appends to a JSON array file, keeping the newest $Keep entries.
 function Add-JsonArrayEntry([string]$Path, $Entry, [int]$Keep = 20) {
-    $items = @(Read-JsonFile $Path | Where-Object { $_ })
-    $items = @($items) + @($Entry)
-    if ($items.Count -gt $Keep) { $items = $items[($items.Count - $Keep)..($items.Count - 1)] }
-    Write-JsonFile $Path $items
+    Use-JsonFileLock $Path {
+        $items = @(Read-JsonFile $Path | Where-Object { $_ })
+        $items = @($items) + @($Entry)
+        if ($items.Count -gt $Keep) { $items = $items[($items.Count - $Keep)..($items.Count - 1)] }
+        Write-JsonFile $Path $items
+    }
 }
 
 function Add-ScheduleHistory($Entry) { Add-JsonArrayEntry $HistoryFile $Entry }
@@ -109,19 +126,31 @@ function Add-CloudRequest([datetime]$At) {
     $id
 }
 
-function Get-CloudRequest([string]$Id) {
-    @(Read-JsonFile $CloudFile | Where-Object { $_ -and $_.id -eq $Id }) | Select-Object -First 1
+# A request still "creating" after this long has a claude -p that hung or died: it is reported as failed, so the
+# dialog stops waiting and a new one can be made.
+$CloudRequestMaxMinutes = 15
+
+function Get-CloudRequest([string]$Id, [datetime]$Now = (Get-Date)) {
+    $request = @(Read-JsonFile $CloudFile | Where-Object { $_ -and $_.id -eq $Id }) | Select-Object -First 1
+    if ($request -and $request.status -eq 'creating' -and $request.requestedAt -and
+        ($Now - (ConvertTo-LocalTime ([string]$request.requestedAt))).TotalMinutes -gt $CloudRequestMaxMinutes) {
+        $request | Add-Member -NotePropertyName status -NotePropertyValue 'failed' -Force
+        $request | Add-Member -NotePropertyName error -NotePropertyValue ((Tx 'Claude no termin\u00f3 de crear la rutina en ') + "$CloudRequestMaxMinutes min.") -Force
+    }
+    $request
 }
 
 function Set-CloudRequestResult([string]$Id, [string]$Status, [string]$RoutineId, [string]$ErrorText) {
-    $items = @(Read-JsonFile $CloudFile | Where-Object { $_ })
-    foreach ($item in $items) {
-        if ($item.id -ne $Id) { continue }
-        $item | Add-Member -NotePropertyName status -NotePropertyValue $Status -Force
-        if ($RoutineId) { $item | Add-Member -NotePropertyName routineId -NotePropertyValue $RoutineId -Force }
-        if ($ErrorText) { $item | Add-Member -NotePropertyName error -NotePropertyValue $ErrorText -Force }
+    Use-JsonFileLock $CloudFile {
+        $items = @(Read-JsonFile $CloudFile | Where-Object { $_ })
+        foreach ($item in $items) {
+            if ($item.id -ne $Id) { continue }
+            $item | Add-Member -NotePropertyName status -NotePropertyValue $Status -Force
+            if ($RoutineId) { $item | Add-Member -NotePropertyName routineId -NotePropertyValue $RoutineId -Force }
+            if ($ErrorText) { $item | Add-Member -NotePropertyName error -NotePropertyValue $ErrorText -Force }
+        }
+        Write-JsonFile $CloudFile $items
     }
-    Write-JsonFile $CloudFile $items
 }
 
 # Rows for the "scheduled" list: upcoming first (soonest on top), then past runs (newest on top).

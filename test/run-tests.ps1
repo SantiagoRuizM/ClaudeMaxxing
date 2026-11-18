@@ -116,6 +116,25 @@ Assert-Equal 'routines disabled for this org' $failOut.Error 'cloud outcome: fai
 Assert-Equal 'failed' (Get-CloudScheduleOutcome 'something else').Status 'cloud outcome: no marker means failed'
 Assert-Equal $false ((Format-CloudSchedulePrompt $now) -match '<|>') 'cloud prompt has no shell redirection characters'
 Assert-Equal 'Session-20261010-0707' (Get-SessionTaskName (Get-Date -Year 2026 -Month 10 -Day 10 -Hour 7 -Minute 7)) 'task name'
+$realCloudFile = $CloudFile
+$CloudFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-cloud-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+try {
+    $cid = Add-CloudRequest (Get-Date).AddHours(3)
+    Assert-Equal 'creating' (Get-CloudRequest $cid).status 'cloud request: creating while claude works'
+    $late = Get-CloudRequest $cid (Get-Date).AddMinutes(20)
+    Assert-Equal $true ($late.status -eq 'failed' -and $late.error) 'cloud request: one still creating after 15 minutes is reported as failed'
+    Set-CloudRequestResult $cid 'scheduled' 'trig_1' $null
+    Assert-Equal 'scheduled|trig_1' ("$((Get-CloudRequest $cid).status)|$((Get-CloudRequest $cid).routineId)") 'cloud request: result saved'
+    # Two processes appending at once: the lock keeps every entry.
+    $lib = Join-Path $TrayRoot 'lib'
+    $append = "`$ErrorActionPreference='Stop'; . '$lib\common.ps1'; . '$lib\schedule.ps1'; 1..15 | ForEach-Object { Add-JsonArrayEntry '$CloudFile.race' ([ordered]@{ n = `$_ }) 100 }"
+    $racers = @(1, 2 | ForEach-Object { Start-Process powershell -ArgumentList '-NoProfile', '-Command', $append -WindowStyle Hidden -PassThru })
+    $racers | ForEach-Object { $_.WaitForExit(60000) | Out-Null }
+    Assert-Equal 30 @(Read-JsonFile "$CloudFile.race").Count 'json array entries: none lost when two processes append at once'
+} finally {
+    Remove-Item -LiteralPath $CloudFile, "$CloudFile.race" -ErrorAction SilentlyContinue
+    $CloudFile = $realCloudFile
+}
 
 # --- statusline block
 foreach ($nl in "`n", "`r`n") {
