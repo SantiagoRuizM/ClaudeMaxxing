@@ -1095,6 +1095,14 @@ Assert-Equal '5' $ws.profile 'whisper: text settings are strings'
 $ws = Get-WhisperSettings ([pscustomobject]@{ autoAnswer = $false; translate = $false })
 Assert-Equal $true ($ws.autoAnswer -and $ws.translate) 'whisper: settings from before version 2 get auto-answer and translation on once'
 Assert-Equal 2 $ws.version 'whisper: settings version saved'
+Assert-Equal 'False|30' "$((Get-WhisperSettings $null).consent)|$((Get-WhisperSettings $null).keepDays)" 'whisper: asks before the first listen, keeps 30 days of calls'
+$wsDir = Join-Path ([IO.Path]::GetTempPath()) ('cmx-wsess-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $wsDir | Out-Null
+foreach ($age in 2, 40) { $f = Join-Path $wsDir "call-$age.md"; [IO.File]::WriteAllText($f, 'x'); (Get-Item $f).LastWriteTime = (Get-Date).AddDays(-$age) }
+Assert-Equal 0 (Remove-OldWhisperSessions 0 $wsDir) 'whisper: keepDays 0 keeps every call'
+Assert-Equal 1 (Remove-OldWhisperSessions 30 $wsDir) 'whisper: calls older than keepDays are deleted'
+Assert-Equal 'call-2.md' (@(Get-ChildItem $wsDir).Name -join ',') 'whisper: the recent call stays'
+Remove-Item $wsDir -Recurse -Force
 $open = @(Get-WhisperOpenQuestions "I've been walking all night. Tell me baby, what is the capital of France? Or is it just a game")
 Assert-Equal 'Tell me baby, what is the capital of France?' ($open -join '|') 'whisper: a finished question inside text still being sung'
 Assert-Equal 0 @(Get-WhisperOpenQuestions 'what is the capital of France?').Count 'whisper: a question at the very end waits for the final line'

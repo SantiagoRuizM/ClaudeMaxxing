@@ -54,6 +54,7 @@ $WF = $script:WFonts
 # ---------------------------------------------------------------- state
 
 $script:Settings = Get-WhisperSettings (Read-JsonFile $WhisperSettingsFile)
+if (-not $Testing) { try { [void](Remove-OldWhisperSessions ([int]$script:Settings.keepDays)) } catch { } }
 $script:Transcript = New-WhisperTranscript
 $script:Engine = New-Object ClaudeWhisper.Engine
 $script:Claude = $null
@@ -432,6 +433,12 @@ function Set-WhisperNotice([string]$Text) {
 
 function Start-Listening {
     if ($script:Listening) { return }
+    if (-not $Testing -and -not $script:Settings.consent) {
+        $answer = [System.Windows.Forms.MessageBox]::Show($script:Form, (Tx $script:WhisperConsentText), 'Claude Whisper', 'YesNo', 'Warning', 'Button2')
+        if ($answer -ne 'Yes') { return }
+        $script:Settings.consent = $true
+        Save-WhisperSettings
+    }
     $script:Problem = ''
     # While this mutex exists the voice hooks stay quiet (voice\hooks\common.ps1, Test-Muted): a session
     # reading its summary aloud would turn the call down and be transcribed as the other side.

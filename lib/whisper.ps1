@@ -33,9 +33,27 @@ function Get-WhisperDefaults {
         hotkeyToggle = 'Ctrl+Alt+Shift+W'
         topMost      = $true
         meetingNotice = $true
+        consent      = $false   # the notice before the first listen was accepted (Confirm-WhisperConsent)
+        keepDays     = 30       # call logs older than this are deleted (0 = keep them all)
         bounds       = $null
         version      = 0
     }
+}
+
+# What the user accepts once before Whisper listens: the transcription is Claude Code's dictation service (not a
+# public API), the call's audio leaves the PC, and the other side may have to agree to it.
+$script:WhisperConsentText = 'Claude Whisper transcribe con el servicio de dictado de Claude Code, que no es una API p\u00fablica: ' +
+    'puede dejar de funcionar sin aviso y se usa con tu cuenta de Claude.' + "`n`n" +
+    'El audio de la llamada, tambi\u00e9n el de la otra persona, se env\u00eda a Anthropic para transcribirlo. ' +
+    'En muchos pa\u00edses debes avisar a la otra parte y tener su consentimiento antes de transcribir una conversaci\u00f3n.' + "`n`n" +
+    '\u00bfEmpezar a escuchar?'
+
+# Deletes the call logs (whisper\sessions\*.md) older than $Days; 0 keeps them all. Returns how many went.
+function Remove-OldWhisperSessions([int]$Days, [string]$Dir = $WhisperSessionsDir, [datetime]$Now = (Get-Date)) {
+    if ($Days -le 0 -or -not (Test-Path -LiteralPath $Dir)) { return 0 }
+    $old = @(Get-ChildItem -LiteralPath $Dir -Filter '*.md' -File | Where-Object { $_.LastWriteTime -lt $Now.AddDays(-$Days) })
+    $old | Remove-Item -Force -ErrorAction SilentlyContinue
+    $old.Count
 }
 
 # Settings format version. 2: auto-answer and live translation are on for everyone once (Parakeet-style).
