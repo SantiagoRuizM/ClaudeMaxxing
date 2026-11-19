@@ -38,8 +38,8 @@ function Open-HubJudgeIdea([string]$Text = '') {
         # Business edition: the jury also weighs the company's objectives (lib\business.ps1).
         $idea = if (Test-HubBusiness) { Add-JudgeObjectives $request.Idea (Get-BusinessObjectives) } else { $request.Idea }
         if (Test-HubModule 'judge') { Start-JudgeJob $idea $request.Jury }
-        Set-HubMessage ((Tx 'Claude Judge est\u00e1 deliberando') + '...')
-    } catch { Set-HubMessage ('No se pudo empezar: ' + $_.Exception.Message) }
+        Set-HubMessage ((Tx 'Claude Judge est\u00e1 deliberando...'))
+    } catch { Set-HubMessage ((L 'No se pudo empezar: ') + $_.Exception.Message) }
     Update-HubNow
 }
 
@@ -96,7 +96,7 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         if ($i -eq 0 -and $running) {
             Draw-Text $G 'Hay un juicio en curso' $F.Small $P.Faint ($card.X + (Px 16)) $by ($card.Width - (Px 32)) (Px 24)
         } elseif ($i -eq 1) {
-            $count = if ($trials.Count -eq 1) { '1 idea juzgada' } elseif ($trials.Count) { "$($trials.Count) ideas juzgadas" } else { (Tx 'A\u00fan no hay ideas juzgadas') }
+            $count = if ($trials.Count -eq 1) { '1 idea juzgada' } elseif ($trials.Count) { ((L '{0} ideas juzgadas') -f $trials.Count) } else { (Tx 'A\u00fan no hay ideas juzgadas') }
             Draw-Text $G $count $F.Small $P.Faint ($card.X + (Px 16)) $by (Px 150) (Px 24)
         }
         if ($o.Button -and $enabled) {
@@ -119,7 +119,7 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
             Draw-Text $G $c.JudgeProgress $F.Small $P.Muted ($tx + (Px 44)) ($card.Y + (Px 34)) ($card.Width - (Px 200)) (Px 18)
             $minutes = 0
             try { $minutes = [int]((Get-Date) - [datetime]$status.at).TotalMinutes } catch { }
-            $jury = if ($status.jury) { "$($status.jury) jurados" } else { '' }
+            $jury = if ($status.jury) { ((L '{0} jurados') -f $status.jury) } else { '' }
             Draw-Text $G ("$jury  " + (Tx '\u00b7') + "  $minutes min") $F.Small $P.Faint ($card.Right - (Px 160)) ($card.Y + (Px 10)) (Px 144) (Px 22) 'Right'
             Draw-Text $G 'Puedes cerrar esta ventana' $F.Small $P.Faint ($card.Right - (Px 180)) ($card.Y + (Px 34)) (Px 164) (Px 18) 'Right'
         } else {
@@ -135,7 +135,7 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 
     # Flujo previo: the ideas already judged, newest first
     $fit = [Math]::Max(0, [int][Math]::Floor(($script:Hub.H - (Px 16) - ($y + (Px 24))) / (Px 44)))
-    Draw-HubCaption $G (Tx 'FLUJO PREVIO \u00b7 IDEAS YA JUZGADAS') $X0 $y $Inner $(if ($trials.Count -gt $fit) { Tx "+$($trials.Count - $fit) m\u00e1s antiguas" } else { '' })
+    Draw-HubCaption $G (Tx 'FLUJO PREVIO \u00b7 IDEAS YA JUZGADAS') $X0 $y $Inner $(if ($trials.Count -gt $fit) { (Tx '+{0} m\u00e1s antiguas') -f ($trials.Count - $fit) } else { '' })
     $y += Px 24
     if (-not $trials.Count) {
         Draw-Wrapped $G (Tx 'Aqu\u00ed aparecer\u00e1n tus ideas con su veredicto. Empieza con Nueva idea.') $F.Small $P.Faint $X0 $y $Inner (Px 36)
@@ -164,7 +164,7 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 function New-JudgeForm([string]$Title, $Palette, [int]$Width, [int]$Height) {
     $P = $Palette
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = 'Claude Judge ' + [char]0x00B7 + ' ' + $Title
+    $dlg.Text = (L 'Claude Judge ') + [char]0x00B7 + ' ' + (L $Title)
     $dlg.StartPosition = 'CenterScreen'
     $dlg.FormBorderStyle = 'Sizable'
     $dlg.MinimizeBox = $false
@@ -198,7 +198,7 @@ function Add-JudgeRow($Form, $Control, [double]$Percent = 0) {
 
 function New-JudgeLabel([string]$Text, $Color, $Font = $script:Fonts.Body) {
     $l = New-Object System.Windows.Forms.Label
-    $l.Text = $Text; $l.AutoSize = $true; $l.ForeColor = $Color; $l.Font = $Font; $l.UseMnemonic = $false
+    $l.Text = L $Text; $l.AutoSize = $true; $l.ForeColor = $Color; $l.Font = $Font; $l.UseMnemonic = $false
     $l.MaximumSize = New-Object System.Drawing.Size((Px 520), 0)
     $l.Margin = New-Object System.Windows.Forms.Padding(0, (Px 6), 0, (Px 3))
     $l
@@ -254,7 +254,7 @@ function Show-JudgeVerdictDialog($Trial, $Palette, $Owner) {
     Add-JudgeRow $dlg $head
     $when = if ($Trial.At) { Format-DialogDateTime $Trial.At (Get-Date) } else { '' }
     Add-JudgeRow $dlg (New-JudgeLabel ($when + '  ' + [char]0x00B7 + '  ' + $Trial.Title) $P.Muted $script:Fonts.Small)
-    $text = try { Format-JudgeFeedback $Trial } catch { 'No se pudo leer el veredicto: ' + $_.Exception.Message }
+    $text = try { Format-JudgeFeedback $Trial } catch { (L 'No se pudo leer el veredicto: ') + $_.Exception.Message }
     $box = New-JudgeBox $text $P $true
     Add-JudgeRow $dlg $box 100
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel

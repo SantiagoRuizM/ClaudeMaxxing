@@ -114,7 +114,7 @@ function Get-HttpStatus($ErrorRecord) {
 function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot) {
     if (-not (Test-VoiceKeyFormat $Engine $Key)) {
         $what = if ($Engine -eq 'elevenlabs') { 'una clave de ElevenLabs (sk_...)' } else { 'una clave de Google AI Studio (AIza...)' }
-        return [pscustomobject]@{ Ok = $false; Message = "Eso no parece $what." }
+        return [pscustomobject]@{ Ok = $false; Message = (L 'Eso no parece {0}.') -f (L $what) }
     }
     Set-VoiceTls12
     $path = Get-VoiceLocalConfigPath $Root
@@ -126,7 +126,7 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
             if (-not $pool.Count) { return [pscustomobject]@{ Ok = $false; Message = 'La cuenta de ElevenLabs no tiene voces.' } }
             Set-VoiceLocalValue $config 'elevenlabs' 'apiKey' (Protect-Secret $Key)
             Set-VoiceLocalValue $config 'elevenlabs' 'voices' $pool
-            $message = "Clave de ElevenLabs guardada: $($pool.Count) voces."
+            $message = (L 'Clave de ElevenLabs guardada: {0} voces.') -f $pool.Count
             try {
                 $sub = Invoke-RestMethod -Uri 'https://api.elevenlabs.io/v1/user/subscription' -Headers @{ 'xi-api-key' = $Key } -TimeoutSec 15 -UseBasicParsing
                 Write-JsonFile $VoiceCreditsFile (ConvertTo-ElevenCredits $sub)
@@ -144,7 +144,7 @@ function Save-VoiceKey([string]$Engine, [string]$Key, [string]$Root = $TrayRoot)
         elseif ($status -eq 'detected_unusual_activity') { Tx 'ElevenLabs bloque\u00f3 la cuenta gratis por actividad inusual (VPN o proxy)' }
         elseif ($status -eq 'invalid_api_key') { Tx 'la clave no existe o fue borrada' }
         elseif ($code -in 400, 401, 403) { 'el servicio rechaza esa clave' } elseif ($code) { "error HTTP $code" } else { Tx 'sin conexi\u00f3n' }
-        return [pscustomobject]@{ Ok = $false; Message = "No se pudo comprobar la clave: $why." }
+        return [pscustomobject]@{ Ok = $false; Message = (L 'No se pudo comprobar la clave: {0}.') -f $why }
     }
     Set-VoiceLocalValue $config '' 'engine' $Engine
     Write-JsonFile $path $config
@@ -191,7 +191,7 @@ function Format-ElevenCredits($Credits) {
     if (-not $Credits -or -not $Credits.limit) { return '' }
     $culture = $UiCulture
     $left = [Math]::Max(0, [int]$Credits.limit - [int]$Credits.used)
-    $text = ('{0} de {1} ' -f $left.ToString('N0', $culture), ([int]$Credits.limit).ToString('N0', $culture)) + (Tx 'cr\u00e9ditos')
-    if ($Credits.resetAt) { try { $text += ' (se renuevan el ' + ([datetime]$Credits.resetAt).ToString('d MMM', $culture) + ')' } catch { } }
+    $text = ((L '{0} de {1} ') -f $left.ToString('N0', $culture), ([int]$Credits.limit).ToString('N0', $culture)) + (Tx 'cr\u00e9ditos')
+    if ($Credits.resetAt) { try { $text += (L ' (se renuevan el ') + ([datetime]$Credits.resetAt).ToString('d MMM', $culture) + ')' } catch { } }
     $text
 }

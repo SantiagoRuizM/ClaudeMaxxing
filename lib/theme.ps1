@@ -191,11 +191,11 @@ function Draw-Text($G, [string]$Text, $Font, $Color, [int]$X, [int]$Y, [int]$W, 
     $flags = [System.Windows.Forms.TextFormatFlags]'VerticalCenter, NoPadding, EndEllipsis, SingleLine, NoPrefix'
     if ($Align -eq 'Right') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::Right }
     if ($Align -eq 'Center') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::HorizontalCenter }
-    [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $Font, (New-Rect $X $Y $W $H), $Color, $flags)
+    [System.Windows.Forms.TextRenderer]::DrawText($G, (L $Text), $Font, (New-Rect $X $Y $W $H), $Color, $flags)
 }
 
 function Measure-TextWidth([string]$Text, $Font) {
-    [System.Windows.Forms.TextRenderer]::MeasureText($Text, $Font).Width
+    [System.Windows.Forms.TextRenderer]::MeasureText((L $Text), $Font).Width
 }
 
 function Set-RoundedWindow([System.Windows.Forms.Form]$Form, [System.Drawing.Color]$BorderColor) {
@@ -220,7 +220,7 @@ function Enable-DoubleBuffer($Control) {
 function New-HitMap { @{ Items = New-Object System.Collections.ArrayList; Hover = $null; Focus = $null; Tip = $null; TipId = $null } }
 
 function Add-Hit($Map, [string]$Id, [System.Drawing.Rectangle]$Rect, [scriptblock]$Action, [string]$Tip) {
-    [void]$Map.Items.Add(@{ Id = $Id; Rect = $Rect; Action = $Action; Tip = $Tip })
+    [void]$Map.Items.Add(@{ Id = $Id; Rect = $Rect; Action = $Action; Tip = (L $Tip) })
 }
 
 function Test-HitAction($Item) { [bool]($Item.Action -and $Item.Action.ToString().Trim()) }
@@ -306,6 +306,7 @@ function Confirm-UiAction([string]$Text, $Owner = $null) {
     $buttons = [System.Windows.Forms.MessageBoxButtons]::YesNo
     $icon = [System.Windows.Forms.MessageBoxIcon]::Warning
     $default = [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+    $Text = L $Text
     $answer = if ($Owner) { [System.Windows.Forms.MessageBox]::Show($Owner, $Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
         else { [System.Windows.Forms.MessageBox]::Show($Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
     $answer -eq [System.Windows.Forms.DialogResult]::Yes

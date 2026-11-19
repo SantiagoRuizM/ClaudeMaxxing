@@ -51,7 +51,7 @@ function Format-Remaining([timespan]$Span) {
 
 # "Hoy \u00b7 1:59 p. m. (en 2h 11m)"; day and clock come from Format-DialogDateTime (lib\schedule.ps1).
 function Format-ResetText([datetime]$ResetsAt, [datetime]$Now) {
-    (Format-DialogDateTime $ResetsAt $Now) + ' (en ' + (Format-Remaining ($ResetsAt - $Now)) + ')'
+    (Format-DialogDateTime $ResetsAt $Now) + (L ' (en ') + (Format-Remaining ($ResetsAt - $Now)) + ')'
 }
 
 # How old the usage data is.
@@ -59,8 +59,8 @@ function Format-Age($AgeMinutes) {
     if ($null -eq $AgeMinutes) { return 'Sin datos' }
     $minutes = [int][Math]::Floor($AgeMinutes)
     if ($minutes -lt 1) { return 'Actualizado ahora' }
-    if ($minutes -lt 60) { return "Actualizado hace $minutes min" }
-    'Actualizado hace {0} h' -f [int][Math]::Floor($minutes / 60)
+    if ($minutes -lt 60) { return ((L 'Actualizado hace {0} min') -f $minutes) }
+    (L 'Actualizado hace {0} h') -f [int][Math]::Floor($minutes / 60)
 }
 
 # Where the popup goes: in the corner next to the taskbar's clock, wherever the taskbar is (bottom, top or left;
@@ -104,7 +104,7 @@ function Get-UsageAlerts($View, [string[]]$Sent, [int[]]$Thresholds = $script:Us
 function Format-UsageAlert($Alerts, [datetime]$Now) {
     @($Alerts | ForEach-Object {
         $label = if ($_.Window -eq 'Session') { Tx 'Sesi\u00f3n de 5 horas' } else { 'Semana' }
-        '{0} al {1} %: se reinicia {2}' -f $label, $_.Percent, (Format-ResetText $_.ResetsAt $Now)
+        (L '{0} al {1} %: se reinicia {2}') -f $label, $_.Percent, (Format-ResetText $_.ResetsAt $Now)
     }) -join "`n"
 }
 
@@ -112,10 +112,10 @@ function Format-UsageAlert($Alerts, [datetime]$Now) {
 function Format-TrayTooltip($View, [string]$Plan) {
     $head = 'Claude'
     if ($Plan) { $head = "Claude $Plan" }
-    if (-not $View.HasData) { return "$head - sin datos de uso" }
-    $s = if ($View.Session.Active) { "$($View.Session.Percent)%" } else { 'sin empezar' }
+    if (-not $View.HasData) { return ($head + ' - ' + (L 'sin datos de uso')) }
+    $s = if ($View.Session.Active) { "$($View.Session.Percent)%" } else { L 'sin empezar' }
     $w = if ($View.Weekly.Active) { "$($View.Weekly.Percent)%" } else { '-' }
-    $text = "$head - " + (Tx 'Sesi\u00f3n') + " $s - Semanal $w"
+    $text = (Tx '{0} - Sesi\u00f3n {1} - Semanal {2}') -f $head, $s, $w
     if ($text.Length -gt 63) { $text = $text.Substring(0, 63) }
     $text
 }
@@ -289,9 +289,9 @@ function Get-ExtrasView($Extras, [datetime]$Now) {
         if ($null -ne $extra.utilization) { $pct = [int][Math]::Max(0, [Math]::Min(100, [Math]::Round([double]$extra.utilization))) }
         $amount = ''
         if ($null -ne $extra.used_minor -and $null -ne $extra.limit_minor) {
-            $amount = (Format-Money $extra.used_minor $extra.currency) + ' de ' + (Format-Money $extra.limit_minor $extra.currency) + ' este mes'
+            $amount = (Format-Money $extra.used_minor $extra.currency) + (L ' de ') + (Format-Money $extra.limit_minor $extra.currency) + (L ' este mes')
         } elseif ($null -ne $extra.used_minor) {
-            $amount = (Format-Money $extra.used_minor $extra.currency) + ' usados este mes'
+            $amount = (Format-Money $extra.used_minor $extra.currency) + (L ' usados este mes')
         }
         $view.ExtraUsage = [pscustomobject]@{ Percent = $pct; AmountText = $amount }
     }

@@ -13,7 +13,17 @@ $StatsMaxAgeMinutes = 10
 $script:HubWeekdays = @('Lun', 'Mar', (Tx 'Mi\u00e9'), 'Jue', 'Vie', (Tx 'S\u00e1b'), 'Dom')
 $script:HubWeekdayNames = @('lunes', 'martes', (Tx 'mi\u00e9rcoles'), 'jueves', 'viernes', (Tx 's\u00e1bado'), 'domingo')
 $script:HubMonths = @('ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic')
-$script:HubCulture = [Globalization.CultureInfo]::GetCultureInfo('es-ES')
+# Other languages take the names from their culture (Spanish keeps these short forms: es-ES abbreviates to two letters).
+function Get-HubWeekdays([switch]$Long) {
+    if ($script:UiLanguage -eq 'es') { if ($Long) { return $script:HubWeekdayNames } else { return $script:HubWeekdays } }
+    $format = $UiCulture.DateTimeFormat
+    $names = if ($Long) { $format.DayNames } else { $format.AbbreviatedDayNames }
+    @(1, 2, 3, 4, 5, 6, 0 | ForEach-Object { $names[$_].TrimEnd('.') })
+}
+function Get-HubMonth([int]$Month) {
+    if ($script:UiLanguage -eq 'es') { return $script:HubMonths[$Month - 1] }
+    $UiCulture.DateTimeFormat.AbbreviatedMonthNames[$Month - 1].TrimEnd('.')
+}
 $script:StatsTabs = @(
     @{ Id = 'summary'; Label = 'Resumen' },
     @{ Id = 'usage'; Label = 'Consumo' },
@@ -34,13 +44,13 @@ function Format-HubDuration([double]$Seconds) {
     "$hours h"
 }
 
-function Format-HubNumber($Value) { ([double]$Value).ToString('N0', $script:HubCulture) }
+function Format-HubNumber($Value) { ([double]$Value).ToString('N0', $UiCulture) }
 
 function Format-HubTokens($Value) {
     $v = [double]$Value
-    if ($v -ge 1e9) { return ($v / 1e9).ToString('0.0', $script:HubCulture) + ' mil M' }
-    if ($v -ge 1e6) { return ($v / 1e6).ToString('0.0', $script:HubCulture) + ' M' }
-    if ($v -ge 1e3) { return ($v / 1e3).ToString('0.0', $script:HubCulture) + ' k' }
+    if ($v -ge 1e9) { return ($v / 1e9).ToString('0.0', $UiCulture) + (L ' mil M') }
+    if ($v -ge 1e6) { return ($v / 1e6).ToString('0.0', $UiCulture) + ' M' }
+    if ($v -ge 1e3) { return ($v / 1e3).ToString('0.0', $UiCulture) + ' k' }
     [string][int]$v
 }
 
@@ -48,14 +58,14 @@ function Format-HubTokens($Value) {
 function Format-HubDay([string]$Day) {
     try {
         $date = [datetime]::ParseExact($Day, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
-        return '{0} {1}' -f $date.Day, $script:HubMonths[$date.Month - 1]
+        return '{0} {1}' -f $date.Day, (Get-HubMonth $date.Month)
     } catch { $Day }
 }
 
 function Format-HubWeekdayDay([string]$Day) {
     try {
         $date = [datetime]::ParseExact($Day, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
-        return $script:HubWeekdays[([int]$date.DayOfWeek + 6) % 7] + ' ' + (Format-HubDay $Day)
+        return (Get-HubWeekdays)[([int]$date.DayOfWeek + 6) % 7] + ' ' + (Format-HubDay $Day)
     } catch { $Day }
 }
 
@@ -298,10 +308,10 @@ function Draw-HubStatsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     if ($scanning) {
         $footer = Tx 'Leyendo tus conversaciones de Claude Code\u2026'
     } elseif ($hub.StatsError) {
-        $footer = 'No se pudo calcular: ' + $hub.StatsError
+        $footer = (L 'No se pudo calcular: ') + $hub.StatsError
     } elseif ($stats) {
-        $footer = 'Calculado a las ' + (Format-Clock ([datetime]$stats.scannedAt)) + '  ' + (Tx '\u00b7') + '  ' + (Format-HubNumber $stats.files) +
-            ' conversaciones (' + (Format-HubNumber $stats.filesRead) + ' le' + (Tx '\u00ed') + 'das en ' + ([double]$stats.seconds).ToString('0.0', $script:HubCulture) + ' s)'
+        $footer = (L 'Calculado a las ') + (Format-Clock ([datetime]$stats.scannedAt)) + (Tx '  \u00b7  ') + (Format-HubNumber $stats.files) +
+            (L ' conversaciones (') + (Format-HubNumber $stats.filesRead) + (Tx ' le\u00eddas en ') + ([double]$stats.seconds).ToString('0.0', $UiCulture) + ' s)'
     } else { $footer = '' }
     Draw-Text $G $footer $F.Small $(if ($hub.StatsError) { $P.Error } else { $P.Faint }) $X0 $footY ($Inner - (Px 110)) (Px 18)
     if (-not $scanning) {
@@ -364,26 +374,26 @@ function Draw-StatsSummary($G, $Map, $Hover, [int]$X0, [int]$Inner, $D, $All) {
     $gap = Px 10
     $w = [int](($Inner - 3 * $gap) / 4)
     $tiles = @(
-        @(('HORAS CON CLAUDE'), (Format-HubDuration $D.seconds), ('en ' + (Format-HubNumber $D.activeDays) + (Tx ' d\u00edas activos'))),
-        @('RACHA', ("$($All.streak) " + $(if ($All.streak -eq 1) { (Tx 'd\u00eda') } else { (Tx 'd\u00edas') })), ('la mejor: ' + $All.bestStreak)),
-        @('PROMPTS', (Format-HubNumber $D.prompts), ((Format-HubNumber $D.responses) + ' respuestas')),
-        @('SESIONES', (Format-HubNumber $D.sessions), ('+' + (Format-HubNumber $D.subagents) + ' subagentes'))
+        @(('HORAS CON CLAUDE'), (Format-HubDuration $D.seconds), ((L 'en ') + (Format-HubNumber $D.activeDays) + (Tx ' d\u00edas activos'))),
+        @('RACHA', ("$($All.streak) " + $(if ($All.streak -eq 1) { (Tx 'd\u00eda') } else { (Tx 'd\u00edas') })), ((L 'la mejor: ') + $All.bestStreak)),
+        @('PROMPTS', (Format-HubNumber $D.prompts), ((Format-HubNumber $D.responses) + (L ' respuestas'))),
+        @('SESIONES', (Format-HubNumber $D.sessions), ('+' + (Format-HubNumber $D.subagents) + (L ' subagentes')))
     )
     for ($i = 0; $i -lt 4; $i++) {
         Draw-HubStat $G (New-Rect ($X0 + $i * ($w + $gap)) (Px 104) $w (Px 74)) $tiles[$i][0] $tiles[$i][1] $tiles[$i][2]
     }
     $perDay = if ([double]$D.avgSecondsPerActiveDay -gt 0) { Format-HubDuration $D.avgSecondsPerActiveDay } else { '-' }
-    $parallel = ([double]$D.parallel).ToString('0.00', $script:HubCulture) + ([string][char]0x00D7)
+    $parallel = ([double]$D.parallel).ToString('0.00', $UiCulture) + ([string][char]0x00D7)
     $week = [double]$All.thisWeek.seconds; $lastWeek = [double]$All.lastWeek.seconds
     $weekSub = if ($lastWeek -gt 0) {
         $delta = [int][Math]::Round(100 * ($week - $lastWeek) / $lastWeek)
-        $(if ($delta -ge 0) { "+$delta %" } else { "$delta %" }) + ' vs la anterior'
+        $(if ($delta -ge 0) { "+$delta %" } else { "$delta %" }) + (L ' vs la anterior')
     } else { 'sin datos de la anterior' }
     $tiles = @(
-        @((Tx 'POR D\u00cdA ACTIVO'), $perDay, ('hoy: ' + (Format-HubDuration $All.today.seconds))),
+        @((Tx 'POR D\u00cdA ACTIVO'), $perDay, ((L 'hoy: ') + (Format-HubDuration $All.today.seconds))),
         @('ESTA SEMANA', (Format-HubDuration $week), $weekSub),
         @('EN PARALELO', $parallel, ((Format-HubDuration $D.sessionSeconds) + (Tx ' de sesi\u00f3n'))),
-        @('HERRAMIENTAS', (Format-HubNumber $D.toolCalls), ('usos de ' + $D.toolKinds + ' distintas'))
+        @('HERRAMIENTAS', (Format-HubNumber $D.toolCalls), ((L 'usos de ') + $D.toolKinds + (L ' distintas')))
     )
     for ($i = 0; $i -lt 4; $i++) {
         Draw-HubStat $G (New-Rect ($X0 + $i * ($w + $gap)) (Px 186) $w (Px 74)) $tiles[$i][0] $tiles[$i][1] $tiles[$i][2]
@@ -402,9 +412,9 @@ function Draw-StatsSummary($G, $Map, $Hover, [int]$X0, [int]$Inner, $D, $All) {
     $total = ($hourly | Measure-Object -Sum).Sum
     $facts = @(
         @('Hora pico', $(if ($peakHour -ge 0) { '{0:00}:00' -f $peakHour + (Tx '\u2013') + ('{0:00}:00' -f (($peakHour + 1) % 24)) } else { '-' })),
-        @((Tx 'D\u00eda pico'), $(if ($peakDay -ge 0) { $script:HubWeekdayNames[$peakDay].Substring(0, 1).ToUpper() + $script:HubWeekdayNames[$peakDay].Substring(1) } else { '-' })),
-        @('Franja', $(if ($peakBand -ge 0) { $bands[$peakBand][0].Substring(0, 1).ToUpper() + $bands[$peakBand][0].Substring(1) + ' ' + (Format-HubPercent $bandSums[$peakBand] $total) } else { '-' })),
-        @((Tx 'D\u00eda r\u00e9cord'), $(if ($D.busiestDay) { (Format-HubDay $D.busiestDay.day) + ' ' + (Tx '\u00b7') + ' ' + (Format-HubDuration $D.busiestDay.seconds) } else { '-' }))
+        @((Tx 'D\u00eda pico'), $(if ($peakDay -ge 0) { (Get-HubWeekdays -Long)[$peakDay].Substring(0, 1).ToUpper() + (Get-HubWeekdays -Long)[$peakDay].Substring(1) } else { '-' })),
+        @('Franja', $(if ($peakBand -ge 0) { (L $bands[$peakBand][0]).Substring(0, 1).ToUpper() + (L $bands[$peakBand][0]).Substring(1) + ' ' + (Format-HubPercent $bandSums[$peakBand] $total) } else { '-' })),
+        @((Tx 'D\u00eda r\u00e9cord'), $(if ($D.busiestDay) { (Format-HubDay $D.busiestDay.day) + (Tx ' \u00b7 ') + (Format-HubDuration $D.busiestDay.seconds) } else { '-' }))
     )
     $fw = [int](($card.Width - (Px 28)) / 4)
     for ($i = 0; $i -lt 4; $i++) {
@@ -423,13 +433,13 @@ function Draw-StatsSummary($G, $Map, $Hover, [int]$X0, [int]$Inner, $D, $All) {
         $values = [double[]]@($items | ForEach-Object { [double]$_.seconds })
         $every = [Math]::Max(1, [int][Math]::Ceiling($items.Count / 7))
         $labels = [string[]]@(for ($i = 0; $i -lt $items.Count; $i++) { if (($items.Count - 1 - $i) % $every -eq 0) { Format-HubDay $items[$i].week } else { '' } })
-        $tips = [string[]]@($items | ForEach-Object { 'Semana del ' + (Format-HubDay $_.week) + ': ' + (Format-HubDuration $_.seconds) + ', ' + (Format-HubNumber $_.prompts) + ' prompts' })
+        $tips = [string[]]@($items | ForEach-Object { (L 'Semana del ') + (Format-HubDay $_.week) + ': ' + (Format-HubDuration $_.seconds) + ', ' + (Format-HubNumber $_.prompts) + (L ' prompts') })
     } else {
         $title = (Tx 'HORAS POR D\u00cdA')
         $items = @($D.daily)
         $values = [double[]]@($items | ForEach-Object { [double]$_.seconds })
         $labels = [string[]]@(for ($i = 0; $i -lt $items.Count; $i++) { if (($items.Count - 1 - $i) % 7 -eq 0) { Format-HubDay $items[$i].day } else { '' } })
-        $tips = [string[]]@($items | ForEach-Object { (Format-HubWeekdayDay $_.day) + ': ' + (Format-HubDuration $_.seconds) + ', ' + (Format-HubNumber $_.prompts) + ' prompts' })
+        $tips = [string[]]@($items | ForEach-Object { (Format-HubWeekdayDay $_.day) + ': ' + (Format-HubDuration $_.seconds) + ', ' + (Format-HubNumber $_.prompts) + (L ' prompts') })
     }
     $readout = New-Rect ($chart.X + (Px 160)) ($chart.Y + (Px 10)) ($chart.Width - (Px 174)) (Px 18)
     Draw-HubBars $G $Map 'sday' $plot $values $labels $tips $readout
@@ -457,14 +467,14 @@ function Draw-StatsUsage($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $win = $u.windowCost
     if ($fc) {
         $left = [int][Math]::Round($fc.Remaining * 60)
-        $nowSub = 'quedan ' + (Format-HubDuration ($left * 60))
+        $nowSub = (L 'quedan ') + (Format-HubDuration ($left * 60))
         $projValue = Format-Usd $fc.ProjectedCost
         if ($null -ne $fc.ProjectedPercent) {
-            $projSub = (Tx '\u2248 ') + [int][Math]::Round($fc.ProjectedPercent) + ' % del plan'
+            $projSub = (Tx '\u2248 ') + [int][Math]::Round($fc.ProjectedPercent) + (L ' % del plan')
             $projColor = if ($fc.ProjectedPercent -ge 100) { $P.Error } elseif ($fc.ProjectedPercent -ge 80) { $P.Warn } else { $P.Ok }
             if ($fc.LimitAt) { $projSub = (Tx 'l\u00edmite ~') + (Format-Clock $fc.LimitAt) }
         } else {
-            $projSub = if ($fc.VsAverage) { ([int][Math]::Round(100 * $fc.VsAverage)).ToString() + ' % de tu media' } else { (Format-HubTokens $fc.ProjectedTokens) + ' tokens' }
+            $projSub = if ($fc.VsAverage) { ([int][Math]::Round(100 * $fc.VsAverage)).ToString() + (L ' % de tu media') } else { (Format-HubTokens $fc.ProjectedTokens) + (L ' tokens') }
             $projColor = $null
         }
         $tiles = @(
@@ -478,7 +488,7 @@ function Draw-StatsUsage($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
             @((Tx 'SI EMPIEZAS AHORA'), (Format-Usd $next.Cost), $next.Basis, $null)
         )
     }
-    $tiles += , @((Tx 'SESI\u00d3N MEDIA'), (Format-Usd $win.avg), ('mediana ' + (Format-Usd $win.median)), $null)
+    $tiles += , @((Tx 'SESI\u00d3N MEDIA'), (Format-Usd $win.avg), ((L 'mediana ') + (Format-Usd $win.median)), $null)
     $spread = Format-UsageSpread ([double]$win.cv)
     $tiles += , @((Tx '\u00bfGASTAN LO MISMO?'), ($spread.Substring(0, 1).ToUpper() + $spread.Substring(1)), ((Tx '\u00b1') + [int][Math]::Round(100 * [double]$win.cv) + (Tx ' %  \u00b7  ') + (Format-HubNumber $win.count) + (Tx ' sesiones')), $null)
     for ($i = 0; $i -lt 4; $i++) {
@@ -507,7 +517,7 @@ function Draw-StatsUsage($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $items = @($u.windows | Select-Object -Last 20)
     $values = [double[]]@($items | ForEach-Object { [double]$_.cost })
     $labels = [string[]]@(for ($i = 0; $i -lt $items.Count; $i++) { if (($items.Count - 1 - $i) % 4 -eq 0) { Format-HubDay ([datetime]$items[$i].start).ToString('yyyy-MM-dd') } else { '' } })
-    $tips = [string[]]@($items | ForEach-Object { $s = [datetime]$_.start; (Format-HubWeekdayDay $s.ToString('yyyy-MM-dd')) + ' ' + (Format-Clock $s) + ': ' + (Format-Usd $_.cost) + ', ' + (Format-HubTokens $_.tokens) + ' tokens' })
+    $tips = [string[]]@($items | ForEach-Object { $s = [datetime]$_.start; (Format-HubWeekdayDay $s.ToString('yyyy-MM-dd')) + ' ' + (Format-Clock $s) + ': ' + (Format-Usd $_.cost) + ', ' + (Format-HubTokens $_.tokens) + (L ' tokens') })
     Draw-HubBars $G $Map 'uwin' (New-Rect ($chart.X + (Px 14)) ($chart.Y + (Px 34)) ($chart.Width - (Px 28)) ($chart.Height - (Px 42))) $values $labels $tips $readout2
     Draw-Text $G (Tx '\u00daLTIMAS SESIONES DE 5 H') $F.Caps $P.Muted ($chart.X + (Px 14)) ($chart.Y + (Px 10)) (Px 240) (Px 18)
     Draw-Text $G ((Tx 'm\u00e1x. ') + (Format-Usd $win.max) + (Tx '  \u00b7  m\u00edn. ') + (Format-Usd $win.min) + (Tx '  \u00b7  9 de cada 10 bajo ') + (Format-Usd $win.p90)) $F.Small $P.Faint $readout2.X $readout2.Y $readout2.Width $readout2.Height 'Right'
@@ -516,12 +526,12 @@ function Draw-StatsUsage($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $card = New-Rect $X0 (Px 508) $Inner (Px 80)
     Draw-HubCard $G $card
     $sc = $u.sessionCost
-    $lines = @((Tx 'Por conversaci\u00f3n: media ') + (Format-Usd $sc.avg) + ', mediana ' + (Format-Usd $sc.median) + (Tx ' \u00b7 ') + (Format-HubNumber $sc.count) + ' conversaciones, ' + (Format-UsageSpread ([double]$sc.cv)) + '.')
-    $tokensLine = if ($fc) { (Tx 'Esta sesi\u00f3n: ') + (Format-HubTokens $fc.Tokens) + ' tokens, cierre previsto ~' + (Format-HubTokens $fc.ProjectedTokens) + '. ' } else { (Tx 'Sesi\u00f3n media: ') + (Format-HubTokens $u.windowTokens.avg) + ' tokens. ' }
-    if ($fc -and $fc.Capacity) { $lines += $tokensLine + (Tx 'Tu sesi\u00f3n completa \u2248 ') + (Format-Usd $fc.Capacity) + ' de API (con tu ' + [int]$fc.Percent + ' %).' }
+    $lines = @((Tx 'Por conversaci\u00f3n: media ') + (Format-Usd $sc.avg) + (L ', mediana ') + (Format-Usd $sc.median) + (Tx ' \u00b7 ') + (Format-HubNumber $sc.count) + (L ' conversaciones, ') + (Format-UsageSpread ([double]$sc.cv)) + '.')
+    $tokensLine = if ($fc) { (Tx 'Esta sesi\u00f3n: ') + (Format-HubTokens $fc.Tokens) + (L ' tokens, cierre previsto ~') + (Format-HubTokens $fc.ProjectedTokens) + '. ' } else { (Tx 'Sesi\u00f3n media: ') + (Format-HubTokens $u.windowTokens.avg) + (L ' tokens. ') }
+    if ($fc -and $fc.Capacity) { $lines += $tokensLine + (Tx 'Tu sesi\u00f3n completa \u2248 ') + (Format-Usd $fc.Capacity) + (L ' de API (con tu ') + [int]$fc.Percent + ' %).' }
     else { $lines += $tokensLine + (Tx 'Con el % de tu plan se calibra al l\u00edmite real.') }
     $source = if ($script:Hub.Cache.Stats.priceSource) { [string]$script:Hub.Cache.Stats.priceSource } else { 'integrada' }
-    $method = 'Coste API equivalente con los precios de ' + $source + (Tx '; tokens con cach\u00e9.')
+    $method = (L 'Coste API equivalente con los precios de ') + $source + (Tx '; tokens con cach\u00e9.')
     if ([double]$u.directCost -ge 0.01) { $method += ' ' + (Format-Usd $u.directCost) + (Tx ' vienen del coste que guard\u00f3 Claude Code (sin tokens).') }
     $lines += $method
     for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -551,7 +561,7 @@ function Draw-StatsHours($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     # (not $d: PowerShell names ignore case, and $D is the data)
     for ($row = 0; $row -lt 7; $row++) {
         $y = $gy + $row * ($cellH + (Px 3))
-        Draw-Text $G $script:HubWeekdays[$row] $F.Small $P.Muted ($card.X + (Px 14)) $y $labelW $cellH
+        Draw-Text $G (Get-HubWeekdays)[$row] $F.Small $P.Muted ($card.X + (Px 14)) $y $labelW $cellH
         for ($h = 0; $h -lt 24; $h++) {
             $value = [double]$heat[$row * 24 + $h]
             $cell = New-Rect ($gx + $h * $cellW) $y ($cellW - (Px 3)) $cellH
@@ -559,7 +569,7 @@ function Draw-StatsHours($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
             $fraction = if ($max -gt 0) { $value / $max } else { 0 }
             Fill-Round $G $cell (Px 3) (Get-HubShade $fraction)
             $script:Hub.StatsOverlay[$hitId] = @{ Cell = $cell; Readout = $readout
-                Tip = (Tx $script:HubWeekdayNames[$row]) + (' {0:00}:00' -f $h) + (Tx '\u2013') + ('{0:00}:00' -f (($h + 1) % 24)) + ': ' + (Format-HubDuration $value) + ' en total' }
+                Tip = (Get-HubWeekdays -Long)[$row] + (' {0:00}:00' -f $h) + (Tx '\u2013') + ('{0:00}:00' -f (($h + 1) % 24)) + ': ' + (Format-HubDuration $value) + (L ' en total') }
             Add-Hit $Map $hitId $cell {}
         }
         # the day's total, as a bar after its row
@@ -586,7 +596,7 @@ function Draw-StatsHours($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $prompts = @($D.hourlyPrompts)
     $values = [double[]]@($hourly | ForEach-Object { [double]$_ })
     $labels = [string[]]@(for ($h = 0; $h -lt 24; $h++) { if ($h % 3 -eq 0) { '{0:00}' -f $h } else { '' } })
-    $tips = [string[]]@(for ($h = 0; $h -lt 24; $h++) { ('{0:00}:00' -f $h) + (Tx '\u2013') + ('{0:00}:00' -f (($h + 1) % 24)) + ': ' + (Format-HubDuration $hourly[$h]) + ', ' + (Format-HubNumber $prompts[$h]) + ' prompts' })
+    $tips = [string[]]@(for ($h = 0; $h -lt 24; $h++) { ('{0:00}:00' -f $h) + (Tx '\u2013') + ('{0:00}:00' -f (($h + 1) % 24)) + ': ' + (Format-HubDuration $hourly[$h]) + ', ' + (Format-HubNumber $prompts[$h]) + (L ' prompts') })
     Draw-HubBars $G $Map 'shour' (New-Rect ($chart.X + (Px 14)) ($chart.Y + (Px 34)) ($chart.Width - (Px 28)) ($chart.Height - (Px 42))) $values $labels $tips $readout
     Draw-Text $G (Tx 'POR HORA DEL D\u00cdA') $F.Caps $P.Muted ($chart.X + (Px 14)) ($chart.Y + (Px 10)) (Px 200) (Px 18)
     Draw-Text $G (Tx 'Pasa el rat\u00f3n por una celda o una barra') $F.Small $P.Faint $readout.X $readout.Y $readout.Width $readout.Height 'Right'
@@ -599,7 +609,7 @@ function Draw-StatsHours($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     for ($i = 0; $i -lt 4; $i++) {
         $sum = 0
         for ($h = $bands[$i][1]; $h -le $bands[$i][2]; $h++) { $sum += [double]$hourly[$h] }
-        $range = ('{0:00}' -f $bands[$i][1]) + (Tx '\u2013') + ('{0:00}' -f ($bands[$i][2] + 1)) + ' h  ' + (Tx '\u00b7') + '  ' + (Format-HubDuration $sum)
+        $range = ('{0:00}' -f $bands[$i][1]) + (Tx '\u2013') + ('{0:00}' -f ($bands[$i][2] + 1)) + (Tx ' h  \u00b7  ') + (Format-HubDuration $sum)
         Draw-HubStat $G (New-Rect ($X0 + $i * ($w + $gap)) (Px 510) $w (Px 76)) $bands[$i][0] (Format-HubPercent $sum $total) $range
     }
 }
@@ -612,13 +622,13 @@ function Draw-StatsProjects($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $card = New-Rect $X0 (Px 104) $Inner (Px 392)
     Draw-HubCard $G $card
     Draw-Text $G 'PROYECTOS (CARPETAS)' $F.Caps $P.Muted ($card.X + (Px 14)) ($card.Y + (Px 10)) (Px 260) (Px 18)
-    Draw-Text $G ("$($D.projectCount) en total  " + (Tx '\u00b7') + (Tx '  tiempo de sesi\u00f3n')) $F.Small $P.Faint ($card.X + (Px 14)) ($card.Y + (Px 10)) ($card.Width - (Px 28)) (Px 18) 'Right'
+    Draw-Text $G ((Tx '{0} en total  \u00b7  tiempo de sesi\u00f3n') -f $D.projectCount) $F.Small $P.Faint ($card.X + (Px 14)) ($card.Y + (Px 10)) ($card.Width - (Px 28)) (Px 18) 'Right'
     $max = if ($projects.Count) { [double]$projects[0].seconds } else { 0 }
     $y = $card.Y + (Px 34)
     if (-not $projects.Count) { Draw-Text $G 'Sin proyectos en este periodo.' $F.Body $P.Muted ($card.X + (Px 14)) $y (Px 300) (Px 24) }
     for ($i = 0; $i -lt $projects.Count; $i++) {
         $project = $projects[$i]
-        $sub = (Format-HubNumber $project.prompts) + ' prompts  ' + (Tx '\u00b7') + '  ' + (Format-HubNumber $project.sessions) + $(if ($project.sessions -eq 1) { (Tx ' sesi\u00f3n') } else { ' sesiones' })
+        $sub = (Format-HubNumber $project.prompts) + (Tx ' prompts  \u00b7  ') + (Format-HubNumber $project.sessions) + $(if ($project.sessions -eq 1) { (Tx ' sesi\u00f3n') } else { ' sesiones' })
         Draw-HubRankRow $G $Map $Hover "sproj-$i" (New-Rect ($card.X + (Px 6)) $y ($card.Width - (Px 12)) (Px 40)) $project.name (Format-HubDuration $project.seconds) $(if ($max -gt 0) { [double]$project.seconds / $max } else { 0 }) $sub
         $y += Px 44
     }
@@ -627,10 +637,10 @@ function Draw-StatsProjects($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $w = [int](($Inner - 3 * $gap) / 4)
     $longest = $D.longestSession
     $tiles = @(
-        @((Tx 'DURACI\u00d3N MEDIA'), (Format-HubDuration $D.avgSessionSeconds), ('mediana ' + (Format-HubDuration $D.medianSessionSeconds))),
+        @((Tx 'DURACI\u00d3N MEDIA'), (Format-HubDuration $D.avgSessionSeconds), ((L 'mediana ') + (Format-HubDuration $D.medianSessionSeconds))),
         @((Tx 'LA M\u00c1S LARGA'), $(if ($longest) { Format-HubDuration $longest.seconds } else { '-' }), $(if ($longest) { $longest.project } else { '' })),
-        @((Tx 'PROMPTS POR SESI\u00d3N'), ([double]$D.avgPromptsPerSession).ToString('0.#', $script:HubCulture), ((Format-HubNumber $D.prompts) + ' en total')),
-        @('PROYECTOS', (Format-HubNumber $D.projectCount), ((Format-HubNumber $D.sessions) + ' sesiones'))
+        @((Tx 'PROMPTS POR SESI\u00d3N'), ([double]$D.avgPromptsPerSession).ToString('0.#', $UiCulture), ((Format-HubNumber $D.prompts) + (L ' en total'))),
+        @('PROYECTOS', (Format-HubNumber $D.projectCount), ((Format-HubNumber $D.sessions) + (L ' sesiones')))
     )
     for ($i = 0; $i -lt 4; $i++) {
         Draw-HubStat $G (New-Rect ($X0 + $i * ($w + $gap)) (Px 506) $w (Px 80)) $tiles[$i][0] $tiles[$i][1] $tiles[$i][2]
@@ -656,7 +666,7 @@ function Draw-StatsModels($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $y = $card.Y + (Px 34)
     for ($i = 0; $i -lt $models.Count; $i++) {
         $m = $models[$i]
-        $sub = (Format-HubTokens $m.output) + ' de salida'
+        $sub = (Format-HubTokens $m.output) + (L ' de salida')
         Draw-HubRankRow $G $Map $Hover "smodel-$i" (New-Rect ($card.X + (Px 6)) $y ($card.Width - (Px 12)) (Px 40)) (Format-ModelName $m.name) (Format-HubNumber $m.messages) $(if ($maxMessages -gt 0) { [double]$m.messages / $maxMessages } else { 0 }) $sub
         $y += Px 43
     }
@@ -667,8 +677,8 @@ function Draw-StatsModels($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $tcard = New-Rect $X0 (Px 414) $leftW (Px 82)
     Draw-HubCard $G $tcard
     Draw-Text $G 'TOKENS' $F.Caps $P.Muted ($tcard.X + (Px 14)) ($tcard.Y + (Px 10)) (Px 200) (Px 18)
-    Draw-Text $G ((Format-HubTokens ($inputTotal + [double]$t.output)) + ' procesados') $F.BodyStrong $P.Text ($tcard.X + (Px 14)) ($tcard.Y + (Px 30)) ($tcard.Width - (Px 28)) (Px 22)
-    Draw-Text $G ((Format-HubTokens $t.output) + ' escritos por Claude  ' + (Tx '\u00b7') + '  ' + (Format-HubPercent $t.cacheRead $inputTotal) + (Tx ' le\u00eddos de cach\u00e9')) $F.Small $P.Muted ($tcard.X + (Px 14)) ($tcard.Y + (Px 54)) ($tcard.Width - (Px 28)) (Px 18)
+    Draw-Text $G ((Format-HubTokens ($inputTotal + [double]$t.output)) + (L ' procesados')) $F.BodyStrong $P.Text ($tcard.X + (Px 14)) ($tcard.Y + (Px 30)) ($tcard.Width - (Px 28)) (Px 22)
+    Draw-Text $G ((Format-HubTokens $t.output) + (Tx ' escritos por Claude  \u00b7  ') + (Format-HubPercent $t.cacheRead $inputTotal) + (Tx ' le\u00eddos de cach\u00e9')) $F.Small $P.Muted ($tcard.X + (Px 14)) ($tcard.Y + (Px 54)) ($tcard.Width - (Px 28)) (Px 18)
 
     # tools
     $card = New-Rect $rightX (Px 104) $rightW (Px 392)
@@ -689,8 +699,8 @@ function Draw-StatsModels($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $gap = Px 10
     $w = [int](($Inner - 3 * $gap) / 4)
     $tiles = @(
-        @('LLAMADAS WHISPER', (Format-HubNumber $ts.Calls), ((Format-HubDuration (60 * $ts.CallMinutes)) + ' en llamadas')),
-        @('SESIONES AGENDADAS', (Format-HubNumber $ts.Runs), ("$($ts.RunsOk) bien  " + (Tx '\u00b7') + "  $($ts.Runs - $ts.RunsOk) con error")),
+        @('LLAMADAS WHISPER', (Format-HubNumber $ts.Calls), ((Format-HubDuration (60 * $ts.CallMinutes)) + (L ' en llamadas'))),
+        @('SESIONES AGENDADAS', (Format-HubNumber $ts.Runs), ((Tx '{0} bien  \u00b7  {1} con error') -f $ts.RunsOk, ($ts.Runs - $ts.RunsOk))),
         @((Tx 'APERTURAS DEL MEN\u00da'), (Format-HubNumber $ts.MenuOpens), 'en media pantalla'),
         @('PCS EMPAREJADOS', (Format-HubNumber $ts.Paired), 'en tu red local')
     )

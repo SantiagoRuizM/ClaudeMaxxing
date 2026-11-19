@@ -80,7 +80,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
         $state.Message = ''
         if (-not $RenderPath) {
             try { Write-JsonFile $PlanFile $state.PlanSettings }
-            catch { $state.Message = 'No se pudo guardar el plan: ' + $_.Exception.Message; $state.MessageKind = 'error' }
+            catch { $state.Message = (L 'No se pudo guardar el plan: ') + $_.Exception.Message; $state.MessageKind = 'error' }
         }
         Update-WeekPlan
         Update-Size
@@ -198,7 +198,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             }
             $state.MessageKind = 'ok'
         } catch {
-            $state.Message = "No se pudo agendar: $($_.Exception.Message)"; $state.MessageKind = 'error'
+            $state.Message = (L 'No se pudo agendar: ') + $_.Exception.Message; $state.MessageKind = 'error'
         }
         Update-Rows
     }
@@ -210,9 +210,9 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
         $dlg.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
         try {
             foreach ($slot in $todo) { New-SessionTask $slot.Start $startScript; $made++ }
-            $state.Message = (Tx '\u2713 ') + "$made agendadas en este PC"; $state.MessageKind = 'ok'
+            $state.Message = (Tx '\u2713 {0} agendadas en este PC') -f $made; $state.MessageKind = 'ok'
         } catch {
-            $state.Message = "Agendadas $made; error: $($_.Exception.Message)"; $state.MessageKind = 'error'
+            $state.Message = ((L 'Agendadas {0}; error: ') -f $made) + $_.Exception.Message; $state.MessageKind = 'error'
         } finally {
             $dlg.Cursor = [System.Windows.Forms.Cursors]::Default
         }
@@ -222,7 +222,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
     function Draw-PlanTab($G, $Map, $Hover, [datetime]$Now, [int]$Left, [int]$Inner) {
         $weekPlan = $state.WeekPlan
         $settings = $state.PlanSettings
-        $culture = [System.Globalization.CultureInfo]::CurrentCulture
+        $culture = $UiCulture
 
         # week card: cutoff, usage so far and how much of the week has gone by (the tick on the bar)
         $card = New-Rect $Left (Px 100) $Inner (Px 72)
@@ -237,11 +237,11 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             Draw-Stepper $G $Map $Hover 'cuthour' (New-Rect (Px 248) (Px 132) (Px ($W - 288)) (Px 30)) $hourText 'Step-PlanField' $P.Back
         } else {
             $elapsedText = [string][Math]::Round(100 * $weekPlan.WeekElapsed) + (Tx ' % del tiempo')
-            $usedText = if ($weekPlan.CutoffSource -eq 'rolled') { 'Semana nueva' } else { [string][Math]::Round($weekPlan.UsedPercent) + ' % usado' }
+            $usedText = if ($weekPlan.CutoffSource -eq 'rolled') { 'Semana nueva' } else { [string][Math]::Round($weekPlan.UsedPercent) + (L ' % usado') }
             Draw-Text $G ($usedText + (Tx ' \u00b7 ') + $elapsedText) $F.Small $P.Muted (Px 40) (Px 110) (Px ($W - 80)) (Px 18) 'Right'
             $cutoffPrefix = if ($weekPlan.CutoffSource -eq 'rolled') { 'Corte aprox. ' } else { 'Corte ' }
             Draw-Text $G ($cutoffPrefix + (Format-DialogDateTime $weekPlan.Cutoff $Now)) $F.BodyStrong $P.Text (Px 40) (Px 130) (Px 280) (Px 22)
-            Draw-Text $G ('en ' + (Format-Remaining ($weekPlan.Cutoff - $Now))) $F.BodyStrong $P.Accent (Px 40) (Px 130) (Px ($W - 80)) (Px 22) 'Right'
+            Draw-Text $G ((L 'en ') + (Format-Remaining ($weekPlan.Cutoff - $Now))) $F.BodyStrong $P.Accent (Px 40) (Px 130) (Px ($W - 80)) (Px 22) 'Right'
             $track = New-Rect (Px 40) (Px 158) (Px ($W - 80)) (Px 4)
             Fill-Round $G $track (Px 2) $P.Track
             $usedWidth = [int]($track.Width * $weekPlan.UsedPercent / 100)
@@ -252,15 +252,15 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
 
         # sessions per day and when the first one starts
         Draw-Text $G (Tx 'SESIONES POR D\u00cdA') $F.Caps $P.Muted $Left (Px 184) (Px 200) (Px 18)
-        $sessionsText = if ($settings.SessionsPerDay -eq 1) { Tx '1 sesi\u00f3n' } else { "$($settings.SessionsPerDay) sesiones" }
+        $sessionsText = if ($settings.SessionsPerDay -eq 1) { Tx '1 sesi\u00f3n' } else { ((L '{0} sesiones') -f $settings.SessionsPerDay) }
         Draw-Stepper $G $Map $Hover 'sessions' (New-Rect (Px 24) (Px 206) (Px 184) (Px 32)) $sessionsText 'Step-PlanField' $P.Surface
-        $firstText = 'Desde las ' + (Format-Clock $Now.Date.AddHours($settings.FirstHour).AddMinutes(5))
+        $firstText = (L 'Desde las ') + (Format-Clock $Now.Date.AddHours($settings.FirstHour).AddMinutes(5))
         Draw-Stepper $G $Map $Hover 'firsthour' (New-Rect (Px 216) (Px 206) (Px 200) (Px 32)) $firstText 'Step-PlanField' $P.Surface
 
         # summary
         if ($weekPlan.RemainingPercent -le 0) {
             $line1 = Tx 'Ya usaste todo el l\u00edmite semanal.'; $line1Color = $P.Warn
-            $line2 = 'Se renueva ' + (Format-DialogDateTime $weekPlan.Cutoff $Now) + '.'
+            $line2 = (L 'Se renueva ') + (Format-DialogDateTime $weekPlan.Cutoff $Now) + '.'
         } elseif ($weekPlan.SessionCount -eq 0) {
             $line1 = 'No quedan sesiones antes del corte con este horario.'; $line1Color = $P.Warn
             $line2 = Tx 'Empieza m\u00e1s temprano o suma sesiones por d\u00eda.'
@@ -268,7 +268,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             $withCurrent = if (@($weekPlan.Slots | Where-Object { $_.Current }).Count) { ' (con la actual)' } else { '' }
             $sessionWord = if ($weekPlan.SessionCount -eq 1) { Tx 'sesi\u00f3n' } else { 'sesiones' }
             $line1 = "Quedan $($weekPlan.SessionCount) $sessionWord de 5 h hasta el corte$withCurrent."; $line1Color = $P.Text
-            $line2 = 'Para gastarlo todo: ~' + $weekPlan.PerSession.ToString('0.#', $culture) + (Tx ' % del semanal por sesi\u00f3n.')
+            $line2 = (L 'Para gastarlo todo: ~') + $weekPlan.PerSession.ToString('0.#', $culture) + (Tx ' % del semanal por sesi\u00f3n.')
         }
         Draw-Text $G $line1 $F.Small $line1Color $Left (Px 244) $Inner (Px 18)
         Draw-Text $G $line2 $F.Small $P.Muted $Left (Px 262) $Inner (Px 18)
@@ -303,7 +303,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             }
             if ($day.Date -eq $weekPlan.Cutoff.Date) {
                 [void]$parts.Add(@{ Text = (Tx '\u00b7'); Color = $P.Faint })
-                [void]$parts.Add(@{ Text = 'corte ' + $weekPlan.Cutoff.ToString('H:mm'); Color = $P.Faint })
+                [void]$parts.Add(@{ Text = (L 'corte ') + $weekPlan.Cutoff.ToString('H:mm'); Color = $P.Faint })
             }
             foreach ($part in $parts) {
                 $partW = Measure-TextWidth $part.Text $F.Small
@@ -380,9 +380,9 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             Fill-Round $g $card (Px 10) $P.Surface
             Draw-Text $g (Tx 'SESI\u00d3N ACTUAL') $F.Caps $P.Muted (Px 40) (Py 72) (Px 200) (Px 18)
             if ($view.Session.Active) {
-                Draw-Text $g ("$($view.Session.Percent) % usado") $F.Small $P.Muted (Px 40) (Py 72) (Px ($W - 80)) (Px 18) 'Right'
-                Draw-Text $g ('Termina a las ' + (Format-Clock $view.Session.ResetsAt)) $F.BodyStrong $P.Text (Px 40) (Py 92) (Px 260) (Px 22)
-                Draw-Text $g ('en ' + (Format-Remaining ($view.Session.ResetsAt - $now))) $F.BodyStrong $P.Accent (Px 40) (Py 92) (Px ($W - 80)) (Px 22) 'Right'
+                Draw-Text $g ((L '{0} % usado') -f $view.Session.Percent) $F.Small $P.Muted (Px 40) (Py 72) (Px ($W - 80)) (Px 18) 'Right'
+                Draw-Text $g ((L 'Termina a las ') + (Format-Clock $view.Session.ResetsAt)) $F.BodyStrong $P.Text (Px 40) (Py 92) (Px 260) (Px 22)
+                Draw-Text $g ((L 'en ') + (Format-Remaining ($view.Session.ResetsAt - $now))) $F.BodyStrong $P.Accent (Px 40) (Py 92) (Px ($W - 80)) (Px 22) 'Right'
                 $track = New-Rect (Px 40) (Py 120) (Px ($W - 80)) (Px 4)
                 Fill-Round $g $track (Px 2) $P.Track
                 $fraction = Get-SessionElapsedFraction $view $now
@@ -418,7 +418,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
 
             # date/time steppers
             $pickAt = Get-PickTime
-            $culture = [System.Globalization.CultureInfo]::CurrentCulture
+            $culture = $UiCulture
             $fields = @(
                 @{ Id = 'day'; X = 24; W = 184; Text = (Get-DayLabel $pickAt $now) },
                 @{ Id = 'hour'; X = 216; W = 108; Text = $pickAt.ToString('h tt', $culture) },
@@ -432,12 +432,12 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
             $at = Get-PickTime
             $window = Get-ProjectedWindow $at
             if ($at -le $now) {
-                $preview = 'Esa hora ya pas' + (Tx '\u00f3') + '.'; $previewColor = $P.Error
+                $preview = (Tx 'Esa hora ya pas\u00f3.'); $previewColor = $P.Error
             } elseif (Test-InsideCurrentSession $view $at) {
-                $preview = 'Cae dentro de la sesi' + (Tx '\u00f3') + 'n actual (termina ' + (Format-Clock $view.Session.ResetsAt) + '): no adelanta nada.'
+                $preview = (Tx 'Cae dentro de la sesi\u00f3n actual (termina ') + (Format-Clock $view.Session.ResetsAt) + (L '): no adelanta nada.')
                 $previewColor = $P.Warn
             } else {
-                $preview = (Tx 'Nueva sesi\u00f3n aprox. de ') + (Format-Clock $window.Start) + ' a ' + (Format-Clock $window.End)
+                $preview = (Tx 'Nueva sesi\u00f3n aprox. de ') + (Format-Clock $window.Start) + (L ' a ') + (Format-Clock $window.End)
                 $previewColor = $P.Muted
             }
             Draw-Text $g $preview $F.Small $previewColor $left (Py 246) $inner (Px 20)
@@ -475,7 +475,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
 
             # scheduled list
             Draw-Text $g 'AGENDADAS' $F.Caps $P.Muted $left (Py 384) (Px 200) (Px 18)
-            if ($state.HiddenRows -gt 0) { Draw-Text $g (Tx "+$($state.HiddenRows) m\u00e1s (no caben en la pantalla)") $F.Small $P.Muted $left (Py 384) $inner (Px 18) 'Right' }
+            if ($state.HiddenRows -gt 0) { Draw-Text $g ((Tx '+{0} m\u00e1s (no caben en la pantalla)') -f $state.HiddenRows) $F.Small $P.Muted $left (Py 384) $inner (Px 18) 'Right' }
             $y = Py 404
             if ($state.Rows.Count -eq 0) {
                 $row = New-Rect $left $y $inner (Px 32)
@@ -549,9 +549,9 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
                 }
                 Draw-Text $g $title $F.BodyStrong $titleColor $titleX ($card.Y + (Px 10)) ($cw - ($titleX - $cx) - (Px 40)) (Px 24)
 
-                $spec1 = (Format-DialogDateTime $cloud.At $now) + '  ' + (Tx '\u00b7') + '  Modelo ' + $script:CloudRoutine.Model + '  ' + (Tx '\u00b7') + '  Mensaje: ' + (Tx '\u201c') + 'ok' + (Tx '\u201d')
+                $spec1 = (Format-DialogDateTime $cloud.At $now) + (Tx '  \u00b7  Modelo ') + $script:CloudRoutine.Model + (Tx '  \u00b7  Mensaje: \u201cok\u201d')
                 Draw-Text $g $spec1 $F.Small $P.Muted $cx ($card.Y + (Px 36)) $cw (Px 18)
-                Draw-Text $g ('Sin repositorios ni conectores ' + (Tx '\u00b7') + ' solo la herramienta de rutinas') $F.Small $P.Faint $cx ($card.Y + (Px 54)) $cw (Px 18)
+                Draw-Text $g ((Tx 'Sin repositorios ni conectores \u00b7 solo la herramienta de rutinas')) $F.Small $P.Faint $cx ($card.Y + (Px 54)) $cw (Px 18)
 
                 $lineY = $card.Y + (Px 76)
                 switch ($cloud.Status) {
@@ -574,7 +574,7 @@ function Show-ScheduleDialog([string]$RenderPath, [string]$PreviewCloud, [string
 
         # footer
         if ($state.Tab -eq 'plan') {
-            $okLabel = if ($state.Unbooked.Count) { "Agendar plan ($($state.Unbooked.Count))" } else { 'Todo agendado' }
+            $okLabel = if ($state.Unbooked.Count) { ((L 'Agendar plan ({0})') -f $state.Unbooked.Count) } else { 'Todo agendado' }
             $okAction = if ($state.Unbooked.Count) { $schedulePlan } else { $null }
         } else {
             $okLabel = 'Agendar'; $okAction = $schedule

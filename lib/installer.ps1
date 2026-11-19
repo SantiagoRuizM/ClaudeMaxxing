@@ -7,6 +7,8 @@ $script:RuntimeFiles = @(
     # The egg of each session in the notification area (lib\traysessions.ps1): still, and the thinking animation.
     'egg_logo.png', 'egg_logo_gift_thinking.gif',
     'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js',
+    # Ambientes' format and one example (invented data), for the agent that writes the user's environments.
+    'harness\README.md', 'harness\test\environments\trabajo.json',
     # Peek: the plugin Claude Code loads (its tests, README and the sample paths in them stay in the repo).
     'peek\LICENSE', 'peek\.claude-plugin\plugin.json', 'peek\hooks\hooks.json', 'peek\hooks\register.tsx', 'peek\hooks\paths.ts',
     'peek\hooks\code.ts', 'peek\hooks\markdown.ts', 'peek\hooks\link.tsx', 'peek\hooks\window.ts', 'peek\windows\preview.ps1',

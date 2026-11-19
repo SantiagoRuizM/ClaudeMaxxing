@@ -34,13 +34,79 @@ $TrayLink      = Join-Path $StartupDir "$AppName.lnk"
 # Names used before the rename to ClaudeMaxxing; install and uninstall clean them up.
 $LegacyTrayLink = Join-Path $StartupDir 'ClaudeTray.lnk'
 
-# Non-ASCII UI text is written as \uXXXX escapes and decoded here.
-function Tx([string]$Text) { [regex]::Unescape($Text) }
+# UI language. The text in the code is Spanish; lib\lang\<code>.json has "name" (shown in Configuracion), "culture"
+# (numbers, money and dates) and "strings": each Spanish text, decoded, with its translation. A text missing there
+# is shown in Spanish, so adding a language is adding one file. The choice is saved in $LanguageFile; without it,
+# the Windows display language if there is a file for it, else Spanish.
+$LangDir = Join-Path $PSScriptRoot 'lang'
+$LanguageFile = Join-Path $TrayHome 'language.json'
+$script:UiStrings = $null
 
-# Numbers, money and dates in the window follow one Spanish culture, like its text: the user's own when Windows is in
-# Spanish (es-CO, es-MX...), es-ES otherwise. Format-Clock (lib\schedule.ps1) and Format-Usd (lib\forecast.ps1) use it.
-$UiCulture = if ([Globalization.CultureInfo]::CurrentCulture.TwoLetterISOLanguageName -eq 'es') { [Globalization.CultureInfo]::CurrentCulture }
-    else { [Globalization.CultureInfo]::GetCultureInfo('es-ES') }
+# Translates a whole text (as written in the code, decoded). Draw-Text, Measure-TextWidth and the other text helpers
+# call it, so a literal passed to them needs nothing else; the text is returned as it is when there is no translation.
+function L([string]$Text) {
+    if ($script:UiStrings -and $Text -and $script:UiStrings.ContainsKey($Text)) { return $script:UiStrings[$Text] }
+    $Text
+}
+
+# Non-ASCII UI text is written as \uXXXX escapes: Tx decodes and translates, Ux only decodes (for a text kept to be
+# translated when drawn, so a language change shows at once).
+function Ux([string]$Text) { [regex]::Unescape($Text) }
+function Tx([string]$Text) { L ([regex]::Unescape($Text)) }
+
+# A catalog as a case-sensitive dictionary: ConvertFrom-Json (PowerShell 5.1) refuses keys that differ only in case,
+# and a catalog has them ("Hoy" the day label, "hoy " in a sentence). $null when missing or invalid.
+function Read-UiCatalog([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    try {
+        Add-Type -AssemblyName System.Web.Extensions
+        $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+        $serializer.MaxJsonLength = [int]::MaxValue
+        $catalog = $serializer.DeserializeObject([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8))
+        if ($catalog -is [System.Collections.Generic.IDictionary[string, object]]) { return $catalog }
+    } catch { }
+    $null
+}
+
+# code -> name of every language with a file in $LangDir, Spanish first.
+function Get-UiLanguages {
+    $languages = [ordered]@{}
+    foreach ($file in @(Get-ChildItem -LiteralPath $LangDir -Filter '*.json' -ErrorAction SilentlyContinue | Sort-Object { $_.BaseName -ne 'es' }, BaseName)) {
+        $catalog = Read-UiCatalog $file.FullName
+        if ($catalog -and $catalog['name']) { $languages[$file.BaseName] = [string]$catalog['name'] }
+    }
+    $languages
+}
+
+# $env:CLAUDEMAXXING_LANG wins: the tests pin Spanish with it and the previews (-RenderHubTo) draw other languages.
+function Get-UiLanguage {
+    $saved = Read-JsonFile $LanguageFile
+    $code = if ($env:CLAUDEMAXXING_LANG) { $env:CLAUDEMAXXING_LANG } elseif ($saved -and $saved.language) { [string]$saved.language }
+        else { [Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName }
+    if ($code -notmatch '^[a-z]{2,3}(-[A-Za-z]+)?$' -or -not (Test-Path -LiteralPath (Join-Path $LangDir "$code.json"))) { $code = 'es' }
+    $code
+}
+
+# Loads a language's strings and culture. Numbers, money and dates follow the user's own culture when Windows is in
+# that language (es-CO, en-GB...), the file's otherwise. Format-Clock (lib\schedule.ps1) and Format-Usd use it.
+function Set-UiLanguage([string]$Code) {
+    $catalog = Read-UiCatalog (Join-Path $LangDir "$Code.json")
+    $strings = New-Object 'System.Collections.Generic.Dictionary[string,string]'
+    if ($catalog -and $catalog['strings'] -is [System.Collections.IDictionary]) {
+        foreach ($pair in $catalog['strings'].GetEnumerator()) { if ($pair.Value) { $strings[$pair.Key] = [string]$pair.Value } }
+    }
+    $script:UiStrings = $strings
+    $script:UiLanguage = $Code
+    $current = [Globalization.CultureInfo]::CurrentCulture
+    $script:UiCulture = if ($current.TwoLetterISOLanguageName -eq $Code.Split('-')[0]) { $current }
+        else { try { [Globalization.CultureInfo]::GetCultureInfo($(if ($catalog -and $catalog['culture']) { [string]$catalog['culture'] } else { 'es-ES' })) } catch { [Globalization.CultureInfo]::GetCultureInfo('es-ES') } }
+}
+
+# Saves the choice and applies it in this process; the other windows (Claude Whisper...) take it when they open.
+function Save-UiLanguage([string]$Code) {
+    Write-JsonFile $LanguageFile @{ language = $Code }
+    Set-UiLanguage $Code
+}
 
 function Read-JsonFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
@@ -110,3 +176,5 @@ function Clear-ClaudeSessionEnv {
     $names = @([Environment]::GetEnvironmentVariables().Keys | Where-Object { $_ -match '^(CLAUDE_CODE_|CLAUDECODE$|CLAUDE_PID$)' })
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
 }
+
+Set-UiLanguage (Get-UiLanguage)

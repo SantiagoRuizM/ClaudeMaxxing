@@ -10,10 +10,10 @@ $script:BusinessStats = @{ Stamp = 0; Data = $null }
 function Test-HubBusiness { [bool]($script:Business -and $script:Business.Business) }
 function Test-HubModule([string]$Module) { Test-ModuleAllowed $script:Business $Module }
 
-# The side menu: Empresa only in the business edition, and no section for a module the policy turned off.
+# The side menu (Configuracion has its own button): Empresa only in the business edition, and no section for a module the policy turned off.
 function Get-HubVisibleSections {
     $business = Test-HubBusiness
-    @($script:HubSections | Where-Object { ($business -or -not $_.Business) -and (-not $_.Module -or (Test-HubModule $_.Module)) })
+    @($script:HubSections | Where-Object { $_.Nav -ne $false -and ($business -or -not $_.Business) -and (-not $_.Module -or (Test-HubModule $_.Module)) })
 }
 
 # stats.json, read again only when it changes.
@@ -139,7 +139,7 @@ function Export-HubSeatReport {
         Start-Process -FilePath 'explorer.exe' -ArgumentList ('/select,"' + $path + '"')
         Set-HubMessage ((Tx '\u2713 Informe guardado: ') + (Split-Path -Leaf $path))
     } catch {
-        Set-HubMessage ('No se pudo guardar el informe: ' + $_.Exception.Message) -Failed
+        Set-HubMessage ((L 'No se pudo guardar el informe: ') + $_.Exception.Message) -Failed
     }
     Update-HubBusiness -Force
 }
@@ -149,15 +149,15 @@ function Open-HubTeamReport {
     if ($script:Hub.Preview) { return }
     $dir = Get-ReportDir $script:Business.Policy
     $rows = @(Get-TeamReport $dir)
-    if (-not $rows.Count) { Set-HubMessage ('No hay informes en ' + $dir) -Failed; return }
+    if (-not $rows.Count) { Set-HubMessage ((L 'No hay informes en ') + $dir) -Failed; return }
     $total = Measure-TeamReport $rows
     try {
         $out = Join-Path ([Environment]::GetFolderPath('MyDocuments')) ("$AppName\equipo-" + (Get-Date).ToString('yyyy-MM-dd') + '.csv')
         Start-Process -FilePath (Export-TeamCsv $rows $out)
         $roi = if ($null -ne $total.Roi) { (Tx ' \u00b7 retorno x') + $total.Roi } else { '' }
-        Set-HubMessage ("$($total.People) personas" + (Tx ' \u00b7 ') + (Format-Usd $total.ApiCostUsd) + $roi)
+        Set-HubMessage (((L '{0} personas') -f $total.People) + (Tx ' \u00b7 ') + (Format-Usd $total.ApiCostUsd) + $roi)
     } catch {
-        Set-HubMessage ('No se pudo escribir el informe del equipo: ' + $_.Exception.Message) -Failed
+        Set-HubMessage ((L 'No se pudo escribir el informe del equipo: ') + $_.Exception.Message) -Failed
     }
 }
 
@@ -178,14 +178,14 @@ function Draw-HubBusinessTiles($G, [System.Drawing.Rectangle]$Area) {
     $r = $script:Hub.Cache.BusinessReport
     $gap = Px 12
     $w = [int](($Area.Width - 2 * $gap) / 3)
-    $dot = ' ' + (Tx '\u00b7') + ' '
+    $dot = (Tx ' \u00b7 ')
     $hours = if ($r) { ([string]$r.hours).Replace('.', ',') + ' h' } else { '-' }
-    $useSub = if ($r) { (Format-Usd $r.apiCostUsd) + ' equivalente API' + $dot + $r.activeDays + (Tx ' d\u00edas') } else { '' }
+    $useSub = if ($r) { (Format-Usd $r.apiCostUsd) + (L ' equivalente API') + $dot + $r.activeDays + (Tx ' d\u00edas') } else { '' }
     Draw-HubStat $G (New-Rect $Area.X $Area.Y $w $Area.Height) (Tx 'USO \u00b7 30 D\u00cdAS') $hours $useSub
     $seatUsd = [double]$script:Business.Policy.seatMonthlyUsd
     if ($r -and $null -ne $r.roi) {
         $value = 'x' + ([string]$r.roi).Replace('.', ',')
-        $sub = 'asiento ' + $(if ($r.seatName) { $r.seatName + ' ' } else { '' }) + (Format-Usd $seatUsd) + '/mes'
+        $sub = (L 'asiento ') + $(if ($r.seatName) { $r.seatName + ' ' } else { '' }) + (Format-Usd $seatUsd) + '/mes'
         $color = if ([double]$r.roi -ge 1) { $P.Ok } else { $P.Warn }
     } else {
         $value = '-'; $sub = (Tx 'Pon seatMonthlyUsd en la pol\u00edtica'); $color = $P.Faint
@@ -244,7 +244,7 @@ function Draw-HubBusinessSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     if ($null -eq $c.BusinessReport) { try { Update-HubBusiness -Force } catch { } }
     $b = $script:Business
     $policy = $b.Policy
-    $dot = '  ' + (Tx '\u00b7') + '  '
+    $dot = (Tx '  \u00b7  ')
 
     # the edition and its policy
     $card = New-Rect $X0 (Px 72) $Inner (Px 76)
@@ -275,13 +275,13 @@ function Draw-HubBusinessSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     Draw-PillButton $G $Map $Hover 'biz-export' (New-Rect ($right - $bw) $by $bw (Px 26)) 'Exportar mi informe' { Export-HubSeatReport } -Accent
     $right -= $bw + (Px 10)
     Draw-Text $G 'Informes' $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) ($right - $tx) (Px 22)
-    $where = if ($policy.reportDir) { 'Carpeta del equipo: ' + (Get-ReportDir $policy) } else { 'En ' + (Get-ReportDir $policy) + (Tx ' (pon reportDir en la pol\u00edtica para compartirlos)') }
+    $where = if ($policy.reportDir) { (L 'Carpeta del equipo: ') + (Get-ReportDir $policy) } else { (L 'En ') + (Get-ReportDir $policy) + (Tx ' (pon reportDir en la pol\u00edtica para compartirlos)') }
     Draw-Text $G $where $F.Small $P.Muted $tx ($card.Y + (Px 36)) ($card.Width - (Px 32)) (Px 18)
     $seat = $c.BusinessSeat
     $last = ''
     if ($seat -and $seat.lastReportAt) { try { $last = (Tx '\u00daltimo: ') + (Format-DialogDateTime ([datetime]$seat.lastReportAt) (Get-Date)) } catch { } }
-    if ($seat -and $seat.lastReportError) { $lastColor = $P.Error; $last = 'No se pudo enviar: ' + $seat.lastReportError } else { $lastColor = $P.Faint }
-    $auto = if ($policy.autoReport) { 'Se exporta solo cada 7 d' + (Tx '\u00ed') + 'as.' } else { 'Se exporta solo cuando lo pulsas.' }
+    if ($seat -and $seat.lastReportError) { $lastColor = $P.Error; $last = (L 'No se pudo enviar: ') + $seat.lastReportError } else { $lastColor = $P.Faint }
+    $auto = if ($policy.autoReport) { (Tx 'Se exporta solo cada 7 d\u00edas.') } else { 'Se exporta solo cuando lo pulsas.' }
     Draw-Text $G ((@($auto, $last) | Where-Object { $_ }) -join $dot) $F.Small $lastColor $tx ($card.Y + (Px 52)) ($card.Width - (Px 32)) (Px 16)
 
     # objectives
@@ -290,7 +290,7 @@ function Draw-HubBusinessSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $label = if ($c.BusinessObjectivesManaged) { 'Ver' } else { 'Editar' }
     $bw = Get-PillWidth $label
     Draw-PillButton $G $Map $Hover 'biz-objectives' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 14)) $bw (Px 26)) $label { Edit-HubObjectives }
-    $head = 'Objetivos de la empresa' + $(if ($c.BusinessObjectivesManaged) { $dot + 'de TI' } else { '' })
+    $head = (L 'Objetivos de la empresa') + $(if ($c.BusinessObjectivesManaged) { $dot + (L 'de TI') } else { '' })
     Draw-Text $G $head $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) ($card.Width - (Px 42) - $bw) (Px 22)
     $objectives = [string]$c.BusinessObjectives
     if ($objectives) {
@@ -303,7 +303,7 @@ function Draw-HubBusinessSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     # the team kit
     $kit = @($c.BusinessKit)
     $missing = @($kit | Where-Object { -not $_.Installed -and $_.Valid })
-    Draw-HubCaption $G 'KIT DEL EQUIPO' $X0 (Px 444) $Inner $(if ($kit.Count) { "$(@($kit | Where-Object { $_.Installed }).Count) de $($kit.Count) instalados" } else { '' })
+    Draw-HubCaption $G 'KIT DEL EQUIPO' $X0 (Px 444) $Inner $(if ($kit.Count) { ((L '{0} de {1} instalados') -f @($kit | Where-Object { $_.Installed }).Count, $kit.Count) } else { '' })
     $card = New-Rect $X0 (Px 466) $Inner (Px 140)
     Draw-HubCard $G $card
     $job = $c.MaxxStatus

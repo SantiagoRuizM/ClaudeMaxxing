@@ -25,6 +25,6 @@ while ($true) {
     Start-Sleep -Seconds 1
 }
 Write-Host ''
-Write-Host ('Transcripci' + (Tx '\u00f3') + "n guardada en $transcript") -ForegroundColor DarkGray
+Write-Host ((Tx 'Transcripci\u00f3n guardada en {0}') -f $transcript) -ForegroundColor DarkGray
 Write-Host 'Pulsa una tecla para cerrar.' -ForegroundColor DarkGray
 [void][Console]::ReadKey($true)

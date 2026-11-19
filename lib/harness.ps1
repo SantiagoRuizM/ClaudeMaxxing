@@ -102,7 +102,7 @@ function Start-HarnessJob([string]$Dir, [string]$Id, [ValidateSet('on', 'off')][
     $node = Get-HarnessNode
     if (-not $node) { return Tx 'No encuentro Node.js: inst\u00e1lalo para usar los ambientes.' }
     $current = (Get-HarnessState $Dir).Job
-    if ($current -and $current.state -eq 'running') { return "Ya hay un cambio en curso: $($current.action) $($current.name)" }
+    if ($current -and $current.state -eq 'running') { return ((L 'Ya hay un cambio en curso: {0} {1}') -f $current.action, $current.name) }
     $entry = Join-Path $Dir 'env.js'
     Start-Process -FilePath $node -ArgumentList ('"{0}" {1} {2} --yes --job' -f $entry, $Id, $Action) -WorkingDirectory $Dir -WindowStyle Hidden
     $null
@@ -206,9 +206,9 @@ function Close-HarnessTabs([string]$Dir, [long[]]$Ids) {
 # been reused since the last detection), with its whole tree (npm -> node). Returns an error text, or $null.
 function Stop-HarnessServer([int]$Port, [int]$ProcessId) {
     $owner = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.OwningProcess })
-    if ($owner -notcontains $ProcessId) { return "El puerto $Port ya no es de ese proceso: nada que apagar." }
+    if ($owner -notcontains $ProcessId) { return ((L 'El puerto {0} ya no es de ese proceso: nada que apagar.') -f $Port) }
     & taskkill.exe /PID $ProcessId /T /F *> $null
-    if ($LASTEXITCODE -ne 0) { return "No se pudo apagar el proceso $ProcessId." }
+    if ($LASTEXITCODE -ne 0) { return ((L 'No se pudo apagar el proceso {0}.') -f $ProcessId) }
     $null
 }
 
@@ -218,10 +218,10 @@ function Format-HarnessJudge([string]$Judge) { if ($Judge) { $Judge.Substring(0,
 function Show-HarnessOffer($Detect, $State) {
     # Tx only on literal text: names and reasons may hold backslashes, which Tx would try to decode.
     $text = (Tx '\u00bfQuieres pasarte a ') + $Detect.name + '?' + "`n`n" +
-        'Lo que tienes abierto parece ' + $Detect.name + (Tx ' (seg\u00fan ') + (Format-HarnessJudge $Detect.judge) + ', ' + [int]([double]$Detect.confidence * 100) + ' %).'
+        (L 'Lo que tienes abierto parece ') + $Detect.name + (Tx ' (seg\u00fan ') + (Format-HarnessJudge $Detect.judge) + ', ' + [int]([double]$Detect.confidence * 100) + ' %).'
     if ($Detect.reason) { $text += "`n" + $Detect.reason }
     if ($State.Active) { $text += "`n`n" + (Tx 'Ahora est\u00e1s en ') + $State.Active.name + '.' }
-    $text += ' ' + (Tx 'S\u00ed lo enciende: cierra lo que no es suyo, con apagado suave, y abre lo suyo.')
+    $text += (Tx ' S\u00ed lo enciende: cierra lo que no es suyo, con apagado suave, y abre lo suyo.')
     # DefaultDesktopOnly: topmost and in front even when ClaudeMaxxing has no window open.
     $answer = [System.Windows.Forms.MessageBox]::Show($text, 'ClaudeMaxxing - Ambientes', [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Question, [System.Windows.Forms.MessageBoxDefaultButton]::Button1, [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)

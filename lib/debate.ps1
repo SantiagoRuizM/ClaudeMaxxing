@@ -177,7 +177,7 @@ function Send-DebateMessage($Ctx, $Peer, [string]$Dir, [string]$Name, $Message, 
     $p = Start-Process -FilePath (Join-Path $Ctx.SshDir 'ssh.exe') -ArgumentList $sshArgs -NoNewWindow -PassThru `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     [void]$p.Handle
-    if (-not $p.WaitForExit($TimeoutSeconds * 1000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; return @{ Ok = $false; Error = 'el otro PC no respondi' + (Tx '\u00f3') + ' a tiempo' } }
+    if (-not $p.WaitForExit($TimeoutSeconds * 1000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; return @{ Ok = $false; Error = (Tx 'el otro PC no respondi\u00f3 a tiempo') } }
     # The gate's own last word (it says why it refused) beats whatever ssh printed.
     $lines = @([IO.File]::ReadAllText($stderr) -split "`r?`n" | Where-Object { $_.Trim() })
     $err = @($lines | Where-Object { $_ -match 'ClaudeMaxxing:' }) | Select-Object -Last 1
@@ -194,7 +194,7 @@ function Get-DebateStatus([string]$Dir) {
     $status = Read-JsonFile (Join-Path $Dir 'status.json')
     if ($status -and $status.state -eq 'running' -and [int]$status.pid -gt 0 -and -not (Get-Process -Id ([int]$status.pid) -ErrorAction SilentlyContinue)) {
         $status.state = 'error'
-        $status | Add-Member -NotePropertyName message -NotePropertyValue ('El debate se interrumpi' + (Tx '\u00f3') + '.') -Force
+        $status | Add-Member -NotePropertyName message -NotePropertyValue ((Tx 'El debate se interrumpi\u00f3.')) -Force
     }
     $status
 }

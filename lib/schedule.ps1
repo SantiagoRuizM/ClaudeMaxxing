@@ -185,9 +185,9 @@ function Get-ScheduleRows($PcTasks, $CloudRequests, $History, [datetime]$Now, [i
 
 function Get-DayLabel([datetime]$Date, [datetime]$Now) {
     $days = ($Date.Date - $Now.Date).Days
-    if ($days -eq 0) { return 'Hoy' }
+    if ($days -eq 0) { return (L 'Hoy') }
     if ($days -eq 1) { return (Tx 'Ma\u00f1ana') }
-    if ($days -eq -1) { return 'Ayer' }
+    if ($days -eq -1) { return (L 'Ayer') }
     $text = $Date.ToString('ddd d MMM', $UiCulture).TrimEnd('.')
     $text.Substring(0, 1).ToUpper() + $text.Substring(1)
 }
@@ -198,5 +198,5 @@ function Format-Clock([datetime]$Value) {
 }
 
 function Format-DialogDateTime([datetime]$Value, [datetime]$Now) {
-    (Get-DayLabel $Value $Now) + ' ' + (Tx '\u00b7') + ' ' + (Format-Clock $Value)
+    (Get-DayLabel $Value $Now) + (Tx ' \u00b7 ') + (Format-Clock $Value)
 }

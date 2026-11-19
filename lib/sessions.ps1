@@ -86,9 +86,9 @@ function Format-WtArguments([string]$Dir, [string]$Run, $Slot, [string]$TabColor
 }
 
 function Format-SessionsFullMessage([int]$Open, [int]$Monitors) {
-    $screens = if ($Monitors -eq 1) { '1 pantalla' } else { "$Monitors pantallas" }
-    Tx ("Ya hay $Open sesiones de Claude Code abiertas desde el men\u00fa: el m\u00e1ximo es 2 por pantalla ($screens).`n`n" +
-        "Cierra una de esas ventanas para abrir otra, o quita el l\u00edmite en ClaudeMaxxing > Claude Code.")
+    $screens = if ($Monitors -eq 1) { L '1 pantalla' } else { (L '{0} pantallas') -f $Monitors }
+    ((Tx 'Ya hay {0} sesiones de Claude Code abiertas desde el men\u00fa: el m\u00e1ximo es 2 por pantalla ({1}).') -f $Open, $screens) + "`n`n" +
+        (Tx 'Cierra una de esas ventanas para abrir otra, o quita el l\u00edmite en ClaudeMaxxing > Claude Code.')
 }
 
 # On unless switched off in the ClaudeMaxxing window ($SessionLimitFile, lib\common.ps1).

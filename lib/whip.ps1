@@ -72,23 +72,23 @@ function Get-WhipAgentAccount([string]$Id, [string]$HomeDir = $env:USERPROFILE, 
             $claims = ConvertFrom-WhipJwt $auth.tokens.id_token
             $sub = if ($claims) { $claims.'https://api.openai.com/auth' }
             $plan = if ($sub -and $sub.chatgpt_plan_type) { [string]$sub.chatgpt_plan_type } else { '' }
-            $text = @([string]$claims.email, $(if ($plan) { 'ChatGPT ' + (Get-Culture).TextInfo.ToTitleCase($plan) }) | Where-Object { $_ }) -join ' \u00b7 '
+            $text = @([string]$claims.email, $(if ($plan) { (L 'ChatGPT ') + (Get-Culture).TextInfo.ToTitleCase($plan) }) | Where-Object { $_ }) -join ' \u00b7 '
             if (-not $sub -or -not $sub.chatgpt_subscription_active_until -or $plan -eq 'free') { return New-WhipAccount $text $(if ($plan -eq 'free') { 'warn' } else { 'muted' }) }
             $until = [datetime]$sub.chatgpt_subscription_active_until
-            if ($until -lt $Now) { return New-WhipAccount "$text \u00b7 venci\u00f3 el $(Format-WhipDay $until)" 'warn' }
-            return New-WhipAccount "$text \u00b7 hasta el $(Format-WhipDay $until)" 'ok'
+            if ($until -lt $Now) { return New-WhipAccount ((Tx '{0} \u00b7 venci\u00f3 el {1}') -f $text, (Format-WhipDay $until)) 'warn' }
+            return New-WhipAccount ((Tx '{0} \u00b7 hasta el {1}') -f $text, (Format-WhipDay $until)) 'ok'
         }
         'agy' {
             # agy keeps its token in the Credential Manager; the Google account it signed in with is in ~/.gemini.
             $accounts = Read-JsonFile (Join-Path $HomeDir '.gemini\google_accounts.json')
             if (-not $accounts -or -not $accounts.active) { return New-WhipAccount 'Sin sesi\u00f3n: abre agy e inicia sesi\u00f3n' 'warn' }
-            return New-WhipAccount "$($accounts.active) \u00b7 el plan solo se ve en agy"
+            return New-WhipAccount ((Tx '{0} \u00b7 el plan solo se ve en agy') -f $accounts.active)
         }
         'opencode' {
             $auth = Read-JsonFile (Join-Path $HomeDir '.local\share\opencode\auth.json')
-            $providers = @(if ($auth) { $auth.PSObject.Properties | ForEach-Object { if ($_.Value.type -eq 'oauth') { "$($_.Name) (cuenta)" } else { "$($_.Name) (clave)" } } })
+            $providers = @(if ($auth) { $auth.PSObject.Properties | ForEach-Object { if ($_.Value.type -eq 'oauth') { (L '{0} (cuenta)') -f $_.Name } else { (L '{0} (clave)') -f $_.Name } } })
             if (-not $providers.Count) { return New-WhipAccount 'Sin cuentas: solo modelos gratis (opencode auth login)' }
-            return New-WhipAccount ('Conectado a ' + ($providers -join ', ')) 'ok'
+            return New-WhipAccount ((L 'Conectado a ') + ($providers -join ', ')) 'ok'
         }
         'copilot' {
             $configFile = Join-Path $HomeDir '.copilot\config.json'
@@ -108,7 +108,7 @@ function Get-WhipAgentAccount([string]$Id, [string]$HomeDir = $env:USERPROFILE, 
             $plan = if ($cache.copilot_plan -match 'business|enterprise') { (Get-Culture).TextInfo.ToTitleCase([string]$cache.copilot_plan) }
                 elseif ($sku -match 'free_limited') { 'Free' } elseif ($sku -match 'plus') { 'Pro+' } elseif ($sku -match 'educ') { 'Pro (educativo)' } else { 'Pro' }
             $text = "@$login \u00b7 Copilot $plan"
-            if ($cache.quota_reset_date) { $text += " \u00b7 la cuota se renueva el $(Format-WhipDay $cache.quota_reset_date)" }
+            if ($cache.quota_reset_date) { $text += (Tx ' \u00b7 la cuota se renueva el {0}') -f (Format-WhipDay $cache.quota_reset_date) }
             return New-WhipAccount $text $(if ($plan -eq 'Free') { 'warn' } else { 'ok' })
         }
     }
@@ -123,7 +123,7 @@ function Step-WhipThreshold([int]$Current, [int]$Delta) {
     $list[($i + $Delta + $list.Count) % $list.Count]
 }
 
-function Format-WhipThreshold([int]$Threshold) { if ($Threshold -le 0) { 'Siempre' } else { "Desde $Threshold%" } }
+function Format-WhipThreshold([int]$Threshold) { if ($Threshold -le 0) { 'Siempre' } else { (L 'Desde {0}%') -f $Threshold } }
 
 # The open window's forecast for the plugin (whip-forecast.json): it turns the whip on before the threshold when the
 # window is on pace to hit its limit. Same rule as forecastHit in whip\hooks\rules.ts: from half the plan, while fresh.

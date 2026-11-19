@@ -4,7 +4,7 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs).
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; <section>-full, that section in full screen on a 1920x1080 screen).
 # -RenderEggsTo <folder> writes each session color's egg as <color>.png (the terminal tab icons; install.ps1) and
 # statusline.json, the egg as 8-bit text (still and thinking frames) for the Claude Code statusline.
 # -RenderLogoTo <folder> writes the ClaudeMaxxing jellyfish (logo.png) as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
@@ -394,13 +394,13 @@ $Notify.Visible = -not $Rendering
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 # Grouped like the ClaudeMaxxing window: the window, usage, scheduling, the other tools. Names match its sections.
 [void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
-if (Test-HubModule 'judge') { [void]$menu.Items.Add((Tx 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' }) }
+if (Test-HubModule 'judge') { [void]$menu.Items.Add((Ux 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' }) }
 [void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
 [void]$menu.Items.Add('Actualizar uso', $null, { Start-UsageRefresh; Show-Popup })
 [void]$menu.Items.Add('Ver uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
 [void]$menu.Items.Add('-')
-[void]$menu.Items.Add((Tx 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
+[void]$menu.Items.Add((Ux 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
 [void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
 [void]$menu.Items.Add('-')
 # Claude Whisper: live call copilot in its own process (whisper.ps1).
@@ -414,8 +414,13 @@ if (Test-HubModule 'bridge') { [void]$menu.Items.Add($script:BridgeMenu) }
 [void]$menu.Items.Add('Salir', $null, {
     # Leaving stops the SSH server, which ends what other PCs have open here.
     $open = if ($script:Bridge) { @($script:Bridge.Sessions.Values).Count } else { 0 }
-    if ($open -gt 0 -and -not (Confirm-UiAction (Tx "Otros PCs tienen $open sesi\u00f3n(es) abierta(s) en este PC. Al salir se cierran. \u00bfSalir igualmente?"))) { return }
+    if ($open -gt 0 -and -not (Confirm-UiAction ((Tx 'Otros PCs tienen {0} sesi\u00f3n(es) abierta(s) en este PC. Al salir se cierran. \u00bfSalir igualmente?') -f $open))) { return }
     [System.Windows.Forms.Application]::Exit()
+})
+# Translated each time it opens (Tag keeps the Spanish text), so a language change in Configuracion shows here too.
+$menu.Add_Opening({
+    param($sender, $e)
+    foreach ($item in $sender.Items) { if ($null -eq $item.Tag) { $item.Tag = $item.Text }; $item.Text = L $item.Tag }
 })
 $Notify.ContextMenuStrip = $menu
 

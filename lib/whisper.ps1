@@ -42,11 +42,11 @@ function Get-WhisperDefaults {
 
 # What the user accepts once before Whisper listens: the transcription is Claude Code's dictation service (not a
 # public API), the call's audio leaves the PC, and the other side may have to agree to it.
-$script:WhisperConsentText = 'Claude Whisper transcribe con el servicio de dictado de Claude Code, que no es una API p\u00fablica: ' +
-    'puede dejar de funcionar sin aviso y se usa con tu cuenta de Claude.' + "`n`n" +
-    'El audio de la llamada, tambi\u00e9n el de la otra persona, se env\u00eda a Anthropic para transcribirlo. ' +
-    'En muchos pa\u00edses debes avisar a la otra parte y tener su consentimiento antes de transcribir una conversaci\u00f3n.' + "`n`n" +
-    '\u00bfEmpezar a escuchar?'
+$script:WhisperConsentText = (Tx 'Claude Whisper transcribe con el servicio de dictado de Claude Code, que no es una API p\u00fablica: ') +
+    (L 'puede dejar de funcionar sin aviso y se usa con tu cuenta de Claude.') + "`n`n" +
+    (Tx 'El audio de la llamada, tambi\u00e9n el de la otra persona, se env\u00eda a Anthropic para transcribirlo. ') +
+    (Tx 'En muchos pa\u00edses debes avisar a la otra parte y tener su consentimiento antes de transcribir una conversaci\u00f3n.') + "`n`n" +
+    (Tx '\u00bfEmpezar a escuchar?')
 
 # Deletes the call logs (whisper\sessions\*.md) older than $Days; 0 keeps them all. Returns how many went.
 function Remove-OldWhisperSessions([int]$Days, [string]$Dir = $WhisperSessionsDir, [datetime]$Now = (Get-Date)) {
@@ -369,7 +369,7 @@ function ConvertFrom-WhisperCallLog([string]$Name, [string[]]$Lines) {
     $started = $null
     $parsed = [datetime]::MinValue
     if ([datetime]::TryParseExact($Name, 'yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture, 'None', [ref]$parsed)) { $started = $parsed }
-    $meTag = '**' + (Tx 'T\u00fa') + '** '
+    $meTag = (Tx '**T\u00fa** ')
     $them = 0; $me = 0; $answers = 0; $first = ''; $firstThem = ''
     $times = New-Object System.Collections.Generic.List[timespan]
     foreach ($line in $Lines) {
@@ -404,7 +404,7 @@ function ConvertFrom-WhisperCallLog([string]$Name, [string[]]$Lines) {
 function Format-CallDuration([int]$Minutes) {
     if ($Minutes -lt 1) { return '<1 min' }
     if ($Minutes -lt 60) { return "$Minutes min" }
-    '{0} h {1} min' -f [int][Math]::Floor($Minutes / 60), ($Minutes % 60)
+    (L '{0} h {1} min') -f [int][Math]::Floor($Minutes / 60), ($Minutes % 60)
 }
 
 # ---------------------------------------------------------------- hotkeys

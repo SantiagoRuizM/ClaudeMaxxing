@@ -27,7 +27,7 @@ function Select-DebateFolder($Owner) {
 # The topic, or $null when cancelled.
 function Show-DebateTopicDialog([string]$PeerName) {
     $P = $script:Palette
-    $dlg = New-JudgeForm ('Debatir con ' + $PeerName) $P 560 440
+    $dlg = New-JudgeForm ((L 'Debatir con ') + $PeerName) $P 560 440
     Add-JudgeRow $dlg (New-JudgeLabel ((Tx 'Tu Claude y el de ') + $PeerName + (Tx ' debaten, cada uno desde su propio proyecto, y les dan una recomendaci\u00f3n. Escribe la pregunta o la decisi\u00f3n con lo que importa: opciones, l\u00edmites, plazos.')) $P.Muted)
     Add-JudgeRow $dlg (New-JudgeLabel 'TEMA' $P.Muted $script:Fonts.Caps)
     $box = New-JudgeBox '' $P $false

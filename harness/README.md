@@ -59,7 +59,21 @@ Las pestañas cerradas se recuperan con `Ctrl+Shift+T` o desde el historial.
 
 ## Ambientes
 
-Un ambiente (`environments/<nombre>.json`) define cómo entrar en foco en un proyecto. Tiene dos partes:
+Un ambiente (`environments/<nombre>.json`) define cómo entrar en foco en un proyecto.
+
+### Crear un ambiente
+
+Una instalación nueva empieza sin ninguno. En ClaudeMaxxing > Ambientes:
+
+1. Pulsa **Copiar prompt** y pégalo en una sesión de Claude Code. El prompt lleva las rutas de este PC.
+2. Claude lee este README y el ejemplo `test/environments/trabajo.json`, y analiza tu consumo y tus proyectos (`~/.claude/usage-tray/stats.json`), tus sesiones (`sessions.json`) y las carpetas de tus conversaciones (`~/.claude/projects`).
+3. Te propone de 2 a 5 ambientes. Te pregunta lo que no puede saber: el perfil de Chrome, la música, qué cerrar.
+4. Cuando le dices que sí, escribe cada uno en `~/.claude/usage-tray/harness/environments/<id>.json` y lo prueba con `node env.js <id>`. Es solo la vista previa: no cierra ni abre nada.
+5. Los ambientes aparecen en la sección como bolitas. Haz clic en una para encenderla.
+
+Con ambientes ya creados, **Crear con Claude** copia el mismo prompt. También puedes hacerlo a mano: copia el ejemplo a esa carpeta (**Abrir carpeta**) y edítalo.
+
+Un ambiente tiene dos partes:
 
 - **Qué se abre (fijo):** música de una carpeta en Windows Media Player, Docker Desktop y `docker compose up -d`, los servidores de desarrollo (se reutilizan si el puerto ya escucha) y las pestañas del proyecto en un perfil de Chrome concreto.
 - **Qué se cierra (con contexto):** cada pestaña se juzga por lo que contiene. Primero se aplican las reglas `close` y `keep` sobre la URL. Después, el título, la URL y los datos de YouTube (título, canal, descripción) se comparan con `focusTopics`. Un vídeo de "cómo crear APIs" se queda; uno de MrBeast se cierra. Las apps de `closeApps` se cierran con aviso a la ventana y después por PID. Cada cierre muestra su motivo.

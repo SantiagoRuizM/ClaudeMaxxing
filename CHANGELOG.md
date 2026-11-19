@@ -4,6 +4,12 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
 
 ## Unreleased
 
+- **English**: the ClaudeMaxxing window, the tray, its notifications and the other windows (Agendar sesión, Otros PCs, Claude Whisper, Claude Judge) are now in English too. Pick the language in the new **Configuración** section (the gear next to full screen); without a choice it follows the Windows display language. Each language is one file in `lib/lang`, so adding another is translating a copy of `en.json`.
+- **The ClaudeMaxxing window goes full screen** with the button next to minimize, or F11 (Esc or F11 leaves it). The window is drawn at the screen's size, so the text stays sharp.
+- **Inicio has shortcuts to the sections you open most**, next to its title (until you have used it for a while, Uso y agenda, Claude Code, Estadísticas and Voz).
+- **Claude Code explains Peek**: a link at the bottom of the section shows what hovering over a path, clicking it and right-clicking it do with files and images in Claude's answers.
+- **Ambientes explains how to create one**: a new install starts with none, and the section shows a prompt to copy into Claude Code. The prompt has Claude read your usage, projects and sessions, propose the environments, ask about what it can't tell, write each `.json` and check it with a preview that closes nothing. **Crear con Claude** copies the same prompt once there are environments. Ambientes' README and an example environment are now installed, so the prompt can point to them.
+- **Claude Whip's icon is a whip.**
 - **Versioning policy** in `VERSIONING.md`: what counts as major, minor and patch, and how to release. A release must be tagged on `main` (or a `release/*` branch) and have a changelog entry.
 
 - **Claude Whip follows the forecast**: past half the 5-hour window, if it is on pace to run out before it resets, Whip comes on before its threshold and says at what time the limit would come. The shell guard is tighter (a lone `&`, extra lines, `$(...)`, backticks, `git -c`/`config`/`apply`, `sort -o`, `VAR=` prefixes, a `whip-check.sh` planted in the repo) and MCP tools that run code or write are blocked. The check stops a test command after 20 minutes.

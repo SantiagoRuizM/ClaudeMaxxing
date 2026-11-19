@@ -2,6 +2,8 @@
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1
 
 $TrayRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+# The expected texts are the Spanish ones in the code, whatever language this PC has chosen (the child processes too).
+$env:CLAUDEMAXXING_LANG = 'es'
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\usage.ps1')
 . (Join-Path $TrayRoot 'lib\schedule.ps1')
@@ -82,6 +84,35 @@ Assert-Equal 'high' (Get-UsageLevel 86) 'level high'
 Assert-Equal ('Claude PRO - ' + (Tx 'Sesi\u00f3n') + ' 72% - Semanal 86%') (Format-TrayTooltip $usage 'PRO') 'tooltip'
 Assert-Equal 'Claude PRO - sin datos de uso' (Format-TrayTooltip (Get-UsageView $null $now) 'PRO') 'tooltip without data'
 Assert-Equal $true ((Format-TrayTooltip $usage ('X' * 80)).Length -le 63) 'tooltip stays within 63 chars'
+
+# --- UI language (lib\lang\<code>.json)
+$languages = Get-UiLanguages
+Assert-Equal 'es' @($languages.Keys)[0] 'Spanish, the language of the code, is listed first'
+Assert-Equal 'English' $languages['en'] 'English is listed by the name in its file'
+foreach ($file in @(Get-ChildItem (Join-Path $TrayRoot 'lib\lang') -Filter '*.json')) {
+    $catalog = Read-UiCatalog $file.FullName
+    Assert-Equal $true ($catalog -and $catalog['name'] -and $catalog['strings'] -is [System.Collections.IDictionary]) "$($file.Name) has a name and strings"
+    $bad = @()
+    foreach ($pair in $catalog['strings'].GetEnumerator()) {
+        $holes = { param($t) (@([regex]::Matches($t, '\{\d+\}') | ForEach-Object { $_.Value }) | Sort-Object) -join ',' }
+        if ((& $holes $pair.Key) -ne (& $holes ([string]$pair.Value))) { $bad += "placeholders: $($pair.Key)" }
+        # Draw-Text translates text that Tx already translated: a translation must not be another text to translate.
+        $again = $catalog['strings'][[string]$pair.Value]
+        if ($null -ne $again -and $again -ne $pair.Value) { $bad += "translated twice: $($pair.Key)" }
+    }
+    Assert-Equal '' ($bad -join '; ') "$($file.Name): same {0} placeholders, nothing translated twice"
+}
+$plan = 'Planear sesi' + [char]0x00F3 + 'n'
+Set-UiLanguage 'en'
+Assert-Equal 'Plan session' (L $plan) 'English: a text with a translation'
+Assert-Equal 'Plan session' (Tx ('Planear sesi' + [char]92 + 'u00f3n')) 'English: Tx decodes, then translates'
+Assert-Equal 'not in the catalog' (L 'not in the catalog') 'English: a text without one stays as it is'
+Assert-Equal 'Updated 5 min ago' ((L 'Actualizado hace {0} min') -f 5) 'English: a template keeps its placeholder'
+Assert-Equal 'en' $UiCulture.TwoLetterISOLanguageName 'English: numbers and dates follow an English culture'
+Set-UiLanguage 'xx'
+Assert-Equal $plan (L $plan) 'a language without a file shows the Spanish text'
+Set-UiLanguage 'es'
+Assert-Equal $plan (L $plan) 'Spanish: the text in the code'
 
 # --- Warnings before a limit (session 72 %, weekly 86 %)
 $alerts = @(Get-UsageAlerts $usage @())
@@ -1063,9 +1094,10 @@ try {
     Assert-Equal $false (Test-Path -LiteralPath (Split-Path -Parent $TerminalFragmentFile)) 'terminal profiles: removed on uninstall'
 } finally { $TerminalFragmentFile = $realFragment; Remove-Item -LiteralPath $wtTmp -Recurse -Force -ErrorAction SilentlyContinue }
 # The repo may be renamed or deleted after installing: no runtime file may point back into it.
+# The example environment is the exception: its paths are made up (C:\Users\me) and the harness tests use them.
 $repoRefs = @($manifest | Where-Object {
     $text = [IO.File]::ReadAllText((Join-Path $TrayRoot $_))
-    $text -match [regex]::Escape($TrayRoot) -or $text -match 'C:[\\/]+Users[\\/]+'
+    $text -match [regex]::Escape($TrayRoot) -or ($_ -ne 'harness\test\environments\trabajo.json' -and $text -match 'C:[\\/]+Users[\\/]+')
 })
 Assert-Equal '' ($repoRefs -join ', ') 'no runtime file has an absolute path to this PC'
 

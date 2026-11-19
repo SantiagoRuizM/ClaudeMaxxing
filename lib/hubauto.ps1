@@ -75,9 +75,9 @@ function Set-AutoEnabled([bool]$On) {
     Save-AutoSettings $settings
     Invoke-AutoSchedule -Force
     $result = $script:AutoLastResult
-    if ($result -and $result.Error) { Set-HubMessage ('No se pudo agendar: ' + $result.Error) }
-    elseif ($On) { Set-HubMessage ((Tx '\u2713 Agenda autom\u00e1tica activa') + $(if ($result) { " ($($result.Added) sesiones agendadas)" } else { '' })) }
-    else { Set-HubMessage ((Tx 'Agenda autom\u00e1tica apagada') + $(if ($result -and $result.Removed) { " ($($result.Removed) quitadas)" } else { '' })) }
+    if ($result -and $result.Error) { Set-HubMessage ((L 'No se pudo agendar: ') + $result.Error) }
+    elseif ($On) { Set-HubMessage ((Tx '\u2713 Agenda autom\u00e1tica activa') + $(if ($result) { ((L ' ({0} sesiones agendadas)') -f $result.Added) } else { '' })) }
+    else { Set-HubMessage ((Tx 'Agenda autom\u00e1tica apagada') + $(if ($result -and $result.Removed) { ((L ' ({0} quitadas)') -f $result.Removed) } else { '' })) }
     Update-HubAuto
 }
 
@@ -98,15 +98,15 @@ function Remove-AutoConflicts {
     $view = $script:Hub.Cache.Auto
     if (-not $view) { return }
     $conflicts = @($view.Conflicts)
-    $ask = if ($conflicts.Count -eq 1) { Tx '\u00bfQuitar la sesi\u00f3n agendada a mano que corta la cadena?' } else { Tx "\u00bfQuitar las $($conflicts.Count) sesiones agendadas a mano que cortan la cadena?" }
+    $ask = if ($conflicts.Count -eq 1) { Tx '\u00bfQuitar la sesi\u00f3n agendada a mano que corta la cadena?' } else { (Tx '\u00bfQuitar las {0} sesiones agendadas a mano que cortan la cadena?') -f $conflicts.Count }
     if (-not (Confirm-UiAction $ask $script:HubDialog)) { return }
     $count = 0
     foreach ($task in $conflicts) { if (Remove-SessionTask $task.Name) { $count++ } }
     Update-ScheduleState
     Invoke-AutoSchedule -Force
     $failed = $conflicts.Count - $count
-    if ($failed -gt 0) { Set-HubMessage "No se pudieron quitar $failed de $($conflicts.Count): mira el Programador de tareas." -Failed }
-    else { Set-HubMessage ((Tx '\u2713 ') + $(if ($count -eq 1) { 'Limpiada 1 agendada a mano' } else { "Limpiadas $count agendadas a mano" })) }
+    if ($failed -gt 0) { Set-HubMessage ((L 'No se pudieron quitar {0} de {1}: mira el Programador de tareas.') -f $failed, $conflicts.Count) -Failed }
+    else { Set-HubMessage ((Tx '\u2713 ') + $(if ($count -eq 1) { 'Limpiada 1 agendada a mano' } else { ((L 'Limpiadas {0} agendadas a mano') -f $count) })) }
     Update-HubAuto
     Update-HubNow
 }
@@ -140,8 +140,8 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
     }
 
     $peak = $plan.Peak
-    $headline = 'Tu franja de m' + (Tx '\u00e1') + 's uso: ' + (Format-HourMark $peak.Start) + (Tx '\u2013') + (Format-HourMark $peak.End) +
-        '  ' + (Tx '\u00b7') + '  ' + (Format-HubDuration $peak.Seconds) + ' de media al d' + (Tx '\u00ed') + 'a'
+    $headline = (Tx 'Tu franja de m\u00e1s uso: ') + (Format-HourMark $peak.Start) + (Tx '\u2013') + (Format-HourMark $peak.End) +
+        (Tx '  \u00b7  ') + (Format-HubDuration $peak.Seconds) + (Tx ' de media al d\u00eda')
     Draw-Text $G $headline $F.BodyStrong $P.Text $x ($Card.Y + (Px 32)) $w (Px 22)
 
     # timeline: average use per hour, the peak zone in the accent, the planned windows under it
@@ -193,7 +193,7 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
 
     # the starts, and the boundary (computed or moved by hand)
     $y = $Card.Y + (Px 120)
-    $startsText = 'Sesiones a las ' + (@($plan.Starts | ForEach-Object { Format-HourMark $_ 5 }) -join (Tx ' \u00b7 '))
+    $startsText = (L 'Sesiones a las ') + (@($plan.Starts | ForEach-Object { Format-HourMark $_ 5 }) -join (Tx ' \u00b7 '))
     $pickerW = Px 210
     Draw-Text $G $startsText $F.Body $P.Text $x $y ($w - $pickerW - (Px 8)) (Px 26)
     $box = New-Rect ($Card.Right - (Px 16) - $pickerW) $y $pickerW (Px 26)
@@ -235,11 +235,11 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
     $conflicts = @($view.Conflicts)
     if ($conflicts.Count) {
         # Always a button: they interrupt the chain whether the agenda is on yet or not.
-        $label = 'Limpiar ' + $conflicts.Count
+        $label = (L 'Limpiar ') + $conflicts.Count
         $bw = Get-PillWidth $label
         Draw-PillButton $G $Map $Hover 'auto-conflicts' (New-Rect ($Card.Right - (Px 16) - $bw) $y $bw (Px 24)) $label { Remove-AutoConflicts } -Accent
         $times = @($conflicts | Select-Object -First 2 | ForEach-Object { Format-DialogDateTime $_.At (Get-Date) }) -join ', '
-        $statusText = "$($conflicts.Count) " + $(if ($conflicts.Count -eq 1) { 'agendada a mano interrumpe' } else { 'agendadas a mano interrumpen' }) + ' la cadena (' + $times + $(if ($conflicts.Count -gt 2) { (Tx '\u2026') } else { '' }) + ')'
+        $statusText = "$($conflicts.Count) " + $(if ($conflicts.Count -eq 1) { 'agendada a mano interrumpe' } else { 'agendadas a mano interrumpen' }) + (L ' la cadena (') + $times + $(if ($conflicts.Count -gt 2) { (Tx '\u2026') } else { '' }) + ')'
         $statusColor = $P.Warn
         Draw-Text $G $statusText $F.Small $statusColor $x $y ($w - $bw - (Px 10)) (Px 24)
     } else {

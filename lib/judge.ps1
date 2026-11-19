@@ -31,22 +31,22 @@ function Read-SharedText([string]$Path) {
 # stderr, the exit code and whether it ran out of time. The log keeps the full text.
 function Get-JudgeFailure($Answer, [string]$StdErr, [int]$ExitCode, [bool]$TimedOut, [int]$TimeoutMinutes) {
     $clip = { param([string]$s, [int]$n) $s = ($s -replace '\s+', ' ').Trim(); if ($s.Length -gt $n) { $s.Substring(0, $n) + '...' } else { $s } }
-    if ($TimedOut) { return ('Claude no termin' + (Tx '\u00f3') + " en $TimeoutMinutes min y se detuvo.") }
+    if ($TimedOut) { return ((Tx 'Claude no termin\u00f3 en {0} min y se detuvo.') -f $TimeoutMinutes) }
     $denials = @($Answer.permission_denials | Where-Object { $_ })
     if ($Answer -and $denials.Count) {
         $first = $denials[0]
         $target = [string]$first.tool_input.file_path
         if (-not $target) { $target = [string]$first.tool_input.command }
-        $more = if ($denials.Count -gt 1) { " (y $($denials.Count - 1) m" + (Tx '\u00e1') + 's)' } else { '' }
-        return ('Claude no tuvo permiso para ' + $first.tool_name + ' ' + (& $clip $target 120) + $more + '.')
+        $more = if ($denials.Count -gt 1) { ((Tx ' (y {0} m\u00e1s)') -f ($denials.Count - 1)) } else { '' }
+        return ((L 'Claude no tuvo permiso para ') + $first.tool_name + ' ' + (& $clip $target 120) + $more + '.')
     }
-    if ($Answer -and $Answer.is_error) { return ('Claude devolvi' + (Tx '\u00f3') + " un error ($($Answer.subtype)): " + (& $clip ([string]$Answer.result) 200)) }
+    if ($Answer -and $Answer.is_error) { return (((Tx 'Claude devolvi\u00f3 un error ({0}): ') -f $Answer.subtype) + (& $clip ([string]$Answer.result) 200)) }
     if (-not $Answer) {
         $line = @($StdErr -split "`r?`n" | Where-Object { $_.Trim() })[0]
-        if ($line) { return ('Claude no arranc' + (Tx '\u00f3') + ': ' + (& $clip $line 200)) }
-        return ('Claude no respondi' + (Tx '\u00f3') + " (c" + (Tx '\u00f3') + "digo $ExitCode).")
+        if ($line) { return ((Tx 'Claude no arranc\u00f3: ') + (& $clip $line 200)) }
+        return ((Tx 'Claude no respondi\u00f3 (c\u00f3digo {0}).') -f $ExitCode)
     }
-    'Claude termin' + (Tx '\u00f3') + ' sin veredicto: ' + (& $clip ([string]$Answer.result) 200)
+    (Tx 'Claude termin\u00f3 sin veredicto: ') + (& $clip ([string]$Answer.result) 200)
 }
 
 # Names from claudeJudge\.claude\skills\court\jurors.json.
@@ -68,7 +68,7 @@ function Get-JudgeStatus([string]$Path = $JudgeStatusFile) {
     $status = Read-JsonFile $Path
     if ($status -and $status.state -eq 'running' -and -not (Test-JudgeProcess ([int]$status.pid))) {
         $status.state = 'error'
-        $status | Add-Member -NotePropertyName message -NotePropertyValue ('El juicio se interrumpi' + (Tx '\u00f3') + '.') -Force
+        $status | Add-Member -NotePropertyName message -NotePropertyValue ((Tx 'El juicio se interrumpi\u00f3.')) -Force
     }
     $status
 }
@@ -84,10 +84,10 @@ function Format-JudgeVerdict([string]$Verdict) {
 
 # "Culpable, 4 a 2": the larger side first, like court.py.
 function Format-JudgeScore($Tally) {
-    if (-not $Tally) { return 'Sin veredicto' }
+    if (-not $Tally) { return (L 'Sin veredicto') }
     $g = [int]$Tally.guilty; $n = [int]$Tally.not_guilty
     $big, $small = if ($Tally.verdict -eq 'NOT GUILTY') { $n, $g } else { $g, $n }
-    '{0}, {1} a {2}' -f (Format-JudgeVerdict $Tally.verdict), $big, $small
+    (L '{0}, {1} a {2}') -f (L (Format-JudgeVerdict $Tally.verdict)), $big, $small
 }
 
 function Get-JudgeRunDate([string]$Name) {
@@ -140,7 +140,7 @@ function Get-JudgeProgress([string]$RunDir) {
     if ((& $count 'opening') -lt 2) { return 'Alegatos de apertura: fiscal y defensa' }
     if ((& $count 'rebuttal') -lt 2) { return (Tx 'R\u00e9plicas') }
     $jury = & $count 'jury'
-    if ($jury -lt $size) { return ('Jurado: {0} de {1} votos' -f $jury, $size) }
+    if ($jury -lt $size) { return ((L 'Jurado: {0} de {1} votos') -f $jury, $size) }
     if ((& $count 'judge') -ge 1) { return 'Sentencia lista' }
     'El juez redacta la sentencia'
 }
@@ -149,7 +149,7 @@ function Get-JudgeProgress([string]$RunDir) {
 # English headings).
 function Format-JudgeFeedback($Trial) {
     $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add('VEREDICTO: ' + (Format-JudgeScore $Trial.Tally).ToUpper())
+    $lines.Add((L 'VEREDICTO: ') + (Format-JudgeScore $Trial.Tally).ToUpper())
     $lines.Add('')
     $lines.Add('LA IDEA')
     $lines.Add($Trial.Case)
@@ -159,7 +159,7 @@ function Format-JudgeFeedback($Trial) {
         $name = if ($script:JudgeJurors.ContainsKey([string]$j.juror)) { $script:JudgeJurors[[string]$j.juror] } else { [string]$j.juror }
         $vote = Format-JudgeVerdict $j.vote
         $lines.Add(('- {0} ({1}): {2}' -f $name, $vote, $j.reason).TrimEnd(': '))
-        if ($j.flip) { $lines.Add('    Cambiar' + (Tx '\u00ed') + 'a su voto si: ' + $j.flip) }
+        if ($j.flip) { $lines.Add((Tx '    Cambiar\u00eda su voto si: ') + $j.flip) }
     }
     $lines.Add('')
     $lines.Add('SENTENCIA DEL JUEZ')

@@ -665,7 +665,7 @@ $tips.SetToolTip($script:AutoButton, (Tx 'Responder solo cuando detecte una preg
 $tips.SetToolTip($script:TranslateButton, (Tx 'Traducir en vivo a tu idioma lo que suena en el PC'))
 
 $more = New-Object System.Windows.Forms.ContextMenuStrip
-$script:TopMostItem = New-Object System.Windows.Forms.ToolStripMenuItem('Siempre visible')
+$script:TopMostItem = New-Object System.Windows.Forms.ToolStripMenuItem((L 'Siempre visible'))
 $script:TopMostItem.Checked = [bool]$script:Settings.topMost
 $script:TopMostItem.Add_Click({
     $script:Settings.topMost = -not [bool]$script:Settings.topMost
@@ -674,12 +674,12 @@ $script:TopMostItem.Add_Click({
     Save-WhisperSettings
 })
 [void]$more.Items.Add($script:TopMostItem)
-[void]$more.Items.Add('Historial de llamadas', $null, {
+[void]$more.Items.Add((L 'Historial de llamadas'), $null, {
     if (-not (Test-Path -LiteralPath $WhisperSessionsDir)) { New-Item -ItemType Directory -Force -Path $WhisperSessionsDir | Out-Null }
     Start-Process explorer.exe $WhisperSessionsDir
 })
 [void]$more.Items.Add('-')
-[void]$more.Items.Add('Cerrar Claude Whisper', $null, { $script:Form.Close() })
+[void]$more.Items.Add((L 'Cerrar Claude Whisper'), $null, { $script:Form.Close() })
 $script:MoreButton.Add_Click({ $more.Show($script:MoreButton, 0, $script:MoreButton.Height) })
 
 # ---- body: transcript above, answer below
@@ -716,8 +716,8 @@ foreach ($b in $script:PrevButton, $script:NextButton) {
     $b.Margin = New-Object System.Windows.Forms.Padding((Px 2), (Px 1), 0, (Px 1))
     $b.MinimumSize = New-Object System.Drawing.Size((Px 30), (Px 26))
 }
-$tips.SetToolTip($script:PrevButton, 'Respuesta anterior')
-$tips.SetToolTip($script:NextButton, 'Respuesta siguiente')
+$tips.SetToolTip($script:PrevButton, (L 'Respuesta anterior'))
+$tips.SetToolTip($script:NextButton, (L 'Respuesta siguiente'))
 $answerHead.Controls.Add($answerCaption, 0, 0)
 $answerHead.Controls.Add($script:AnswerNav, 1, 0)
 $answerHead.Controls.Add($script:PrevButton, 2, 0)
@@ -755,7 +755,7 @@ $Form.Controls.Add($footer)
 $Form.Controls.Add($header)
 
 function Update-Controls {
-    $script:ListenButton.Text = if ($script:Listening) { 'Pausar' } else { 'Escuchar' }
+    $script:ListenButton.Text = if ($script:Listening) { L 'Pausar' } else { L 'Escuchar' }
     $script:AutoButton.Checked = [bool]$script:Settings.autoAnswer
     $script:TranslateButton.Checked = [bool]$script:Settings.translate
     Set-WhisperButtonStyle $script:ListenButton $P (-not $script:Listening)
@@ -767,9 +767,9 @@ function Update-Controls {
     $prefixes = @($keys | ForEach-Object { $_ -replace '\+[^+]+$', '' } | Select-Object -Unique)
     if ($prefixes.Count -eq 1 -and $prefixes[0]) {
         $last = @($keys | ForEach-Object { ($_ -split '\+')[-1] })
-        $text += "`n" + ('{0}+{1} responder{4}{2} pantalla{4}{3} mostrar u ocultar' -f $prefixes[0], $last[0], $last[1], $last[2], $dot)
+        $text += "`n" + ((L '{0}+{1} responder{4}{2} pantalla{4}{3} mostrar u ocultar') -f $prefixes[0], $last[0], $last[1], $last[2], $dot)
     } else {
-        $text += "`n" + ('{0} responder{3}{1} pantalla{3}{2} mostrar u ocultar' -f $keys[0], $keys[1], $keys[2], $dot)
+        $text += "`n" + ((L '{0} responder{3}{1} pantalla{3}{2} mostrar u ocultar') -f $keys[0], $keys[1], $keys[2], $dot)
     }
     if ($script:HotkeyProblem) { $text += "`n" + $script:HotkeyProblem }
     if ($script:MicUsers) { $text += "`n" + (Tx 'Micr\u00f3fono en uso por: ') + $script:MicUsers }

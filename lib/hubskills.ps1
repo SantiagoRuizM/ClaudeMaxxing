@@ -58,7 +58,7 @@ function Get-ClaudePlugins([string]$ClaudeHome) {
 }
 
 function Format-PluginSource($Plugin) {
-    'plugin ' + $Plugin.Name + $(if ($Plugin.Project) { ' (' + $Plugin.Project + ')' } else { '' })
+    (L 'plugin ') + $Plugin.Name + $(if ($Plugin.Project) { ' (' + $Plugin.Project + ')' } else { '' })
 }
 
 # Each row once, by name and source (a plugin installed for several projects, a skill synced twice).
@@ -119,7 +119,7 @@ function Get-McpList([string]$ClaudeHome = (Join-Path $env:USERPROFILE '.claude'
     if ($config) {
         $rows += @(Get-McpServerRows $config.mcpServers 'tuyos')
         if ($config.projects) {
-            foreach ($project in $config.projects.PSObject.Properties) { $rows += @(Get-McpServerRows $project.Value.mcpServers ('proyecto ' + (Split-Path -Leaf $project.Name))) }
+            foreach ($project in $config.projects.PSObject.Properties) { $rows += @(Get-McpServerRows $project.Value.mcpServers ((L 'proyecto ') + (Split-Path -Leaf $project.Name))) }
         }
     }
     foreach ($plugin in @(Get-ClaudePlugins $ClaudeHome)) {
@@ -165,7 +165,7 @@ function Install-HubSkillPack([string]$Id) {
     if ($job -and $job.state -eq 'running') { Set-HubMessage (Tx 'Espera: hay otra instalaci\u00f3n en curso.'); return }
     $pack = @($script:SkillPacks | Where-Object { $_.Id -eq $Id })[0]
     Start-MaxxJob 'pack-install' -Plugin $pack.Plugin
-    Set-HubMessage ('Instalando ' + $pack.Id + '...')
+    Set-HubMessage ((L 'Instalando ') + $pack.Id + '...')
     Update-HubNow
 }
 
@@ -191,7 +191,7 @@ function New-HubCreation([string]$Kind) {
     if ($dir.EndsWith('\')) { $dir += '.' }
     $launch = '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -Dir "{1}" -Prompt "{2}"' -f (Join-Path $TrayRoot 'open-session.ps1'), $dir, $prompt
     Start-Process -FilePath (Join-Path $env:WINDIR 'System32\conhost.exe') -ArgumentList $launch -WorkingDirectory $TrayRoot
-    Set-HubMessage ('Abriendo Claude Code en ' + (Split-Path -Leaf $dir.TrimEnd('.', '\')) + '...')
+    Set-HubMessage ((L 'Abriendo Claude Code en ') + (Split-Path -Leaf $dir.TrimEnd('.', '\')) + '...')
 }
 
 function Set-HubSkillsTab([string]$Tab) {
@@ -214,7 +214,7 @@ function Draw-HubSkillsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     if (-not $hub.SkillsTab) { $hub.SkillsTab = 'skills' }
     $job = $c.MaxxStatus
     $busy = $job -and $job.state -eq 'running'
-    $dot = '  ' + (Tx '\u00b7') + '  '
+    $dot = (Tx '  \u00b7  ')
 
     # the creation packages
     Draw-HubCaption $G 'PAQUETES PARA CREAR' $X0 (Px 66) $Inner 'plugins oficiales de Anthropic'
@@ -252,7 +252,7 @@ function Draw-HubSkillsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $y += Px 6
     $skills = @($c.Skills)
     $servers = @($c.Mcp)
-    $tabs = @(@{ Id = 'skills'; Label = "Skills ($($skills.Count))" }, @{ Id = 'mcp'; Label = "Servidores MCP ($($servers.Count))" })
+    $tabs = @(@{ Id = 'skills'; Label = "Skills ($($skills.Count))" }, @{ Id = 'mcp'; Label = (L 'Servidores MCP ({0})') -f $servers.Count })
     $x = $X0
     foreach ($tab in $tabs) {
         $active = $hub.SkillsTab -eq $tab.Id

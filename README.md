@@ -132,6 +132,7 @@ This removes everything listed above, including the menu entry, its certificate 
 - **Otros PCs**: the same diagram, larger. The section also has this PC's status, the **Acepta conexiones** switch and the paired PCs, with **Terminal**, **Claude Code** and **Desconectar**. Pairing still happens in the Otros PCs window (**Emparejar o buscar un PC...**), because pairing is only accepted while that window is open.
 - **Claude Whisper**: open or show it, **Contexto...**, language, model, the answer, microphone and call-notice options, and the hotkeys. Also its call history: date, length, number of answers and the first question. Click a call to open its Markdown file. While Whisper is open, its settings are changed in its own window, so here they are read-only.
 - **Voz**: voice on or off for every session, the global hotkeys, **Probar voz**, **Repetir lo último** and **Detener audio**. It also lists the sessions that spoke in the last 12 hours, each with its own on/off switch.
+- **Configuración** (the gear next to full screen): the **language** of the window, the tray and its notifications, Spanish or English. The change shows at once; Claude Whisper and the other windows take it the next time they open. Without a choice, it follows the Windows display language when there is a translation for it, and Spanish otherwise. Numbers and dates follow that language. The choice is saved in `~/.claude/usage-tray/language.json`.
 
 ### The automatic agenda
 
@@ -351,6 +352,7 @@ The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and
 
 - `.ps1` files must stay ASCII: Windows PowerShell 5.1 reads BOM-less scripts as ANSI. Accented UI text goes in as `\uXXXX` and is decoded with `Tx`, or comes from UTF-8 JSON.
 - `lib/installer.ps1` lists exactly which files make up the installed runtime.
+- **Languages** (`lib/lang/<code>.json`): the text in the code is Spanish, and each file maps that text to its translation (`"strings"`), with the name shown in Configuración (`"name"`) and the culture for numbers and dates (`"culture"`). To add a language, copy `en.json` to `<code>.json` (the two-letter code, like `fr`), change `name` and `culture` and translate the values; a text left out shows in Spanish. `Tx` translates what it decodes, and `Draw-Text`, `Measure-TextWidth`, tooltips, the dialogs' helpers and `Confirm-UiAction` translate whatever they are given, so a literal passed to them needs nothing else. Text built from pieces goes in as a template, `(L 'Actualizado hace {0} min') -f $n`, so a language can reorder it. `$env:CLAUDEMAXXING_LANG='en'` draws the previews (`-RenderHubTo`) in that language; `test\run-tests.ps1` checks every catalog (same `{0}` placeholders, no translation that is itself another text to translate).
 - **Menu** (`menu/`): an `IExplorerCommand` in C++ (`menu/src`), registered through a sparse MSIX (`menu/package`).
   - `menu\build.cmd` rebuilds `menu\bin\*.dll|exe`. It needs Visual Studio with C++.
   - `menu\package.ps1` rebuilds the unsigned `menu\bin\ClaudeCodeMenu.msix` after the manifest or the logos change. It needs the Windows SDK. Raise `Version` in `AppxManifest.xml` too, so existing installs re-register.
@@ -384,6 +386,8 @@ irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 |
 - La entrada del menú aparece después de reiniciar el Explorador o de cerrar sesión.
 - Si tienes `winget`, el instalador añade lo que necesita la voz: Python con edge-tts en un entorno propio, y FFmpeg para ffplay. Si no, la voz usa la de Windows.
 - Lo propio de tu PC (rutas, cambios a la configuración de voz) va en `voice\config.local.json` y se conserva al actualizar.
+
+**Idioma:** la ventana, la bandeja y sus avisos están en español y en inglés; se elige en ClaudeMaxxing > **Configuración** (el engranaje junto a pantalla completa). Sin elegir, sigue el idioma de Windows si hay traducción. Cada idioma es un archivo de `lib/lang`: para añadir otro, traduce una copia de `en.json` (detalles en [Development](#development)).
 
 **Requisitos:** Windows 11 x64 (Windows 10 sin probar), Claude Code (`claude` en el PATH), Windows Terminal y poder aprobar los avisos de UAC (para el menú y el firewall). Para que la bandeja se actualice con cada respuesta, además, una barra de estado (statusline) en bash y `jq`.
 

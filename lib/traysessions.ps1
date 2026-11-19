@@ -6,7 +6,7 @@
 function Format-SessionIconTip($Session) {
     $tip = [string]$Session.Name
     if (-not $tip) { $tip = 'Claude Code' }
-    if ($Session.Role) { $tip += ' ' + (Tx '\u00b7') + ' ' + $Session.Role }
+    if ($Session.Role) { $tip += (Tx ' \u00b7 ') + $Session.Role }
     $folder = if ($Session.Dir) { Split-Path -Leaf ([string]$Session.Dir).TrimEnd('\', '.') } else { '' }
     if ($folder) { $tip += "`n" + $folder }
     if ($tip.Length -gt 63) { $tip = $tip.Substring(0, 62) + (Tx '\u2026') }
@@ -544,8 +544,8 @@ $script:TrayIconIds = @{ Claude = 0x4D60; Bars = 0x4D80; Egg = 0x4D90 }
 # The usage bars span this many icons (a notification icon is a 16 px square): segment 0 is the left end. Two
 # buttons make the continuous bar 64 px at 100 % (Update-UsageOverlay), four times one icon.
 $script:UsageBarSegments = 2
-function Get-EggIconName([int]$Index) { 'ClaudeMaxxing (huevo ' + $SlotColors[$Index].Name + ')' }
-function Get-UsageBarsName([int]$Segment) { 'ClaudeMaxxing (uso ' + ($Segment + 1) + ')' }
+function Get-EggIconName([int]$Index) { (L 'ClaudeMaxxing (huevo ') + $SlotColors[$Index].Name + ')' }
+function Get-UsageBarsName([int]$Segment) { (L 'ClaudeMaxxing (uso ') + ($Segment + 1) + ')' }
 function Get-NotifyIdField { [System.Windows.Forms.NotifyIcon].GetField('id', [Reflection.BindingFlags]'NonPublic, Instance') }
 function Get-NotifyIconId($Notify) { [int](Get-NotifyIdField).GetValue($Notify) }
 # Only before the icon is first shown.

@@ -156,18 +156,18 @@ function Get-NextWindowEstimate($Usage, [datetime]$Now) {
     $byHour = @($Usage.windowsByStartHour)
     $counts = @($Usage.windowsByStartHourCount)
     if ($byHour.Count -eq 24 -and $counts.Count -eq 24 -and [int]$counts[$Now.Hour] -ge 3) {
-        return @{ Cost = [double]$byHour[$Now.Hour]; Basis = ('media de ' + [int]$counts[$Now.Hour] + ' que empezaron a esta hora') }
+        return @{ Cost = [double]$byHour[$Now.Hour]; Basis = ((L 'media de ') + [int]$counts[$Now.Hour] + (L ' que empezaron a esta hora')) }
     }
     @{ Cost = $(if ($Usage.windowCost) { [double]$Usage.windowCost.avg } else { 0 }); Basis = 'tu media' }
 }
 
 # How alike the windows (or sessions) are, from their coefficient of variation.
 function Format-UsageSpread([double]$Cv) {
-    if ($Cv -le 0) { return 'sin datos' }
-    if ($Cv -lt 0.25) { return 'muy parecidas' }
-    if ($Cv -lt 0.5) { return 'parecidas' }
-    if ($Cv -lt 0.9) { return 'variables' }
-    'muy variables'
+    if ($Cv -le 0) { return (L 'sin datos') }
+    if ($Cv -lt 0.25) { return (L 'muy parecidas') }
+    if ($Cv -lt 0.5) { return (L 'parecidas') }
+    if ($Cv -lt 0.9) { return (L 'variables') }
+    L 'muy variables'
 }
 
 # "$25,95" (digits of $UiCulture, lib\common.ps1), "$0,04", "-". Format-Money (lib\usage.ps1) writes the same.

@@ -137,7 +137,7 @@ function Get-SeatReport($Stats, $Policy, [double]$Capacity, [double]$Weekly, [da
     elseif ($Capacity -gt 0 -and $costs.Count -lt 5) { $reason = Tx 'Hacen falta al menos 5 ventanas de 5 h para decidir.' }
     elseif ($Capacity -gt 0) {
         $p90 = $costs[[Math]::Max(0, [int][Math]::Ceiling(0.9 * $costs.Count) - 1)]
-        if ($near / $costs.Count -ge 0.25) { $rec = 'up'; $reason = "$near de las $($costs.Count) ventanas recientes llegaron al 90 % del plan." }
+        if ($near / $costs.Count -ge 0.25) { $rec = 'up'; $reason = (L '{0} de las {1} ventanas recientes llegaron al 90 % del plan.') -f $near, $costs.Count }
         elseif ($p90 -lt 0.35 * $Capacity) { $rec = 'down'; $reason = Tx '9 de cada 10 ventanas usan menos del 35 % del plan.' }
         else { $rec = 'fit'; $reason = Tx 'El uso cabe en el plan sin quedarse corto.' }
     }

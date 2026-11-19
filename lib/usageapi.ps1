@@ -84,7 +84,7 @@ function Complete-UsageRequest($Pending) {
         $response = $Pending.Task.Result
         $status = [int]$response.StatusCode
         if ($status -eq 401) { return @{ Ok = $false; Error = (Tx 'Sesi\u00f3n caducada: abre Claude Code') } }
-        if ($status -ne 200) { return @{ Ok = $false; Error = "Error del servicio de uso ($status)" } }
+        if ($status -ne 200) { return @{ Ok = $false; Error = (L 'Error del servicio de uso ({0})') -f $status } }
         $json = $response.Content.ReadAsStringAsync().Result
         $nowUnix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
         $snapshot = ConvertFrom-UsageApi $json $nowUnix

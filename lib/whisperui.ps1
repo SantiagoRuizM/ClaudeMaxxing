@@ -14,7 +14,7 @@ function Set-WhisperTitleBar([System.Windows.Forms.Form]$Form, $Palette, [bool]$
 
 function New-WhisperButton([string]$Text, $Palette, [bool]$Accent = $false) {
     $b = New-Object System.Windows.Forms.Button
-    $b.Text = $Text
+    $b.Text = L $Text
     $b.FlatStyle = 'Flat'
     $b.AutoSize = $true
     $b.AutoSizeMode = 'GrowAndShrink'
@@ -45,7 +45,7 @@ function Set-WhisperButtonStyle($Button, $Palette, [bool]$Accent) {
 # (Tab, Space) and reads as a check box to screen readers.
 function New-WhisperSwitch([string]$Text, $Palette) {
     $c = New-Object System.Windows.Forms.CheckBox
-    $c.Text = $Text
+    $c.Text = L $Text
     $c.AutoSize = $false
     $c.UseMnemonic = $false
     $c.Cursor = [System.Windows.Forms.Cursors]::Hand
@@ -87,7 +87,7 @@ function New-WhisperTextView($Palette, $Font) {
 
 function New-WhisperCaption([string]$Text, $Palette) {
     $label = New-Object System.Windows.Forms.Label
-    $label.Text = $Text
+    $label.Text = L $Text
     $label.Font = $script:Fonts.Caps
     $label.ForeColor = $Palette.Muted
     $label.Dock = 'Top'
@@ -160,7 +160,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     $P = $Palette
     $F = $script:Fonts
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = 'Claude Whisper ' + [char]0x00B7 + ' Contexto'
+    $dlg.Text = (L 'Claude Whisper ') + [char]0x00B7 + (L ' Contexto')
     $dlg.StartPosition = 'CenterParent'
     $dlg.FormBorderStyle = 'Sizable'
     $dlg.MinimizeBox = $false
@@ -192,7 +192,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     }
     function New-Caption([string]$Text) {
         $l = New-Object System.Windows.Forms.Label
-        $l.Text = $Text; $l.AutoSize = $true; $l.ForeColor = $P.Muted; $l.Font = $F.Caps; $l.UseMnemonic = $false
+        $l.Text = L $Text; $l.AutoSize = $true; $l.ForeColor = $P.Muted; $l.Font = $F.Caps; $l.UseMnemonic = $false
         $l.Margin = New-Object System.Windows.Forms.Padding(0, (Px 10), 0, (Px 3))
         $l
     }
@@ -251,13 +251,13 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     }
     function New-Check([string]$Text, [bool]$Checked) {
         $c = New-Object System.Windows.Forms.CheckBox
-        $c.Text = $Text; $c.Checked = $Checked; $c.AutoSize = $true; $c.ForeColor = $P.Text; $c.UseMnemonic = $false
+        $c.Text = L $Text; $c.Checked = $Checked; $c.AutoSize = $true; $c.ForeColor = $P.Text; $c.UseMnemonic = $false
         $c.Margin = New-Object System.Windows.Forms.Padding(0, (Px 6), (Px 14), 0)
         $c
     }
     function New-Inline([string]$Text) {
         $l = New-Object System.Windows.Forms.Label
-        $l.Text = $Text; $l.AutoSize = $true; $l.ForeColor = $P.Muted
+        $l.Text = L $Text; $l.AutoSize = $true; $l.ForeColor = $P.Muted
         $l.Margin = New-Object System.Windows.Forms.Padding(0, (Px 7), (Px 4), 0)
         $l
     }

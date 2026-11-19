@@ -16,7 +16,7 @@ if (-not $owned) { exit 0 }
 try {
     if (-not (Test-Path -LiteralPath $FreeLlmDownloadDir)) { New-Item -ItemType Directory -Force -Path $FreeLlmDownloadDir | Out-Null }
     $setup = Join-Path $FreeLlmDownloadDir $FreeLlmSetupName
-    Set-Status 'downloading' (Tx "Descargando FreeLLMAPI $FreeLlmVersion (unos 110 MB)\u2026")
+    Set-Status 'downloading' ((Tx 'Descargando FreeLLMAPI {0} (unos 110 MB)\u2026') -f $FreeLlmVersion)
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     $partial = "$setup.part"
     $client = New-Object System.Net.WebClient
@@ -32,7 +32,7 @@ try {
     Move-Item -LiteralPath $partial -Destination $setup -Force
     Unblock-File -LiteralPath $setup -ErrorAction SilentlyContinue
 
-    Set-Status 'installing' (Tx "Instalando FreeLLMAPI $FreeLlmVersion\u2026")
+    Set-Status 'installing' ((Tx 'Instalando FreeLLMAPI {0}\u2026') -f $FreeLlmVersion)
     # Per-user NSIS installer (electron-builder): /S installs silently, without admin rights.
     $process = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "el instalador termino con codigo $($process.ExitCode)" }
@@ -42,9 +42,9 @@ try {
     Remove-Item -LiteralPath $setup -Force -ErrorAction SilentlyContinue
 
     Start-Process -FilePath $exe | Out-Null
-    Set-Status 'done' (Tx "FreeLLMAPI $FreeLlmVersion instalado. Crea tu cuenta en su ventana y a\u00f1ade claves de proveedores.")
+    Set-Status 'done' ((Tx 'FreeLLMAPI {0} instalado. Crea tu cuenta en su ventana y a\u00f1ade claves de proveedores.') -f $FreeLlmVersion)
 } catch {
-    Set-Status 'error' ('No se pudo instalar FreeLLMAPI: ' + $_.Exception.Message)
+    Set-Status 'error' ((L 'No se pudo instalar FreeLLMAPI: ') + $_.Exception.Message)
 } finally {
     $mutex.ReleaseMutex()
 }

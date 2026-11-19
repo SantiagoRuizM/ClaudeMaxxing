@@ -433,7 +433,7 @@ function Update-BridgeSessions {
         $session = $b.Sessions[$id]
         $b.Sessions.Remove($id)
         if ($session.Kind -eq 'shell' -or $session.Command.Trim() -ceq 'claude') {
-            Show-BridgeBalloon ($session.PeerName + (Tx ' cerr\u00f3 su ') + (Get-SessionLabel $session) + ' en este PC.') 'dialog'
+            Show-BridgeBalloon ($session.PeerName + (Tx ' cerr\u00f3 su ') + (Get-SessionLabel $session) + (L ' en este PC.')) 'dialog'
         }
         $b.Dirty = $true
     }
@@ -453,7 +453,7 @@ function Update-BridgeSessions {
         if ($interactive -or -not $last -or ((Get-Date) - $last).TotalMinutes -ge 10) {
             $b.NoticeAt[$session.PeerId] = Get-Date
             $verb = if ($interactive) { Tx ' abri\u00f3 ' } else { Tx ' est\u00e1 usando este PC: ' }
-            $text = if ($interactive) { $session.PeerName + $verb + (Get-SessionLabel $session) + ' en este PC.' } else { $session.PeerName + $verb + (Get-SessionLabel $session) + '.' }
+            $text = if ($interactive) { $session.PeerName + $verb + (Get-SessionLabel $session) + (L ' en este PC.') } else { $session.PeerName + $verb + (Get-SessionLabel $session) + '.' }
             Show-BridgeBalloon $text 'dialog'
         }
         $b.Dirty = $true
@@ -563,7 +563,7 @@ function Open-BridgeTerminal([string]$Id, [switch]$Claude) {
     $alias = Get-PeerAlias $peer $b.Peers
     $sshArgs = '-F "{0}" {1}{2}' -f $b.Ctx.SshConfig, $(if ($Claude) { '-t ' } else { '' }), $alias
     if ($Claude) { $sshArgs += ' claude' }
-    $title = if ($Claude) { "Claude Code en $($peer.name)" } else { $peer.name }
+    $title = if ($Claude) { ((L 'Claude Code en {0}') -f $peer.name) } else { $peer.name }
     try {
         Start-Process -FilePath 'wt.exe' -ArgumentList ('-w new --title "{0}" "{1}" {2}' -f $title, $ssh, $sshArgs) -ErrorAction Stop
     } catch {
@@ -583,7 +583,7 @@ function Show-BridgeBalloon([string]$Text, [string]$Action) {
 function Update-BridgeMenu($Item) {
     $b = $script:Bridge
     $Item.DropDownItems.Clear()
-    [void]$Item.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
+    [void]$Item.DropDownItems.Add((L 'Abrir Otros PCs...'), $null, { Show-BridgeDialog })
     if (-not $b -or -not $b.Ready) { return }
     if ($b.Peers.Count) { [void]$Item.DropDownItems.Add('-') }
     foreach ($peer in $b.Peers) {
@@ -591,17 +591,17 @@ function Update-BridgeMenu($Item) {
         # PCs that can be reached all the same.
         $seen = $b.Discovered[$peer.id]
         $online = $seen -and ((Get-Date) - $seen.seen).TotalSeconds -le $BridgeSeenSeconds
-        $suffix = if ($online) { '' } else { ' (sin verlo en la red)' }
-        [void]$Item.DropDownItems.Add("Terminal en $($peer.name)$suffix", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)'"))
-        [void]$Item.DropDownItems.Add("Claude Code en $($peer.name)$suffix", $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)' -Claude"))
-        [void]$Item.DropDownItems.Add("Debatir con $($peer.name)...$suffix", $null, [scriptblock]::Create("Start-DebateWith '$($peer.id)'"))
+        $suffix = if ($online) { '' } else { L ' (sin verlo en la red)' }
+        [void]$Item.DropDownItems.Add((((L 'Terminal en {0}') -f $peer.name) + $suffix), $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)'"))
+        [void]$Item.DropDownItems.Add((((L 'Claude Code en {0}') -f $peer.name) + $suffix), $null, [scriptblock]::Create("Open-BridgeTerminal '$($peer.id)' -Claude"))
+        [void]$Item.DropDownItems.Add((((L 'Debatir con {0}...') -f $peer.name) + $suffix), $null, [scriptblock]::Create("Start-DebateWith '$($peer.id)'"))
     }
     $sessions = @($b.Sessions.Values)
     if ($sessions.Count) {
         [void]$Item.DropDownItems.Add('-')
         foreach ($session in $sessions) {
-            $ask = "Tx '\u00bfCerrar lo que $(([string]$session.PeerName).Replace("'", "''")) tiene abierto en este PC? Lo que est\u00e9 haciendo all\u00ed se corta.'"
-            [void]$Item.DropDownItems.Add("Desconectar a $($session.PeerName) ($(Get-SessionLabel $session))", $null, [scriptblock]::Create("if (Confirm-UiAction ($ask)) { Stop-BridgeSession '$($session.Id)' }"))
+            $ask = "(Tx '\u00bfCerrar lo que {0} tiene abierto en este PC? Lo que est\u00e9 haciendo all\u00ed se corta.') -f '$(([string]$session.PeerName).Replace("'", "''"))'"
+            [void]$Item.DropDownItems.Add(((L 'Desconectar a {0} ({1})') -f $session.PeerName, (Get-SessionLabel $session)), $null, [scriptblock]::Create("if (Confirm-UiAction ($ask)) { Stop-BridgeSession '$($session.Id)' }"))
         }
     }
 }
@@ -655,7 +655,7 @@ function Invoke-BridgeTick {
 
 function Draw-Wrapped($G, [string]$Text, $Font, $Color, [int]$X, [int]$Y, [int]$W, [int]$H) {
     $flags = [System.Windows.Forms.TextFormatFlags]'WordBreak, NoPadding, EndEllipsis, NoPrefix'
-    [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $Font, (New-Rect $X $Y $W $H), $Color, $flags)
+    [System.Windows.Forms.TextRenderer]::DrawText($G, (L $Text), $Font, (New-Rect $X $Y $W $H), $Color, $flags)
 }
 
 function Draw-PillButton($G, $Map, $Hover, [string]$Id, [System.Drawing.Rectangle]$Rect, [string]$Label, [scriptblock]$Action, [switch]$Accent) {
@@ -677,8 +677,8 @@ function Get-PillWidth([string]$Label) { (Measure-TextWidth $Label $script:Fonts
 function Format-SeenText($Peer) {
     $seen = $script:Bridge.Discovered[$Peer.id]
     if ($seen -and ((Get-Date) - $seen.seen).TotalSeconds -le $BridgeSeenSeconds) { return Tx 'en l\u00ednea' }
-    if ($seen) { return 'visto ' + (Format-Clock $seen.seen) }
-    'sin verlo hoy'
+    if ($seen) { return (L 'visto ') + (Format-Clock $seen.seen) }
+    L 'sin verlo hoy'
 }
 
 # Status line of the window: text, color and an optional fix.
@@ -692,7 +692,7 @@ function Get-BridgeStatus {
             if ($b.SetupFailed) { return @{ Text = (Tx 'No se pudo activar (sin conexi\u00f3n o descarga fallida).'); Color = $P.Error; Fix = 'Reintentar...'; FixAction = { Enable-BridgeModule } } }
             return @{ Text = (Tx 'Apagado: act\u00edvalo para encontrar tus otros PCs en esta red.'); Color = $P.Muted; Fix = 'Activar...'; FixAction = { Enable-BridgeModule } }
         }
-        'error'   { return @{ Text = "No se pudo preparar: $($b.Detail)"; Color = $P.Error } }
+        'error'   { return @{ Text = ((L 'No se pudo preparar: ') + $b.Detail); Color = $P.Error } }
     }
     if (-not $b.FirewallOk) {
         switch ($b.FirewallState) {
@@ -705,10 +705,10 @@ function Get-BridgeStatus {
     # New Wi-Fi networks are Public by default: the fix is marking this one Private in Settings.
     if (-not $b.Networks.Count) { return @{ Text = 'Red no privada: ni busca PCs ni acepta conexiones.'; Color = $P.Warn; Fix = 'Hacerla privada...'; FixAction = { Start-Process 'ms-settings:network-status' } } }
     $network = ($b.Networks | Select-Object -First 1).Name
-    if ($b.Problem -eq 'server') { return @{ Text = "El servidor SSH no arranca: $($b.Detail)"; Color = $P.Error } }
-    if (-not $b.Settings.acceptIncoming) { return @{ Text = "Red $network " + (Tx '\u00b7') + ' no acepta conexiones entrantes'; Color = $P.Muted } }
-    if (-not @($b.Peers | Where-Object { $_.clientKey }).Count) { return @{ Text = "Red $network " + (Tx '\u00b7') + ' empareja un PC para empezar'; Color = $P.Muted } }
-    @{ Text = "Red $network " + (Tx '\u00b7') + ' aceptando a los PCs emparejados'; Color = $P.Ok }
+    if ($b.Problem -eq 'server') { return @{ Text = ((L 'El servidor SSH no arranca: ') + $b.Detail); Color = $P.Error } }
+    if (-not $b.Settings.acceptIncoming) { return @{ Text = "Red $network " + (Tx '\u00b7 no acepta conexiones entrantes'); Color = $P.Muted } }
+    if (-not @($b.Peers | Where-Object { $_.clientKey }).Count) { return @{ Text = "Red $network " + (Tx '\u00b7 empareja un PC para empezar'); Color = $P.Muted } }
+    @{ Text = "Red $network " + (Tx '\u00b7 aceptando a los PCs emparejados'); Color = $P.Ok }
 }
 
 # ---------------------------------------------------------------- Otros PCs window
@@ -828,7 +828,7 @@ function Find-BridgeAddress {
         return
     }
     Send-BridgeHello -Probe -To $text
-    Set-BridgeMessage "Buscando ClaudeMaxxing en $text..."
+    Set-BridgeMessage ((L 'Buscando ClaudeMaxxing en {0}...') -f $text)
 }
 
 function Set-BridgeMessage([string]$Text) {
@@ -838,8 +838,8 @@ function Set-BridgeMessage([string]$Text) {
 }
 
 function Copy-BridgeCommand([string]$Text) {
-    try { [System.Windows.Forms.Clipboard]::SetText($Text); Set-BridgeMessage ("Copiado: $Text") }
-    catch { Set-BridgeMessage ('No se pudo copiar (otra app usa el portapapeles): ' + $Text) }
+    try { [System.Windows.Forms.Clipboard]::SetText($Text); Set-BridgeMessage ((L 'Copiado: ') + $Text) }
+    catch { Set-BridgeMessage ((L 'No se pudo copiar (otra app usa el portapapeles): ') + $Text) }
 }
 
 function Draw-BridgeDialog($Form, $G) {
@@ -871,7 +871,7 @@ function Draw-BridgeDialog($Form, $G) {
     $card = New-Rect $left $y $inner (Px 74)
     Fill-Round $G $card (Px 10) $P.Surface
     Draw-Text $G 'ESTE PC' $F.Caps $P.Muted (Px 40) ($y + (Px 10)) (Px 200) (Px 18)
-    $self = if ($b -and $b.Identity) { $b.Identity.name + '  ' + (Tx '\u00b7') + '  ' + $b.Identity.user } else { $env:COMPUTERNAME }
+    $self = if ($b -and $b.Identity) { $b.Identity.name + (Tx '  \u00b7  ') + $b.Identity.user } else { $env:COMPUTERNAME }
     Draw-Text $G $self $F.BodyStrong $P.Text (Px 40) ($y + (Px 28)) (Px 260) (Px 22)
     $status = Get-BridgeStatus
     $statusW = $inner - (Px 32)
@@ -941,8 +941,8 @@ function Draw-BridgeDialog($Form, $G) {
             }
         }
         Draw-Text $G $peer.name $F.BodyStrong $P.Text ($row.X + (Px 14)) ($row.Y + (Px 8)) ($right - $row.X - (Px 20)) (Px 24)
-        $sub = "ssh $alias  " + (Tx '\u00b7') + '  ' + (Format-SeenText $peer)
-        if ($grants.ContainsKey($peer.id)) { $sub += '  ' + (Tx '\u00b7') + '  sin preguntar hasta ' + (Format-Clock ([DateTimeOffset]::FromUnixTimeSeconds($grants[$peer.id]).LocalDateTime)) }
+        $sub = "ssh $alias  " + (Tx '\u00b7  ') + (Format-SeenText $peer)
+        if ($grants.ContainsKey($peer.id)) { $sub += (Tx '  \u00b7  sin preguntar hasta ') + (Format-Clock ([DateTimeOffset]::FromUnixTimeSeconds($grants[$peer.id]).LocalDateTime)) }
         $subRect = New-Rect ($row.X + (Px 14)) ($row.Y + (Px 35)) ($row.Width - (Px 28)) (Px 16)
         $subColor = if ($hover -eq "copy-$($peer.id)") { $P.Accent } else { $P.Muted }
         Draw-Text $G $sub $F.Small $subColor $subRect.X $subRect.Y $subRect.Width $subRect.Height
@@ -960,7 +960,7 @@ function Draw-BridgeDialog($Form, $G) {
     $hiddenSeen = [Math]::Max(0, $seen.Count - 4)
     $seen = @($seen | Select-Object -First 4)
     Draw-Text $G 'EN TU RED' $F.Caps $P.Muted $left $y (Px 200) (Px 18)
-    if ($hiddenSeen -gt 0) { Draw-Text $G (Tx "+$hiddenSeen m\u00e1s: escribe su IP abajo") $F.Small $P.Muted $left $y $inner (Px 18) 'Right' }
+    if ($hiddenSeen -gt 0) { Draw-Text $G ((Tx '+{0} m\u00e1s: escribe su IP abajo') -f $hiddenSeen) $F.Small $P.Muted $left $y $inner (Px 18) 'Right' }
     $y += Px 22
     if (-not $seen.Count) {
         $row = New-Rect $left $y $inner (Px 36)
@@ -977,8 +977,8 @@ function Draw-BridgeDialog($Form, $G) {
         Draw-PillButton $G $map $hover "pair-$($pc.id)" $rect 'Emparejar' $(if ($busy) { $null } else { [scriptblock]::Create("Start-BridgePairing '$($pc.id)'") }) -Accent:(-not $busy)
         $textW = $rect.X - $row.X - (Px 20)
         Draw-Text $G $pc.name $F.BodyStrong $P.Text ($row.X + (Px 14)) ($row.Y + (Px 6)) $textW (Px 20)
-        $sub = $pc.user + '  ' + (Tx '\u00b7') + '  ' + $pc.address
-        if ($pc.pairing) { $sub += '  ' + (Tx '\u00b7') + '  listo para emparejar' }
+        $sub = $pc.user + (Tx '  \u00b7  ') + $pc.address
+        if ($pc.pairing) { $sub += (Tx '  \u00b7  listo para emparejar') }
         Draw-Text $G $sub $F.Small $(if ($pc.pairing) { $P.Ok } else { $P.Muted }) ($row.X + (Px 14)) ($row.Y + (Px 27)) $textW (Px 16)
         $y += Px 56
     }
@@ -1031,15 +1031,15 @@ function Draw-PairingCard($G, $Map, $Hover, $Pairing, [int]$Left, [int]$Inner, [
             Draw-Text $G (Tx 'C\u00d3DIGO PARA EMPAREJAR CON ') $F.Caps $P.Muted $x ($Y + (Px 10)) $w (Px 18)
             Draw-Text $G $name.ToUpperInvariant() $F.Caps $P.Accent ($x + (Measure-TextWidth (Tx 'C\u00d3DIGO PARA EMPAREJAR CON ') $F.Caps)) ($Y + (Px 10)) (Px 200) (Px 18)
             Draw-Text $G $Pairing.Code $script:BridgeCodeFont $P.Text $x ($Y + (Px 28)) $w (Px 40)
-            $origin = 'IP ' + $Pairing.Address
-            if ($Pairing.Role -eq 'responder') { $origin = 'Lo pide ' + $Pairing.Address }
+            $origin = (L 'IP ') + $Pairing.Address
+            if ($Pairing.Role -eq 'responder') { $origin = (L 'Lo pide ') + $Pairing.Address }
             if ($Pairing.Peer -and (Find-BridgePeer ([string]$Pairing.Peer.id))) { $origin += (Tx ' \u00b7 ya emparejado: cambia sus llaves') }
             Draw-Text $G $origin $F.Small $P.Muted $x ($Y + (Px 36)) $w (Px 24) 'Right'
             $warning = if ($Pairing.Role -eq 'responder') { Tx 'Confirma solo si pediste emparejar desde tu otro PC y all\u00ed se ve este mismo c\u00f3digo.' }
                        else { Tx 'Confirma solo si tu otro PC muestra exactamente este c\u00f3digo.' }
             Draw-Wrapped $G $warning $F.Small $P.Text $x ($Y + (Px 72)) $w (Px 34)
             if ($Pairing.LocalOk) {
-                Draw-Text $G ((Tx 'Esperando que ') + $name + ' confirme...') $F.Small $P.Muted $x ($Y + (Px 124)) ($w - (Px 110)) (Px 18)
+                Draw-Text $G ((Tx 'Esperando que ') + $name + (L ' confirme...')) $F.Small $P.Muted $x ($Y + (Px 124)) ($w - (Px 110)) (Px 18)
                 $bw = Get-PillWidth 'Cancelar'
                 Draw-PillButton $G $Map $Hover 'pair-cancel' (New-Rect ($card.Right - (Px 16) - $bw) ($Y + (Px 118)) $bw (Px 26)) 'Cancelar' { Stop-BridgePairing }
             } else {
@@ -1059,7 +1059,7 @@ function Draw-PairingCard($G, $Map, $Hover, $Pairing, [int]$Left, [int]$Inner, [
             $subColor = $P.Muted
             $button = 'Cancelar'
             switch ($Pairing.Stage) {
-                'asking'   { $title = "Esperando a $name..."; $sub = "Si no responde, abre Otros PCs en $name." }
+                'asking'   { $title = (L 'Esperando a {0}...') -f $name; $sub = (L 'Si no responde, abre Otros PCs en {0}.') -f $name }
                 'done'     { $title = (Tx '\u2713 Emparejado con ') + $name; $sub = 'Ya puedes abrir una terminal en los dos sentidos.'; $subColor = $P.Ok; $button = 'Listo' }
                 'failed'   {
                     $title = 'No se pudo emparejar'; $subColor = $P.Error; $button = 'Cerrar'
@@ -1070,7 +1070,7 @@ function Draw-PairingCard($G, $Map, $Hover, $Pairing, [int]$Left, [int]$Inner, [
                     }
                 }
                 'cancelled' { $title = 'Emparejamiento cancelado'; $sub = $(if ($Pairing.Error -eq 'peer') { $name + (Tx ' lo cancel\u00f3.') } else { '' }); $button = 'Cerrar' }
-                default    { $title = "Emparejando con $name..." }
+                default    { $title = (L 'Emparejando con {0}...') -f $name }
             }
             $bw = Get-PillWidth $button
             $rect = New-Rect ($card.Right - (Px 16) - $bw) ($Y + (Px 16)) $bw (Px 26)
@@ -1197,7 +1197,7 @@ function Draw-ApprovalForm($Form, $G) {
 
     # Name and "user desde IP" on two lines, so a long PC name never runs into the address.
     Draw-Text $G $peer.name $F.BodyStrong $P.Text $left (Px 58) $inner (Px 22)
-    Draw-Text $G "$($peer.user) desde $($request.Client)" $F.Small $P.Muted $left (Px 80) $inner (Px 18)
+    Draw-Text $G ((L '{0} desde {1}') -f $peer.user, $request.Client) $F.Small $P.Muted $left (Px 80) $inner (Px 18)
 
     $layout = Get-ApprovalLayout $request
     $view = $layout.View
@@ -1218,10 +1218,10 @@ function Draw-ApprovalForm($Form, $G) {
     Draw-Wrapped $G (Tx $cardText) $F.Small $P.Text ($card.X + (Px 12)) ($card.Y + (Px 8)) ($card.Width - (Px 24)) ($card.Height - (Px 12))
 
     $remaining = $BridgeApprovalSeconds - [int]((Get-Date) - $request.Seen).TotalSeconds
-    Draw-Text $G ("Se rechaza sola en $([Math]::Max(0, $remaining)) s") $F.Small $P.Faint $left ((Px 238) + $dy) $inner (Px 18)
+    Draw-Text $G ((L 'Se rechaza sola en {0} s') -f [Math]::Max(0, $remaining)) $F.Small $P.Faint $left ((Px 238) + $dy) $inner (Px 18)
     $others = $script:Bridge.Requests.Count - 1
     if ($others -gt 0) {
-        $othersText = if ($others -eq 1) { '1 solicitud' } else { "$others solicitudes" }
+        $othersText = if ($others -eq 1) { '1 solicitud' } else { ((L '{0} solicitudes') -f $others) }
         Draw-Text $G ($othersText + (Tx ' m\u00e1s en espera')) $F.Small $P.Warn $left ((Px 238) + $dy) $inner (Px 18) 'Right'
     }
 
@@ -1247,7 +1247,7 @@ function Draw-ApprovalForm($Form, $G) {
     if ($others -gt 0) { $hourNote += '; lo ya en espera se pregunta igual' }
     if ($request.Kind -eq 'debate') { $hourNote = 'Un debate se permite uno a uno' }
     if ($view.Cut) { $hourNote = 'El comando es demasiado largo para mostrarlo entero, as\u00ed que solo se puede rechazar' }
-    Draw-Wrapped $G (Tx ($hourNote + '. Esc rechaza.')) $F.Small $P.Faint $left ((Px 302) + $dy) $inner (Px 32)
+    Draw-Wrapped $G (Tx ($hourNote + (L '. Esc rechaza.'))) $F.Small $P.Faint $left ((Px 302) + $dy) $inner (Px 32)
 
     $border = New-Object System.Drawing.Pen($P.Border)
     $G.DrawRectangle($border, 0, 0, $Form.ClientSize.Width - 1, $Form.ClientSize.Height - 1)
