@@ -32,6 +32,9 @@ function New-DefaultPolicy {
         seatMonthlyUsd = 0
         reportDir = ''
         autoReport = $false
+        # Every 5 minutes, a small file in reportDir\presence: who has ClaudeMaxxing open, their sessions and the
+        # current window's use, for Empresa's team list. Off unless IT turns it on.
+        reportPresence = $false
         reportProjects = $true
         marketplaces = @()
         plugins = @()
@@ -149,6 +152,7 @@ function Get-SeatReport($Stats, $Policy, [double]$Capacity, [double]$Weekly, [da
         prompts = $(if ($r) { [int]$r.prompts } else { 0 })
         sessions = $(if ($r) { [int]$r.sessions } else { 0 })
         apiCostUsd = [Math]::Round($cost, 2)
+        tokens = $(if ($r -and $r.tokens) { [long]([double]$r.tokens.input + [double]$r.tokens.output + [double]$r.tokens.cacheRead + [double]$r.tokens.cacheWrite) } else { 0 })
         seatName = [string]$Policy.seatName; seatMonthlyUsd = $seat
         roi = $(if ($seat -gt 0) { [Math]::Round($cost / $seat, 1) } else { $null })
         windows = $costs.Count; windowsNearLimit = $near; weeklyPercent = [Math]::Round($Weekly)
@@ -211,6 +215,36 @@ function Get-TeamReport([string]$Dir) {
     }
     # Unrolled: callers wrap it in @().
     @($latest.Values | Sort-Object @{ Expression = { [double]$_.apiCostUsd }; Descending = $true })
+}
+
+# Presence (policy reportPresence): one file per person in <reportDir>\presence, rewritten every 5 minutes while the
+# tray runs. Somebody whose file is younger than $PresenceFreshMinutes is connected.
+$PresenceFreshMinutes = 12
+function Get-PresenceName([string]$Computer, [string]$User) { (("{0}_{1}" -f $Computer, $User) -replace '[^A-Za-z0-9_.-]', '') + '.json' }
+
+function Write-TeamPresence([string]$Dir, [int]$Sessions, $SessionPercent, [datetime]$Now) {
+    $folder = Join-Path $Dir 'presence'
+    if (-not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Force -Path $folder | Out-Null }
+    Write-JsonFile (Join-Path $folder (Get-PresenceName $env:COMPUTERNAME $env:USERNAME)) ([ordered]@{
+        user = $env:USERNAME; computer = $env:COMPUTERNAME; at = $Now.ToString('o'); sessions = $Sessions; sessionPercent = $SessionPercent })
+}
+
+# The newest presence of each person, keyed like Get-TeamReport ("computer\user", lower case).
+function Get-TeamPresence([string]$Dir) {
+    $found = @{}
+    $folder = Join-Path $Dir 'presence'
+    if (-not (Test-Path -LiteralPath $folder)) { return $found }
+    foreach ($file in @(Get-ChildItem -LiteralPath $folder -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+        $p = Read-JsonFile $file.FullName
+        if ($p -and $p.user -and $p.at) { $found[([string]$p.computer + '\' + [string]$p.user).ToLowerInvariant()] = $p }
+    }
+    $found
+}
+
+# Whether a presence says the person is connected now.
+function Test-PresenceOnline($Presence, [datetime]$Now) {
+    if (-not $Presence -or -not $Presence.at) { return $false }
+    try { ($Now - [datetime]$Presence.at).TotalMinutes -lt $PresenceFreshMinutes } catch { $false }
 }
 
 # Totals of the team: people, hours, API-equivalent cost, seats and how many seats fall short or have room.

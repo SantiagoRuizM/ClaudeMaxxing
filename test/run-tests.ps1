@@ -90,6 +90,10 @@ $languages = Get-UiLanguages
 Assert-Equal 'es' @($languages.Keys)[0] 'Spanish, the language of the code, is listed first'
 Assert-Equal 'English' $languages['en'] 'English is listed by the name in its file'
 foreach ($file in @(Get-ChildItem (Join-Path $TrayRoot 'lib\lang') -Filter '*.json')) {
+    # Read as UTF-8: a file saved in ANSI shows its accents as a replacement mark (the "Espa?ol" of the language picker).
+    $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
+    $validUtf8 = try { [void]$strictUtf8.GetString([IO.File]::ReadAllBytes($file.FullName)); $true } catch { $false }
+    Assert-Equal $true $validUtf8 "$($file.Name) is valid UTF-8"
     $catalog = Read-UiCatalog $file.FullName
     Assert-Equal $true ($catalog -and $catalog['name'] -and $catalog['strings'] -is [System.Collections.IDictionary]) "$($file.Name) has a name and strings"
     $bad = @()
@@ -361,6 +365,13 @@ $odd = Get-HalfSlots @((Area -1365 0 0 728))
 Assert-Equal 2 $odd.Count 'one monitor gives two slots'
 Assert-Equal '-1365,0 682x728' (Format-Slot $odd[0]) 'odd width: left half rounds down, negative x kept'
 Assert-Equal '-683,0 683x728' (Format-Slot $odd[1]) 'odd width: right half takes the extra pixel'
+# Primera pantalla: a monitor left of the primary (negative x), the primary, one to its right.
+$three = @((Area 2560 0 4480 1020), (Area -1920 0 0 1040), (Area 0 0 2560 1392))
+Assert-Equal '-1920 0 2560' (((Get-ScreenOrder $three) | ForEach-Object { $_.Left }) -join ' ') 'screens: left to right by default'
+Assert-Equal '0 -1920 2560' (((Get-ScreenOrder $three 'windows') | ForEach-Object { $_.Left }) -join ' ') 'screens: as in Windows, the primary first, then the rest left to right'
+Assert-Equal '2560 -1920 0' (((Get-ScreenOrder $three '2') | ForEach-Object { $_.Left }) -join ' ') 'screens: a chosen one first'
+Assert-Equal '-1920 0 2560' (((Get-ScreenOrder $three '7') | ForEach-Object { $_.Left }) -join ' ') 'screens: a monitor that is gone keeps left to right'
+Assert-Equal '0,0 1280x1392' (Format-Slot (Get-HalfSlots $three 'windows')[0]) 'slots: as in Windows, slot 0 is the left half of the primary'
 
 function Session($Slot) { [pscustomobject]@{ slot = $Slot; hwnd = 1000 + $Slot } }
 Assert-Equal 0 (Get-FreeSlot 4 @()) 'no sessions: first slot'

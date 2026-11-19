@@ -34,23 +34,25 @@ $script:HubFonts = @{
 }
 
 # Business: only in the business edition (lib\hubbusiness.ps1). Module: hidden when the company policy turns it off.
-# Nav = $false: not in the side menu (Configuracion opens from the gear in the header). Labels are translated when drawn.
+# Nav = $false: not in the side menu. Group: the caption the side menu draws above the first section of each group.
+# Labels are translated when drawn.
 $script:HubSections = @(
     @{ Id = 'home'; Label = 'Inicio'; Glyph = '\ue80f' },
     @{ Id = 'business'; Label = 'Empresa'; Glyph = '\ue821'; Business = $true },
-    @{ Id = 'plan'; Label = (Ux 'Planear sesi\u00f3n'); Glyph = '\uea80'; Module = 'judge' },
-    @{ Id = 'envs'; Label = 'Ambientes'; Glyph = '\ue7e8'; Module = 'ambientes' },
-    @{ Id = 'self'; Label = 'SelfHarness'; Glyph = '\ue83d'; Module = 'ambientes' },
-    @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787' },
-    @{ Id = 'stats'; Label = (Ux 'Estad\u00edsticas'); Glyph = '\ue9d2' },
-    @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943' },
+    @{ Id = 'plan'; Label = (Ux 'Planear sesi\u00f3n'); Glyph = '\uea80'; Group = 'PLANEAR' },
+    @{ Id = 'usage'; Label = 'Uso y agenda'; Glyph = '\ue787'; Group = 'PLANEAR' },
+    @{ Id = 'stats'; Label = (Ux 'Estad\u00edsticas'); Glyph = '\ue9d2'; Group = 'PLANEAR' },
+    @{ Id = 'envs'; Label = 'Ambientes'; Glyph = '\ue7e8'; Module = 'ambientes'; Group = 'FOCO' },
+    # SelfHarness is the Foco y ajustes tab of Ambientes (Set-HubSection 'self' opens it there).
+    @{ Id = 'self'; Label = 'SelfHarness'; Glyph = '\ue83d'; Module = 'ambientes'; Nav = $false },
+    @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943'; Group = 'SESIONES' },
     # Icon: drawn instead of a Segoe MDL2 glyph (there is no whip among them).
-    @{ Id = 'whip'; Label = 'Claude Whip'; Icon = 'Draw-HubWhipIcon'; Module = 'whip' },
-    @{ Id = 'skills'; Label = 'Skills y MCP'; Glyph ='\uea86' },
-    @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968'; Module = 'bridge' },
-    @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720'; Module = 'whisper' },
-    @{ Id = 'voice'; Label = 'Voz'; Glyph = '\ue767' },
-    @{ Id = 'settings'; Label = (Ux 'Configuraci\u00f3n'); Glyph = '\ue713'; Nav = $false }
+    @{ Id = 'whip'; Label = 'Claude Whip'; Icon = 'Draw-HubWhipIcon'; Module = 'whip'; Group = 'SESIONES' },
+    @{ Id = 'skills'; Label = 'Skills y MCP'; Glyph ='\uea86'; Group = 'SESIONES' },
+    @{ Id = 'voice'; Label = 'Voz'; Glyph = '\ue767'; Group = 'SESIONES' },
+    @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968'; Module = 'bridge'; Group = 'CONEXIONES' },
+    @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720'; Module = 'whisper'; Group = 'CONEXIONES' },
+    @{ Id = 'settings'; Label = (Ux 'Configuraci\u00f3n'); Glyph = '\ue713'; Group = ' ' }
 )
 
 # ---------------------------------------------------------------- data
@@ -194,6 +196,9 @@ function Update-HubCache([switch]$Full) {
         $c.VoiceSessions = Get-HubVoiceSessions
         $c.MenuInstalled = [bool](Get-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue)
         $c.Screens = [System.Windows.Forms.Screen]::AllScreens.Count
+        # Their bounds, for Claude Code's map (ordered there by Get-ScreenOrder, like the launcher).
+        $c.ScreenAreas = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { [pscustomobject]@{ Left = $_.Bounds.Left; Top = $_.Bounds.Top; Right = $_.Bounds.Right; Bottom = $_.Bounds.Bottom } })
+        $c.ScreenFirst = Get-ScreenFirst
         $c.SessionLimit = Test-SessionLimit
         $c.VoiceInstalled = Test-Path -LiteralPath (Join-Path $TrayRoot 'voice\hooks\speak.ps1')
         try { $c.VoiceEngine = Get-VoiceEngineState } catch { $c.VoiceEngine = $null }
@@ -204,10 +209,13 @@ function Update-HubCache([switch]$Full) {
 # ---------------------------------------------------------------- actions
 
 function Set-HubSection([string]$Id) {
+    # SelfHarness lives in Ambientes now, as its second tab.
+    if ($Id -eq 'self') { $Id = 'envs'; $script:Hub.EnvsTab = 'focus' }
     $script:Hub.Section = $Id
     if ($Id -ne 'home' -and -not $script:Hub.Preview) { Add-HubVisit $Id }
     if ($Id -eq 'stats') { Update-HubStats }
     # The automatic agenda needs the stats: the first time, compute them.
+    if ($Id -eq 'plan') { Update-HubAuto }
     if ($Id -eq 'usage') { Update-HubAuto; if (-not (Test-Path -LiteralPath $StatsFile)) { Update-HubStats } }
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
@@ -994,6 +1002,9 @@ function Get-HubNavBadge([string]$Id) {
         'envs' {
             $hs = $c.Harness
             if ($hs -and $hs.Job -and $hs.Job.state -eq 'running') { return @{ Dot = $P.Accent } }
+            # The tabs out of focus (its Foco y ajustes tab) count before the plain "on" dot.
+            $focus = Get-HubNavBadge 'self'
+            if ($focus) { return $focus }
             if ($hs -and $hs.Active) { return @{ Dot = $P.Ok } }
         }
         'self' {
@@ -1197,23 +1208,37 @@ function Draw-Hub($Form, $G) {
     if ($hub.Logo) { $G.DrawImage($hub.Logo, (Px 16), (Px 16), $hub.Logo.Width, $hub.Logo.Height) }
     Draw-Text $G $AppName $HF.Brand $P.Text (Px 48) (Px 14) ($navW - (Px 52)) (Px 32)
     $y = Px 70
-    foreach ($section in (Get-HubVisibleSections)) {
-        $item = New-Rect (Px 10) $y ($navW - (Px 20)) (Px 36)
+    $sections = @(Get-HubVisibleSections)
+    # A caption over each group (a blank group is only a gap). Rows get closer when there are many, so the last one
+    # stays above the version line.
+    $groups = @($sections | ForEach-Object { $_.Group } | Where-Object { $_ } | Select-Object -Unique).Count
+    $captionH = Px 24
+    $step = [Math]::Min((Px 38), [int](($h - (Px 112) - $groups * $captionH) / $sections.Count))
+    $group = ''
+    foreach ($section in $sections) {
+        if ($section.Group -and $section.Group -ne $group) {
+            $group = $section.Group
+            if ($group.Trim()) { Draw-Text $G $group $F.Caps $P.Faint (Px 22) ($y + (Px 6)) ($navW - (Px 32)) (Px 18) }
+            $y += $captionH
+        }
+        $item = New-Rect (Px 10) $y ($navW - (Px 20)) (Px 34)
         $active = $hub.Section -eq $section.Id
         $hitId = "nav-$($section.Id)"
         if ($active) { Fill-Round $G $item (Px 8) $P.AccentTint } elseif ($hover -eq $hitId) { Fill-Round $G $item (Px 8) $P.SurfaceHover }
         $iconColor = if ($active) { $P.Accent } else { $P.Muted }
         if ($section.Icon) { & $section.Icon $G (New-Rect ($item.X + (Px 8)) $item.Y (Px 24) $item.Height) $iconColor }
         else { Draw-Text $G (Tx $section.Glyph) $HF.Icon $iconColor ($item.X + (Px 8)) $item.Y (Px 24) $item.Height 'Center' }
-        Draw-Text $G $section.Label $(if ($active) { $HF.NavStrong } else { $HF.Nav }) $(if ($active) { $P.Accent } else { $P.Text }) ($item.X + (Px 40)) $item.Y ($item.Width - (Px 76)) $item.Height
         $badge = Get-HubNavBadge $section.Id
-        if ($badge -and $badge.Dot) { Draw-HubDot $G ($item.Right - (Px 20)) ($item.Y + (Px 14)) (Px 8) $badge.Dot }
+        # The label takes the room its badge leaves ("Copiloto de llamadas" fits when there is none).
+        $labelW = $item.Width - $(if (-not $badge) { Px 48 } elseif ($badge.Dot) { Px 60 } else { Px 76 })
+        Draw-Text $G $section.Label $(if ($active) { $HF.NavStrong } else { $HF.Nav }) $(if ($active) { $P.Accent } else { $P.Text }) ($item.X + (Px 40)) $item.Y $labelW $item.Height
+        if ($badge -and $badge.Dot) { Draw-HubDot $G ($item.Right - (Px 20)) ($item.Y + (Px 13)) (Px 8) $badge.Dot }
         elseif ($badge) { Draw-Text $G $badge.Text $F.Small $badge.Color ($item.Right - (Px 50)) $item.Y (Px 40) $item.Height 'Right' }
         if (-not $active) { Add-Hit $map $hitId $item ([scriptblock]::Create("Set-HubSection '$($section.Id)'")) }
-        $y += Px 40
+        $y += $step
     }
-    # A small faint jellyfish in the free space between the last section and the version line.
-    if ($hub.NavMark) { $G.DrawImage($hub.NavMark, $navW - $hub.NavMark.Width - (Px 14), $h - $hub.NavMark.Height - (Px 40), $hub.NavMark.Width, $hub.NavMark.Height) }
+    # A small faint jellyfish in the free space between the last section and the version line (when there is any).
+    if ($hub.NavMark -and $y -le $h - $hub.NavMark.Height - (Px 40)) { $G.DrawImage($hub.NavMark, $navW - $hub.NavMark.Width - (Px 14), $h - $hub.NavMark.Height - (Px 40), $hub.NavMark.Width, $hub.NavMark.Height) }
     $plan = if ($script:Plan) { "Plan $($script:Plan)  " + (Tx '\u00b7  ') } else { '' }
     Draw-Text $G ($plan + "v$AppVersion") $F.Small $P.Faint (Px 22) ($h - (Px 36)) ($navW - (Px 30)) (Px 20)
     $pen = New-Object System.Drawing.Pen($P.Border)
@@ -1225,37 +1250,24 @@ function Draw-Hub($Form, $G) {
     $title = (@($script:HubSections | Where-Object { $_.Id -eq $hub.Section })[0]).Label
 
     if ($hub.Section -eq 'plan') { $title = Tx 'Planear sesi\u00f3n del d\u00eda' }
+    if ($hub.Section -eq 'self') { $title = 'Ambientes' }
     Draw-Text $G $title $F.Title $P.Text $x0 (Px 14) (Px 320) (Px 32)
+    # Minimize, maximize (full screen, F11) and close, with the Windows caption glyphs (Segoe MDL2: ChromeMinimize,
+    # ChromeMaximize / ChromeRestore, ChromeClose); close turns red on hover like Windows.
     $close = New-Rect ($w - (Px 52)) (Px 16) (Px 30) (Px 30)
-    if ($hover -eq 'close') { Fill-Round $G $close (Px 6) $P.SurfaceHover }
-    Draw-Text $G (Tx '\u00d7') $F.Close $P.Muted $close.X $close.Y $close.Width $close.Height 'Center'
+    if ($hover -eq 'close') { Fill-Round $G $close (Px 6) ([System.Drawing.Color]::FromArgb(196, 43, 28)) }
+    Draw-Text $G (Tx '\ue8bb') $HF.Icon $(if ($hover -eq 'close') { [System.Drawing.Color]::White } else { $P.Muted }) $close.X $close.Y $close.Width $close.Height 'Center'
     Add-Hit $map 'close' $close { $script:HubDialog.Close() } 'Cerrar (Esc)'
-    $min = New-Rect ($close.X - (Px 34)) $close.Y $close.Width $close.Height
-    if ($hover -eq 'minimize') { Fill-Round $G $min (Px 6) $P.SurfaceHover }
-    Draw-Text $G ([string][char]0x2013) $F.Close $P.Muted $min.X $min.Y $min.Width $min.Height 'Center'
-    Add-Hit $map 'minimize' $min { $script:HubDialog.WindowState = 'Minimized' } 'Minimizar'
-    $full = New-Rect ($min.X - (Px 34)) $close.Y $close.Width $close.Height
+    $full = New-Rect ($close.X - (Px 34)) $close.Y $close.Width $close.Height
     if ($hover -eq 'fullscreen') { Fill-Round $G $full (Px 6) $P.SurfaceHover }
-    # Segoe MDL2: FullScreen and BackToWindow.
-    Draw-Text $G (Tx $(if ($hub.Normal) { '\ue73f' } else { '\ue740' })) $HF.Icon $P.Muted $full.X $full.Y $full.Width $full.Height 'Center'
+    Draw-Text $G (Tx $(if ($hub.Normal) { '\ue923' } else { '\ue922' })) $HF.Icon $P.Muted $full.X $full.Y $full.Width $full.Height 'Center'
     Add-Hit $map 'fullscreen' $full { Switch-HubFullScreen } $(if ($hub.Normal) { 'Salir de pantalla completa (F11)' } else { 'Pantalla completa (F11)' })
-    # Configuracion (Segoe MDL2: Settings), outside the side menu.
-    $gear = New-Rect ($full.X - (Px 34)) $close.Y $close.Width $close.Height
-    $inSettings = $hub.Section -eq 'settings'
-    if ($inSettings) { Fill-Round $G $gear (Px 6) $P.AccentTint } elseif ($hover -eq 'settings') { Fill-Round $G $gear (Px 6) $P.SurfaceHover }
-    Draw-Text $G (Tx '\ue713') $HF.Icon $(if ($inSettings) { $P.Accent } else { $P.Muted }) $gear.X $gear.Y $gear.Width $gear.Height 'Center'
-    Add-Hit $map 'settings' $gear { Set-HubSection 'settings' } (Ux 'Configuraci\u00f3n')
+    $min = New-Rect ($full.X - (Px 34)) $close.Y $close.Width $close.Height
+    if ($hover -eq 'minimize') { Fill-Round $G $min (Px 6) $P.SurfaceHover }
+    Draw-Text $G (Tx '\ue921') $HF.Icon $P.Muted $min.X $min.Y $min.Width $min.Height 'Center'
+    Add-Hit $map 'minimize' $min { $script:HubDialog.WindowState = 'Minimized' } 'Minimizar'
     if ($hub.Message -and ((Get-Date) - $hub.MessageAt).TotalSeconds -lt $(if ($hub.MessageError) { 15 } else { 8 })) {
-        Draw-Text $G $hub.Message $F.Small $(if ($hub.MessageError) { $P.Error } else { $P.Accent }) ($x0 + (Px 220)) (Px 20) ($gear.X - $x0 - (Px 230)) (Px 20) 'Right'
-    } elseif ($hub.Section -eq 'home') {
-        # Inicio: shortcuts to the sections used most, after the title (a header note takes their place for a moment).
-        $fx = $x0 + (Measure-TextWidth $title $F.Title) + (Px 18)
-        foreach ($section in (Get-HubFavorites)) {
-            $bw = Get-PillWidth $section.Label
-            if ($fx + $bw -gt $gear.X - (Px 10)) { break }
-            Draw-PillButton $G $map $hover "fav-$($section.Id)" (New-Rect $fx (Px 19) $bw (Px 24)) $section.Label ([scriptblock]::Create("Set-HubSection '$($section.Id)'"))
-            $fx += $bw + (Px 8)
-        }
+        Draw-Text $G $hub.Message $F.Small $(if ($hub.MessageError) { $P.Error } else { $P.Accent }) ($x0 + (Px 220)) (Px 20) ($min.X - $x0 - (Px 230)) (Px 20) 'Right'
     }
     $G.DrawLine($pen, $x0, (Px 56), $x0 + $inner, (Px 56))
     $pen.Dispose()
@@ -1264,9 +1276,9 @@ function Draw-Hub($Form, $G) {
 
     switch ($hub.Section) {
         'business' { Draw-HubBusinessSection $G $map $hover $x0 $inner }
-        'plan'    { Draw-HubPlanSection $G $map $hover $x0 $inner }
-        'envs'    { Draw-HubEnvsSection $G $map $hover $x0 $inner }
-        'self'    { Draw-HubSelfSection $G $map $hover $x0 $inner }
+        'plan'    { Draw-HubPlanSession $G $map $hover $x0 $inner }
+        'envs'    { Draw-HubAmbientes $G $map $hover $x0 $inner }
+        'self'    { Draw-HubAmbientes $G $map $hover $x0 $inner }
         'usage'   { Draw-HubUsageSection $G $map $hover $x0 $inner }
         'stats'   { Draw-HubStatsSection $G $map $hover $x0 $inner }
         'code'    { Draw-HubCodeSection $G $map $hover $x0 $inner }
@@ -1358,12 +1370,12 @@ function Draw-HubEnvsStart($G, $Map, $Hover, [int]$X0, [int]$Y, [int]$Inner) {
 
 # One dot per environment (harness\env.js): green on, accent while changing, track off, error ring when the last
 # change failed. Clicking a dot turns it on (or off when it is the one on); no clicks while a change runs.
-function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
+function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner, [int]$OffsetY = 0) {
     $P = $script:Palette
     $F = $script:Fonts
     $HF = $script:HubFonts
     $hs = $script:Hub.Cache.Harness
-    $y = Px 72
+    $y = (Px 72) + $OffsetY
 
     if (-not $hs -or -not $hs.Dir) {
         $card = New-Rect $X0 $y $Inner (Px 80)
@@ -1378,7 +1390,7 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $running = $job -and $job.state -eq 'running'
     $activeId = if ($hs.Active) { [string]$hs.Active.id } else { '' }
     $right = if ($hs.Active) { (L 'Encendido: ') + $hs.Active.name + (L ' desde ') + (Format-HubHarnessTime $hs.Active.since) } else { 'Ninguno encendido' }
-    Draw-HubCaption $G 'AMBIENTES' $X0 $y $Inner $right
+    Draw-HubCaption $G 'CAMBIOS ENTRE AMBIENTES' $X0 $y $Inner $right
     $y += Px 28
 
     if (-not $envs.Count) { Draw-HubEnvsStart $G $Map $Hover $X0 $y $Inner; return }
@@ -1460,6 +1472,11 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         } elseif ($failed) { $line = (Tx 'Fall\u00f3: ') + [string]$job.message; $color = $P.Error }
         elseif ($t.Total -lt 60) { $line = $(if ($on) { 'Encendido' } else { 'Sin tiempo' }); $color = $(if ($on) { $P.Ok } else { $P.Faint }) }
         else { $line = (L 'hoy ') + (Format-HubDuration $t.Today) + (Tx ' \u00b7 ') + (Format-HubDuration $t.Total); $color = $(if ($on) { $P.Ok } else { $P.Muted }) }
+        # The detection's pick says so in words, not only with its dashed ring.
+        if (-not $busy -and -not $failed -and -not $on -and $e.Id -eq $suggested) {
+            $line = (L 'sugerido') + $(if ($t.Today -ge 60) { (Tx ' \u00b7 ') + (Format-HubDuration $t.Today) } else { '' })
+            $color = $P.Accent
+        }
         $textH = Px 37
         if ($c.Cos -gt 0.3) { $textX = $dot.Right + (Px 8); $ty = [int]($c.Y - $textH / 2); $align = 'Left' }
         elseif ($c.Cos -lt -0.3) { $textX = $dot.X - (Px 8) - $textW; $ty = [int]($c.Y - $textH / 2); $align = 'Right' }
@@ -1506,7 +1523,23 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     Draw-Text $G $sub $F.Small $subColor ($card.X + (Px 16)) ($card.Y + (Px 36)) $tw (Px 18)
     $y = $card.Bottom + (Px 10)
 
-    # The detection: which environment what is open fits (env.js detect, every 3 minutes from the tray).
+    # The detection: which environment what is open fits (env.js detect, every 3 minutes from the tray). When it
+    # finds you in another one, the same question the tray asks, with its two answers.
+    $d = $hs.Detect
+    if ($d -and $d.offer -and $d.suggestion -and -not $running) {
+        $card = New-Rect $X0 $y $Inner (Px 70)
+        Fill-Round $G $card (Px 10) $P.AccentTint
+        $stay = (L 'Sigo en ') + $(if ($hs.Active) { $hs.Active.name } else { '' })
+        $go = (L 'Cambiar a ') + $d.name
+        $gw = Get-PillWidth $go
+        $sw = Get-PillWidth $stay
+        Draw-PillButton $G $Map $Hover 'envs-offer-go' (New-Rect ($card.Right - (Px 16) - $gw) ($card.Y + (Px 21)) $gw (Px 28)) $go ([scriptblock]::Create("Switch-HubHarness '$($d.suggestion)'")) -Accent
+        Draw-PillButton $G $Map $Hover 'envs-offer-stay' (New-Rect ($card.Right - (Px 24) - $gw - $sw) ($card.Y + (Px 21)) $sw (Px 28)) $stay { Skip-HubHarnessOffer }
+        $tw = $card.Width - $gw - $sw - (Px 56)
+        Draw-Text $G ((Tx '\u00bfCambiar a ') + $d.name + '?') $F.BodyStrong $P.Text ($card.X + (Px 16)) ($card.Y + (Px 12)) $tw (Px 22)
+        Draw-Text $G (((L 'Lo abierto encaja un {0} % con {1}') -f [int]([double]$d.confidence * 100), $d.name) + (Tx ' \u00b7 ') + (Format-HubHarnessTime $d.at) + (Tx ' \u00b7 seg\u00fan ') + (Format-HarnessJudge $d.judge)) $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 38)) $tw (Px 18)
+        return
+    }
     $card = New-Rect $X0 $y $Inner (Px 64)
     Draw-HubCard $G $card
     $bw = Get-PillWidth 'Detectar ahora'
@@ -1514,7 +1547,6 @@ function Draw-HubEnvsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $detecting = $w -and $w.Process -and -not $w.Process.HasExited
     if (-not $detecting) { Draw-PillButton $G $Map $Hover 'envs-detect' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 18)) $bw (Px 26)) 'Detectar ahora' { Invoke-HubHarnessDetect } }
     $tw = $card.Width - $bw - (Px 48)
-    $d = $hs.Detect
     if ($d -and $d.at) {
         $when = (Tx ' \u00b7 ') + (Format-HubHarnessTime $d.at)
         if ($d.error) { $title = (Tx 'Detecci\u00f3n') + $when; $sub = (Tx 'Fall\u00f3: ') + [string]$d.error; $subColor = $P.Error }
@@ -1553,13 +1585,13 @@ function Format-HubEnvTimes($Graph, $Envs, [string]$Field, [int]$Max = 4) {
 # The watcher on yourself: what the environment on would close (focus drift), the dev servers listening, the
 # watcher's settings and a few numbers from the environments' history. Drift and servers come from
 # harness\env.js detect (run\focus.json), refreshed with every detection or with "Revisar ahora".
-function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
+function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner, [int]$OffsetY = 0) {
     $P = $script:Palette
     $F = $script:Fonts
     $hs = $script:Hub.Cache.Harness
     $set = $script:Hub.Cache.SelfHarness
     if (-not $set) { $set = Get-SelfHarnessSettings $null }
-    $y = Px 72
+    $y = (Px 72) + $OffsetY
     if (-not $hs -or -not $hs.Dir) {
         Draw-Text $G 'Falta harness\env.js: vuelve a ejecutar install.ps1.' $F.Body $P.Muted $X0 $y $Inner (Px 24)
         return
@@ -1578,7 +1610,7 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 
     # ---- focus drift (left)
     $when = if ($detecting) { Tx 'revisando\u2026' } elseif ($at) { Format-HubAgo $at } else { '' }
-    Draw-HubCaption $G (Tx 'DESV\u00cdOS DE FOCO') $X0 $y $colW $when
+    Draw-HubCaption $G 'DISTRACCIONES AHORA' $X0 $y $colW $when
     $card = New-Rect $X0 ($y + (Px 24)) $colW (Px 300)
     Draw-HubCard $G $card
     $ix = $card.X + (Px 12)
@@ -1626,7 +1658,7 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 
     # ---- dev servers (right, top)
     $servers = @(if ($focus) { $focus.servers | Where-Object { $hiddenPorts -notcontains [int]$_.port } })
-    Draw-HubCaption $G 'SERVIDORES' $rx $y $colW $(if ($servers.Count) { [string]$servers.Count + (L ' escuchando') } else { '' })
+    Draw-HubCaption $G 'SERVIDORES LOCALES' $rx $y $colW $(if ($servers.Count) { [string]$servers.Count + (L ' escuchando') } else { '' })
     $shown = [Math]::Min(3, $servers.Count)
     $card = New-Rect $rx ($y + (Px 24)) $colW ((Px 16) + [Math]::Max(1, $shown) * (Px 32) + $(if ($servers.Count -gt 3) { Px 18 } else { 0 }))
     Draw-HubCard $G $card
@@ -1634,7 +1666,7 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $sw = $card.Width - (Px 24)
     $sy = $card.Y + (Px 8)
     if (-not $servers.Count) {
-        Draw-Text $G $(if ($focus) { Tx 'Ning\u00fan servidor de desarrollo escuchando.' } else { 'Sin revisar todav\u00eda.' }) $F.Small $P.Muted $sx ($sy + (Px 6)) $sw (Px 20)
+        Draw-Text $G $(if ($focus) { Tx 'Ning\u00fan servidor de desarrollo escuchando.' } else { Tx 'Sin revisar todav\u00eda.' }) $F.Small $P.Muted $sx ($sy + (Px 6)) $sw (Px 20)
     }
     foreach ($s in @($servers | Select-Object -First 3)) {
         $bw = Get-PillWidth 'Apagar'
@@ -1648,13 +1680,13 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 
     # ---- the watcher's settings (right, below)
     $ay = $card.Bottom + (Px 12)
-    Draw-HubCaption $G 'AVISO DE CAMBIO' $rx $ay $colW
+    Draw-HubCaption $G 'AVISO DE CAMBIO DE AMBIENTE' $rx $ay $colW
     $envs = @($hs.Envs)
     # Quiet chips flow in rows inside the card; measured first so the card fits them.
     $chips = @()
     $cx = 0; $crow = 0
     foreach ($e in $envs) {
-        $cw = Get-PillWidth ([string]$e.Name)
+        $cw = Get-PillWidth ((Tx '\u2713 ') + [string]$e.Name)
         if ($cx -gt 0 -and $cx + $cw -gt $colW - (Px 24)) { $cx = 0; $crow++ }
         $chips += @{ Env = $e; X = $cx; Row = $crow; W = $cw }
         $cx += $cw + (Px 6)
@@ -1665,22 +1697,27 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $rowX = $card.X + (Px 6)
     $rowW = $card.Width - (Px 12)
     Draw-HubToggleRow $G $Map $Hover 'self-detect' (New-Rect $rowX ($card.Y + (Px 6)) $rowW (Px 42)) 'Detectar y preguntar' (Tx 'Si lo abierto es de otro ambiente') ([bool]$set.detect) { Switch-HubSelfDetect }
-    Draw-HubPicker $G $Map $Hover 'self-min' (New-Rect $rowX ($card.Y + (Px 52)) $rowW (Px 30)) 'Cada' ("$($set.minutes) min") 'Step-HubSelfMinutes' ([bool]$set.detect)
-    Draw-HubPicker $G $Map $Hover 'self-conf' (New-Rect $rowX ($card.Y + (Px 86)) $rowW (Px 30)) (Tx 'Confianza m\u00ednima') ("$([int]([double]$set.minConfidence * 100)) %") 'Step-HubSelfConfidence' ([bool]$set.detect)
-    Draw-HubPicker $G $Map $Hover 'self-judge' (New-Rect $rowX ($card.Y + (Px 120)) $rowW (Px 30)) 'Juez' $(if ($set.judge -eq 'jev') { 'Jev (API)' } else { 'Haiku (plan)' }) 'Step-HubSelfJudge' ([bool]$set.detect)
-    Draw-Text $G (Tx 'No molestar en (sin detecci\u00f3n ni aviso):') $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 156)) ($card.Width - (Px 32)) (Px 18)
+    # Lists, not steppers: each option in sight (keys as text, as the dropdown compares them).
+    $minutes = [ordered]@{}; foreach ($m in $SelfHarnessMinutes) { $minutes["$m"] = "$m min" }
+    $confidences = [ordered]@{}; foreach ($v in $SelfHarnessConfidences) { $confidences["$v"] = "$([int]($v * 100)) %" }
+    $judges = [ordered]@{ haiku = 'Haiku (tu plan)'; jev = 'Jev (clave de API)' }
+    Draw-HubDropdown $G $Map $Hover 'self-min' (New-Rect $rowX ($card.Y + (Px 52)) $rowW (Px 30)) 'Revisar cada' $minutes "$($set.minutes)" 'Step-HubSelfMinutes' ([bool]$set.detect)
+    Draw-HubDropdown $G $Map $Hover 'self-conf' (New-Rect $rowX ($card.Y + (Px 86)) $rowW (Px 30)) 'Avisar desde' $confidences "$([double]$set.minConfidence)" 'Step-HubSelfConfidence' ([bool]$set.detect)
+    Draw-HubDropdown $G $Map $Hover 'self-judge' (New-Rect $rowX ($card.Y + (Px 120)) $rowW (Px 30)) (Tx 'Qui\u00e9n decide') $judges $(if ($set.judge -eq 'jev') { 'jev' } else { 'haiku' }) 'Step-HubSelfJudge' ([bool]$set.detect)
+    Draw-Text $G 'Silenciar en estos ambientes (ni detecta ni avisa):' $F.Small $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 156)) ($card.Width - (Px 32)) (Px 18)
     foreach ($c in $chips) {
         $rect = New-Rect ($card.X + (Px 12) + $c.X) ($card.Y + (Px 178) + $c.Row * (Px 30)) $c.W (Px 26)
         $quiet = @($set.quiet) -contains [string]$c.Env.Id
         $action = [scriptblock]::Create("Switch-HubSelfQuiet '$($c.Env.Id)'")
-        if ($quiet) { Draw-PillButton $G $Map $Hover "self-quiet-$($c.Env.Id)" $rect ([string]$c.Env.Name) $action -Accent }
+        # A check mark says it is on: an accent pill alone read as "selected or not?".
+        if ($quiet) { Draw-PillButton $G $Map $Hover "self-quiet-$($c.Env.Id)" $rect ((Tx '\u2713 ') + [string]$c.Env.Name) $action -Accent }
         else { Draw-PillButton $G $Map $Hover "self-quiet-$($c.Env.Id)" $rect ([string]$c.Env.Name) $action }
     }
 
     # ---- a few numbers from the environments' history (full width, below both columns)
     $graph = Get-HarnessGraph $hs
     $sy = [Math]::Max($card.Bottom, $y + (Px 324)) + (Px 12)
-    Draw-HubCaption $G (Tx 'STATS DE LOS AMBIENTES') $X0 $sy $Inner ((Tx 'm\u00e1s en ') + 'harness\docs\ESTADISTICAS.md')
+    Draw-HubCaption $G 'TIEMPO EN CADA AMBIENTE' $X0 $sy $Inner ''
     $card = New-Rect $X0 ($sy + (Px 24)) $Inner (Px 104)
     Draw-HubCard $G $card
     $top = $graph.Top
@@ -1699,6 +1736,53 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-Text $G $l[1] $F.Small $P.Text ($card.X + (Px 112)) $ly ($card.Width - (Px 128)) (Px 20)
         $ly += Px 22
     }
+}
+
+# Ambientes, in two tabs: the map of environments and Foco y ajustes (what was the SelfHarness section). The tab
+# that is not open carries the out-of-focus count, as the side menu does.
+function Draw-HubAmbientes($G, $Map, $Hover, [int]$X0, [int]$Inner) {
+    $P = $script:Palette
+    $HF = $script:HubFonts
+    $tab = if ($script:Hub.Section -eq 'self' -or $script:Hub.EnvsTab -eq 'focus') { 'focus' } else { 'map' }
+    $badge = Get-HubNavBadge 'self'
+    $tx = $X0
+    foreach ($t in @(@{ Id = 'map'; Label = 'Mapa' }, @{ Id = 'focus'; Label = 'Foco y ajustes' })) {
+        $on = $tab -eq $t.Id
+        $font = if ($on) { $HF.NavStrong } else { $HF.Nav }
+        $lw = (Measure-TextWidth $t.Label $font) + (Px 6)
+        $count = if ($t.Id -eq 'focus' -and $badge -and $badge.Text) { [string]$badge.Text } else { '' }
+        $cw = if ($count) { (Measure-TextWidth $count $script:Fonts.Badge) + (Px 14) } else { 0 }
+        $rect = New-Rect $tx (Px 64) ($lw + $(if ($cw) { $cw + (Px 6) } else { 0 })) (Px 28)
+        $hitId = "envs-tab-$($t.Id)"
+        Draw-Text $G $t.Label $font $(if ($on -or $Hover -eq $hitId) { $P.Text } else { $P.Muted }) $rect.X $rect.Y $lw (Px 24)
+        if ($count) {
+            $pill = New-Rect ($rect.X + $lw + (Px 6)) ($rect.Y + (Px 4)) $cw (Px 16)
+            Fill-Round $G $pill (Px 8) $P.Warn
+            Draw-Text $G $count $script:Fonts.Badge $P.Back $pill.X $pill.Y $pill.Width $pill.Height 'Center'
+        }
+        if ($on) { Fill-Round $G (New-Rect $rect.X ($rect.Bottom - (Px 3)) $rect.Width (Px 3)) (Px 1) $P.Accent }
+        else { Add-Hit $Map $hitId $rect ([scriptblock]::Create("Set-HubEnvsTab '$($t.Id)'")) }
+        $tx = $rect.Right + (Px 24)
+    }
+    # Below the tabs (not $top: PowerShell names ignore case and the sections use $top for their own values).
+    $tabsH = Px 34
+    if ($tab -eq 'focus') { Draw-HubSelfSection $G $Map $Hover $X0 $Inner $tabsH } else { Draw-HubEnvsSection $G $Map $Hover $X0 $Inner $tabsH }
+}
+
+function Set-HubEnvsTab([string]$Tab) {
+    $script:Hub.EnvsTab = $Tab
+    if ($script:Hub.Section -eq 'self') { $script:Hub.Section = 'envs' }
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+# "Sigo en ...": the tray's No to the same verdict, so neither the window nor the tray asks it again.
+function Skip-HubHarnessOffer {
+    $hs = $script:Hub.Cache.Harness
+    if ($hs -and $hs.Detect) {
+        if ($script:HarnessWatch) { $script:HarnessWatch.Asked = [string]$hs.Detect.at }
+        $hs.Detect.offer = $false
+    }
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
 # A drift tab's x (one id) or "Cerrar todas" (asks first). Closed tabs stay hidden until the next detection.
@@ -1764,133 +1848,95 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $F = $script:Fonts
     $c = $script:Hub.Cache
     $view = $script:View
-    $gap = Px 12
+    $now = Get-Date
+    if (-not $script:HubFonts.Big) { $script:HubFonts.Big = New-UiFont 'Segoe UI Semibold' 22 }
 
-    # usage and the next scheduled session
-    $cw = [int](($Inner - 2 * $gap) / 3)
-    $y = Px 72
+    # The plan, big: what is left of each window and when it renews. A click opens Uso y agenda.
+    $card = New-Rect $X0 (Px 72) $Inner (Px 168)
+    Fill-Round $G $card (Px 12) $(if ($Hover -eq 'home-usage') { $P.SurfaceHover } else { $P.Surface })
+    Add-Hit $Map 'home-usage' $card { Set-HubSection 'usage' }
     $hasData = $view -and $view.HasData
+    $colW = [int](($card.Width - (Px 72)) / 2)
     foreach ($i in 0, 1) {
-        $card = New-Rect ($X0 + $i * ($cw + $gap)) $y $cw (Px 84)
-        $hitId = "home-usage-$i"
-        Fill-Round $G $card (Px 10) $(if ($Hover -eq $hitId) { $P.SurfaceHover } else { $P.Surface })
+        $x = $card.X + (Px 24) + $i * ($colW + (Px 24))
         $window = if (-not $hasData) { $null } elseif ($i -eq 0) { $view.Session } else { $view.Weekly }
-        Draw-HubUsage $G $(if ($i -eq 0) { (Tx 'SESI\u00d3N (5 H)') } else { 'SEMANAL' }) $window ($card.X + (Px 14)) ($card.Y + (Px 14)) ($card.Width - (Px 28)) -Short
-        Add-Hit $Map $hitId $card { Set-HubSection 'usage' }
+        $active = $window -and $window.Active
+        $pct = if ($active) { [int]$window.Percent } else { 0 }
+        Draw-Text $G $(if ($i -eq 0) { (Tx 'SESI\u00d3N DE 5 H') } else { 'SEMANA' }) $F.Caps $P.Muted $x ($card.Y + (Px 18)) $colW (Px 18)
+        $left = if ($window) { "$([Math]::Max(0, 100 - $pct)) %" } else { [string][char]0x2013 }
+        $lw = Measure-TextWidth $left $script:HubFonts.Big
+        Draw-Text $G $left $script:HubFonts.Big $P.Text $x ($card.Y + (Px 38)) ($lw + (Px 4)) (Px 40)
+        if ($window) { Draw-Text $G 'libre' $F.Small $P.Muted ($x + $lw + (Px 8)) ($card.Y + (Px 52)) (Px 80) (Px 20) }
+        $track = New-Rect $x ($card.Y + (Px 86)) $colW (Px 8)
+        Fill-Round $G $track (Px 4) $P.Track
+        if ($active -and $pct -gt 0) { Fill-Round $G (New-Rect $x $track.Y ([Math]::Max((Px 8), [int]($colW * [Math]::Min(100, $pct) / 100))) $track.Height) (Px 4) $P[(Get-UsageLevel $pct)] }
+        $reset = if (-not $window) { Tx 'Sin datos todav\u00eda' } elseif (-not $active) { 'Sin empezar' } else { (L 'Se renueva en ') + (Format-Remaining ($window.ResetsAt - $now)) }
+        Draw-Text $G $reset $F.Small $P.Muted $x ($card.Y + (Px 100)) $colW (Px 18)
     }
-    $card = New-Rect ($X0 + 2 * ($cw + $gap)) $y ($Inner - 2 * ($cw + $gap)) (Px 84)
-    Draw-HubCard $G $card
-    Draw-Text $G (Tx 'PR\u00d3XIMA SESI\u00d3N') $F.Caps $P.Muted ($card.X + (Px 14)) ($card.Y + (Px 14)) ($card.Width - (Px 28)) (Px 18)
+    $pen = New-HubPen $P.Border 1
+    $G.DrawLine($pen, $card.X + (Px 24), $card.Y + (Px 128), $card.Right - (Px 24), $card.Y + (Px 128))
+    $pen.Dispose()
     $next = Get-HubNextRow
-    if ($next) {
-        Draw-Text $G (Format-DialogDateTime $next.At (Get-Date)) $F.BodyStrong $P.Text ($card.X + (Px 14)) ($card.Y + (Px 32)) ($card.Width - (Px 28)) (Px 20)
-        Draw-Text $G $(if ($next.TaskName -like "$AutoTaskPrefix*") { (Tx 'Autom\u00e1tica') } elseif ($next.Kind -eq 'pc') { 'En este PC' } else { 'En la nube' }) $F.Small $P.Muted ($card.X + (Px 14)) ($card.Y + (Px 52)) (Px 90) (Px 18)
-    } else {
-        Draw-Text $G 'Nada agendado' $F.BodyStrong $P.Muted ($card.X + (Px 14)) ($card.Y + (Px 32)) ($card.Width - (Px 28)) (Px 20)
-    }
-    $bw = Get-PillWidth 'Agendar'
-    Draw-PillButton $G $Map $Hover 'home-schedule' (New-Rect ($card.Right - (Px 12) - $bw) ($card.Y + (Px 50)) $bw (Px 24)) 'Agendar' { Open-HubSchedule } -Accent
+    $nextText = if ($next) {
+        $kind = if ($next.TaskName -like "$AutoTaskPrefix*") { Tx 'autom\u00e1tica' } elseif ($next.Kind -eq 'pc') { L 'en este PC' } else { L 'en la nube' }
+        (Tx 'Pr\u00f3xima sesi\u00f3n: ') + (Format-DialogDateTime $next.At $now) + (Tx ' \u00b7 ') + $kind
+    } else { 'Nada agendado' }
+    $link = New-Rect ($card.Right - (Px 124)) ($card.Y + (Px 136)) (Px 100) (Px 22)
+    Draw-Text $G $nextText $F.Small $P.Muted ($card.X + (Px 24)) ($card.Y + (Px 136)) ($card.Width - (Px 160)) (Px 22)
+    Draw-Text $G (Tx 'Agendar \u203a') $F.Small $(if ($Hover -eq 'home-schedule') { $P.AccentHover } else { $P.Accent }) $link.X $link.Y $link.Width $link.Height 'Right'
+    Add-Hit $Map 'home-schedule' $link { Open-HubSchedule }
 
-    # nearby PCs and Claude Whisper; in the business edition, the company card in their place
-    $y = Px 168
+    $y = $card.Bottom + (Px 16)
+    # The business edition keeps its company card here.
     if (Test-HubBusiness) {
         Draw-HubBusinessHome $G $Map $Hover (New-Rect $X0 $y $Inner (Px 262))
-    } else {
-        $netW = [int]($Inner * 0.6)
-        $net = New-Rect $X0 $y $netW (Px 262)
-        Draw-HubCard $G $net
-        Draw-HubNetwork $G $Map $Hover $net $false 'section'
-
-        $wcard = New-Rect ($X0 + $netW + $gap) $y ($Inner - $netW - $gap) (Px 262)
-        Draw-HubCard $G $wcard
-        $wx = $wcard.X + (Px 14)
-        $ww = $wcard.Width - (Px 28)
-        Draw-Text $G 'CLAUDE WHISPER' $F.Caps $P.Muted $wx ($wcard.Y + (Px 10)) $ww (Px 18)
-        $running = [bool]$c.WhisperRunning
-        Draw-HubDot $G $wx ($wcard.Y + (Px 37)) (Px 8) $(if ($running) { $P.Ok } else { $P.Faint })
-        Draw-Text $G $(if ($running) { 'Abierto' } else { 'Cerrado' }) $F.BodyStrong $P.Text ($wx + (Px 14)) ($wcard.Y + (Px 30)) (Px 90) (Px 22)
-        $label = if ($running) { 'Mostrar' } else { 'Abrir' }
-        $bw = Get-PillWidth $label
-        Draw-PillButton $G $Map $Hover 'home-whisper' (New-Rect ($wcard.Right - (Px 12) - $bw) ($wcard.Y + (Px 29)) $bw (Px 24)) $label { Open-HubWhisper } -Accent
-        $settings = $c.WhisperSettings
-        if ($settings) {
-            $model = $script:WhisperModels[$settings.model] -replace ' \(.*\)$', ''
-            Draw-Text $G ($script:WhisperLanguages[$settings.language] + (Tx '  \u00b7  ') + $model) $F.Small $P.Muted $wx ($wcard.Y + (Px 54)) $ww (Px 18)
-        }
-        Draw-Text $G (Tx '\u00daLTIMAS LLAMADAS') $F.Caps $P.Muted $wx ($wcard.Y + (Px 82)) $ww (Px 18)
-        $calls = @($c.Calls)
-        $cy = $wcard.Y + (Px 102)
-        if (-not $calls.Count) {
-            Draw-Wrapped $G (Tx 'A\u00fan no hay llamadas. \u00c1brelo en una llamada y pulsa Escuchar.') $F.Small $P.Faint $wx $cy $ww (Px 36)
-        }
-        for ($i = 0; $i -lt [Math]::Min(3, $calls.Count); $i++) {
-            $call = $calls[$i]
-            $row = New-Rect ($wx - (Px 6)) $cy ($ww + (Px 12)) (Px 40)
-            $hitId = "home-call-$i"
-            if ($Hover -eq $hitId) { Fill-Round $G $row (Px 6) $P.SurfaceHover }
-            $when = if ($call.Started) { Format-DialogDateTime $call.Started (Get-Date) } else { $call.Name }
-            Draw-Text $G $when $F.Body $P.Text $wx ($cy + (Px 2)) $ww (Px 18)
-            $answers = if ($call.Answers -eq 1) { L '1 respuesta' } else { ((L '{0} respuestas') -f $call.Answers) }
-            Draw-Text $G ((Format-CallDuration $call.Minutes) + (Tx '  \u00b7  ') + $answers) $F.Small $P.Muted $wx ($cy + (Px 20)) $ww (Px 16)
-            Add-Hit $Map $hitId $row ([scriptblock]::Create("Open-HubCall $i"))
-            $cy += Px 44
-        }
-        $more = New-Rect ($wcard.Right - (Px 110)) ($wcard.Bottom - (Px 28)) (Px 96) (Px 20)
-        Draw-Text $G (Tx 'Ver todo \u203a') $F.Small $(if ($Hover -eq 'home-whisper-more') { $P.AccentHover } else { $P.Accent }) $more.X $more.Y $more.Width $more.Height 'Right'
-        Add-Hit $Map 'home-whisper-more' $more { Set-HubSection 'whisper' }
+        $y += Px 278
     }
 
-    # Claude Code sessions and the voice
-    $y = Px 442
-    $half = [int](($Inner - $gap) / 2)
-    $ccard = New-Rect $X0 $y $half (Px 178)
-    Draw-HubCard $G $ccard
-    $cx = $ccard.X + (Px 14)
-    $cww = $ccard.Width - (Px 28)
-    $sessions = @($c.CodeSessions | Where-Object { $_.Live })
-    $slots = 2 * [Math]::Max(1, [int]$c.Screens)
-    Draw-Text $G 'CLAUDE CODE' $F.Caps $P.Muted $cx ($ccard.Y + (Px 10)) $cww (Px 18)
-    $openText = if ($c.SessionLimit -ne $false) { (L '{0} de {1} abiertas') -f $sessions.Count, $slots } else { (L '{0} abiertas') -f $sessions.Count }
-    Draw-Text $G $openText $F.Small $P.Muted $cx ($ccard.Y + (Px 10)) $cww (Px 18) 'Right'
-    $sy = $ccard.Y + (Px 34)
-    if (-not $sessions.Count) {
-        Draw-Wrapped $G (Tx 'Ninguna sesi\u00f3n abierta. Clic derecho en una carpeta > Abrir con Claude Code.') $F.Small $P.Faint $cx $sy $cww (Px 36)
+    # Today: one line per thing worth knowing, each opening its section. Only what is happening shows.
+    $rows = @()
+    $live = @($c.CodeSessions | Where-Object { $_.Live }).Count
+    $rows += @{ Id = 'code'; Dot = $(if ($live) { $P.Ok } else { $P.Faint }); Text = $(if ($live -eq 1) { Tx '1 sesi\u00f3n de Claude Code abierta' } elseif ($live) { (Tx '{0} sesiones de Claude Code abiertas') -f $live } else { Tx 'Ninguna sesi\u00f3n de Claude Code abierta' }) }
+    $hs = $c.Harness
+    if ((Test-HubModule 'ambientes') -and $hs -and $hs.Active) {
+        $rows += @{ Id = 'envs'; Dot = $P.Ok; Text = (L 'Ambiente {0}, desde las {1}') -f $hs.Active.name, (Format-HubHarnessTime $hs.Active.since) }
+        $focus = Get-HubNavBadge 'self'
+        if ($focus -and $focus.Text) { $rows += @{ Id = 'self'; Dot = $P.Warn; Text = $(if ($focus.Text -eq '1') { Tx '1 pesta\u00f1a fuera de foco' } else { (Tx '{0} pesta\u00f1as fuera de foco') -f $focus.Text }) } }
     }
-    foreach ($session in @($sessions | Select-Object -First 3)) {
-        Draw-HubEgg $G ($cx + (Px 5)) ($sy + (Px 11)) (Px 18) (Get-HubSlotHex $session.Color)
-        $name = $session.Name
-        if ($session.Role) { $name += (Tx ' \u00b7 ') + $session.Role }
-        # The folder keeps its width (up to 40 %) and the name gets the rest, so they never overlap.
-        $folder = Split-Path -Leaf $session.Dir
-        $folderW = [Math]::Min([int](($cww - (Px 18)) * 0.4), (Measure-TextWidth $folder $F.Small))
-        Draw-Text $G $name $F.Body $P.Text ($cx + (Px 18)) $sy ($cww - (Px 26) - $folderW) (Px 22)
-        Draw-Text $G $folder $F.Small $P.Muted ($cx + $cww - $folderW) $sy $folderW (Px 22) 'Right'
-        $sy += Px 26
+    if (Test-HubModule 'bridge') {
+        $nodes = @(Get-HubNetworkNodes | Where-Object { $_.Paired })
+        $linked = @($nodes | Where-Object { $_.State -eq 'session' })
+        $online = @($nodes | Where-Object { $_.State -eq 'online' })
+        if ($linked.Count) { $rows += @{ Id = 'pcs'; Dot = $P.Ok; Text = (L '{0} conectado a este PC') -f $linked[0].Name } }
+        elseif ($online.Count) { $rows += @{ Id = 'pcs'; Dot = $P.Ok; Text = $(if ($online.Count -eq 1) { (Tx '{0} en l\u00ednea') -f $online[0].Name } else { (Tx '{0} PCs en l\u00ednea') -f $online.Count }) } }
     }
-    if ($sessions.Count -gt 3) { Draw-Text $G ((Tx '+{0} m\u00e1s') -f ($sessions.Count - 3)) $F.Small $P.Muted ($cx + (Px 18)) $sy ($cww - (Px 18)) (Px 18) }
-    $bw = Get-PillWidth (Tx 'Nueva sesi\u00f3n...')
-    Draw-PillButton $G $Map $Hover 'home-code-new' (New-Rect ($ccard.Right - (Px 12) - $bw) ($ccard.Bottom - (Px 36)) $bw (Px 24)) (Tx 'Nueva sesi\u00f3n...') { Open-HubCodeSession } -Accent
-    $link = New-Rect $cx ($ccard.Bottom - (Px 34)) (Px 120) (Px 20)
-    Draw-Text $G (Tx 'Ver sesiones \u203a') $F.Small $(if ($Hover -eq 'home-code-more') { $P.AccentHover } else { $P.Accent }) $link.X $link.Y $link.Width $link.Height
-    Add-Hit $Map 'home-code-more' $link { Set-HubSection 'code' }
+    if ((Test-HubModule 'whisper') -and $c.WhisperRunning) { $rows += @{ Id = 'whisper'; Dot = $P.Ok; Text = (Tx 'Claude Whisper est\u00e1 abierto') } }
+    if ($c.VoiceMuted) { $rows += @{ Id = 'voice'; Dot = $P.Faint; Text = (Tx 'La voz de las sesiones est\u00e1 apagada') } }
 
-    $vcard = New-Rect ($X0 + $half + $gap) $y ($Inner - $half - $gap) (Px 178)
-    Draw-HubCard $G $vcard
-    $vx = $vcard.X + (Px 4)
-    $vw = $vcard.Width - (Px 8)
-    Draw-Text $G 'VOZ' $F.Caps $P.Muted ($vcard.X + (Px 14)) ($vcard.Y + (Px 10)) (Px 100) (Px 18)
-    if (-not $c.VoiceInstalled) {
-        Draw-Wrapped $G (Tx 'La voz no est\u00e1 instalada: reinstala ClaudeMaxxing (install.ps1 desde el repo).') $F.Small $P.Warn ($vcard.X + (Px 14)) ($vcard.Y + (Px 36)) ($vcard.Width - (Px 28)) (Px 36)
-    } else {
-        Draw-HubToggleRow $G $Map $Hover 'home-voice-on' (New-Rect $vx ($vcard.Y + (Px 32)) $vw (Px 40)) 'Voz en las sesiones' 'Lee el resumen de cada respuesta' (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)"))
-        Draw-HubToggleRow $G $Map $Hover 'home-voice-keys' (New-Rect $vx ($vcard.Y + (Px 76)) $vw (Px 40)) 'Atajos de teclado' 'Ctrl+Alt+Shift+O repite, P detiene' ([bool]$c.HotkeysOn) ([scriptblock]::Create("Set-HubHotkeys `$$(-not $c.HotkeysOn)"))
-        $bw = Get-PillWidth 'Probar voz'
-        Draw-PillButton $G $Map $Hover 'home-voice-test' (New-Rect ($vcard.Right - (Px 12) - $bw) ($vcard.Bottom - (Px 36)) $bw (Px 24)) 'Probar voz' { Invoke-VoiceCtl 'test' 'Reproduciendo una frase de prueba...' }
-        $link = New-Rect ($vcard.X + (Px 14)) ($vcard.Bottom - (Px 34)) (Px 120) (Px 20)
-        Draw-Text $G (Tx 'Ver voces \u203a') $F.Small $(if ($Hover -eq 'home-voice-more') { $P.AccentHover } else { $P.Accent }) $link.X $link.Y $link.Width $link.Height
-        Add-Hit $Map 'home-voice-more' $link { Set-HubSection 'voice' }
+    Draw-HubCaption $G 'HOY' $X0 $y $Inner ''
+    $y += Px 24
+    foreach ($row in $rows) {
+        $rect = New-Rect $X0 $y $Inner (Px 44)
+        $hitId = "home-row-$($row.Id)"
+        if ($Hover -eq $hitId) { Fill-Round $G $rect (Px 8) $P.SurfaceHover }
+        Draw-HubDot $G ($rect.X + (Px 8)) ($rect.Y + (Px 18)) (Px 8) $row.Dot
+        Draw-Text $G $row.Text $F.Body $P.Text ($rect.X + (Px 28)) $rect.Y ($rect.Width - (Px 60)) $rect.Height
+        Draw-Text $G (Tx '\u203a') $F.Close $P.Muted ($rect.Right - (Px 28)) ($rect.Y - (Px 1)) (Px 20) $rect.Height 'Center'
+        Add-Hit $Map $hitId $rect ([scriptblock]::Create("Set-HubSection '$($row.Id)'"))
+        $pen = New-HubPen $P.Border 1
+        $G.DrawLine($pen, $rect.X, $rect.Bottom, $rect.Right, $rect.Bottom)
+        $pen.Dispose()
+        $y += Px 44
     }
+
+    # One action: a new session (the Explorer's right click does the same).
+    $label = Tx 'Nueva sesi\u00f3n'
+    $bw = (Get-PillWidth $label) + (Px 16)
+    $by = $y + (Px 20)
+    Draw-PillButton $G $Map $Hover 'home-code-new' (New-Rect ($X0 + $Inner - $bw) $by $bw (Px 30)) $label { Open-HubCodeSession } -Accent
+    Draw-Text $G (Tx 'Clic derecho en una carpeta del Explorador tambi\u00e9n abre una sesi\u00f3n.') $F.Small $P.Muted $X0 $by ($Inner - $bw - (Px 16)) (Px 30)
 }
+
 
 # ---------------------------------------------------------------- Uso y agenda
 
@@ -1988,103 +2034,182 @@ function Draw-HubUsageSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 
 # ---------------------------------------------------------------- Claude Code
 
+# Primera pantalla: left to right (as before), Windows' main one, or each monitor after the first in that order.
+function Get-HubScreenFirstOptions {
+    $options = [ordered]@{ '' = 'De izquierda a derecha'; windows = 'Principal (Windows)' }
+    $count = @($script:Hub.Cache.ScreenAreas).Count
+    for ($i = 1; $i -lt $count; $i++) { $options["$i"] = (L 'Pantalla {0} de la izquierda') -f ($i + 1) }
+    $options
+}
+
+function Step-HubScreenFirst([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $keys = @((Get-HubScreenFirstOptions).Keys)
+    $i = [array]::IndexOf($keys, [string]$script:Hub.Cache.ScreenFirst)
+    $next = $keys[[Math]::Max(0, [Math]::Min($keys.Count - 1, $i + $Delta))]
+    try { Set-ScreenFirst $next } catch { Set-HubMessage ((L 'No se pudo guardar: ') + $_.Exception.Message) -Failed; return }
+    $script:Hub.Cache.ScreenFirst = $next
+    Set-HubMessage 'Las sesiones nuevas siguen el nuevo orden.'
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+# Every monitor as a small screen in the order sessions fill them, each with its two halves: the session on each
+# (its color and name), the free ones numbered, and the next one to fill outlined in the accent color.
+function Draw-HubScreenMap($G, [System.Drawing.Rectangle]$Area, $Sessions) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    $c = $script:Hub.Cache
+    $screens = Get-ScreenOrder @($c.ScreenAreas) ([string]$c.ScreenFirst)
+    if (-not $screens.Count) { return }
+    $gap = Px 14
+    $labelH = Px 22
+    $maxH = [double]($Area.Height - $labelH)
+    $totalW = [double](($screens | ForEach-Object { [int]$_.Right - [int]$_.Left } | Measure-Object -Sum).Sum)
+    $tallest = [double](($screens | ForEach-Object { [int]$_.Bottom - [int]$_.Top } | Measure-Object -Maximum).Maximum)
+    $scale = [Math]::Min(($Area.Width - $gap * ($screens.Count - 1)) / $totalW, $maxH / $tallest)
+    $live = @($Sessions | Where-Object { $_.Live })
+    $slotCount = 2 * $screens.Count
+    $next = -1
+    for ($s = 0; $s -lt $slotCount; $s++) { if (-not @($live | Where-Object { [int]$_.Slot -eq $s }).Count) { $next = $s; break } }
+    $x = $Area.X
+    for ($i = 0; $i -lt $screens.Count; $i++) {
+        $scr = $screens[$i]
+        $w = [int](([int]$scr.Right - [int]$scr.Left) * $scale)
+        $h = [int](([int]$scr.Bottom - [int]$scr.Top) * $scale)
+        $box = New-Rect $x ($Area.Y + [int]$maxH - $h) $w $h
+        Fill-Round $G $box (Px 6) $P.Back
+        Stroke-Round $G $box (Px 6) $P.Border
+        foreach ($half in 0, 1) {
+            $slot = 2 * $i + $half
+            $hw = [int](($w - (Px 9)) / 2)
+            $cell = New-Rect ($box.X + (Px 3) + $half * ($hw + (Px 3))) ($box.Y + (Px 3)) $hw ($h - (Px 6))
+            $session = @($live | Where-Object { [int]$_.Slot -eq $slot }) | Select-Object -First 1
+            if ($session) {
+                $hex = ConvertFrom-Hex (Get-HubSlotHex $session.Color)
+                Fill-Round $G $cell (Px 4) ([System.Drawing.Color]::FromArgb(70, $hex))
+                Draw-Text $G ("$($slot + 1) " + (Tx '\u00b7 ') + $session.Name) $F.Small $P.Text ($cell.X + (Px 2)) $cell.Y ($cell.Width - (Px 4)) $cell.Height 'Center'
+            } else {
+                $pen = New-HubPen $(if ($slot -eq $next) { $P.Accent } else { $P.Border }) $(if ($slot -eq $next) { 1.5 } else { 1 }) $(if ($slot -eq $next) { 'Solid' } else { 'Dash' })
+                $G.DrawRectangle($pen, $cell.X, $cell.Y, $cell.Width - 1, $cell.Height - 1)
+                $pen.Dispose()
+                $text = if ($slot -eq $next) { "$($slot + 1) " + (Tx '\u00b7 sigue') } else { "$($slot + 1)" }
+                Draw-Text $G $text $F.Small $(if ($slot -eq $next) { $P.Accent } else { $P.Faint }) $cell.X $cell.Y $cell.Width $cell.Height 'Center'
+            }
+        }
+        # The main one (holding the desktop's origin, as Get-ScreenOrder tells it) says so.
+        $main = [int]$scr.Left -le 100 -and 100 -lt [int]$scr.Right -and [int]$scr.Top -le 100 -and 100 -lt [int]$scr.Bottom
+        Draw-Text $G ("$($i + 1)" + $(if ($main) { (Tx ' \u00b7 principal') } else { '' })) $F.Small $P.Muted $box.X ($box.Bottom + (Px 4)) $box.Width (Px 18) 'Center'
+        $x = $box.Right + $gap
+    }
+}
+
 function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
     $F = $script:Fonts
     $c = $script:Hub.Cache
     $screens = [Math]::Max(1, [int]$c.Screens)
     $slots = 2 * $screens
+    $limit = $c.SessionLimit -ne $false
+    $sessions = @($c.CodeSessions)
+    $live = @($sessions | Where-Object { $_.Live }).Count
 
-    $card = New-Rect $X0 (Px 72) $Inner (Px 84)
+    # Your screens, in the order sessions fill them, and the one button to open the next.
+    $card = New-Rect $X0 (Px 72) $Inner (Px 146)
     Draw-HubCard $G $card
     $tx = $card.X + (Px 16)
-    $bw = Get-PillWidth (Tx 'Nueva sesi\u00f3n...')
-    $new = New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 14)) $bw (Px 26)
-    Draw-PillButton $G $Map $Hover 'code-new' $new (Tx 'Nueva sesi\u00f3n...') { Open-HubCodeSession } -Accent
-    $tw = $new.X - $tx - (Px 10)
-    Draw-Text $G 'Abrir con Claude Code' $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) $tw (Px 22)
-    if ($c.MenuInstalled) {
-        Draw-Text $G (Tx '\u2713 En el men\u00fa del Explorador: clic derecho en una carpeta') $F.Small $P.Ok $tx ($card.Y + (Px 36)) $tw (Px 18)
-    } else {
-        Draw-Text $G (Tx 'El men\u00fa del Explorador no est\u00e1 instalado: ejecuta install.ps1.') $F.Small $P.Warn $tx ($card.Y + (Px 36)) $tw (Px 18)
-    }
+    $tw = $card.Width - (Px 32)
     $screensText = if ($screens -eq 1) { L '1 pantalla' } else { (L '{0} pantallas') -f $screens }
-    # The switch turns the two-per-monitor limit on and off (Test-SessionLimit); the whole line is its hit area.
-    $limit = $c.SessionLimit -ne $false
-    $limitText = if ($limit) { (Tx 'L\u00edmite: hasta {0} a la vez ({1}).') -f $slots, $screensText } else { (Tx 'Sin l\u00edmite: desde la {0}\u00aa se superponen.') -f ($slots + 1) }
-    $limitRow = New-Rect $tx ($card.Y + (Px 54)) ($card.Right - (Px 16) - $tx) (Px 22)
-    Draw-Text $G ((Tx 'Media pantalla por sesi\u00f3n, con su color, nombre y voz. ') + $limitText) $F.Small $P.Muted $tx ($card.Y + (Px 56)) ($limitRow.Width - (Px 46)) (Px 18)
-    Draw-HubSwitch $G $Map 'code-limit' ($limitRow.Right - (Px 36)) ($limitRow.Y + (Px 1)) $limit ([scriptblock]::Create("Set-HubSessionLimit `$$(-not $limit)")) $true $limitRow
+    Draw-Text $G 'TUS PANTALLAS, EN EL ORDEN EN QUE SE LLENAN' $F.Caps $P.Muted $tx ($card.Y + (Px 12)) $tw (Px 18)
+    Draw-Text $G $(if ($limit) { (L '{0} de {1} abiertas') -f $live, $slots } else { (L '{0} abiertas') -f $live }) $F.Small $P.Muted $tx ($card.Y + (Px 12)) $tw (Px 18) 'Right'
+    $label = Tx 'Nueva sesi\u00f3n'
+    $bw = (Get-PillWidth $label) + (Px 12)
+    Draw-PillButton $G $Map $Hover 'code-new' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 44)) $bw (Px 30)) $label { Open-HubCodeSession } -Accent
+    Draw-HubScreenMap $G (New-Rect $tx ($card.Y + (Px 36)) ($tw - $bw - (Px 24)) (Px 72)) $sessions
+    Draw-HubDropdown $G $Map $Hover 'code-first' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 110)) ($card.Width - (Px 12)) (Px 30)) 'Primera pantalla' (Get-HubScreenFirstOptions) ([string]$c.ScreenFirst) 'Step-HubScreenFirst'
 
-    if (Test-HubModule 'freellm') { Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 (Px 166) $Inner (Px 84)) }
-    else { Draw-HubPolicyNote $G (New-Rect $X0 (Px 166) $Inner (Px 84)) 'Modelos gratis con FreeLLMAPI' (Tx 'Apagado por la pol\u00edtica de la empresa: las sesiones usan solo el plan de Claude, sin enviar prompts a proveedores de terceros.') }
+    # The link on the caption's right swaps the lower part for the guide to Peek (file and image previews) and back.
+    $help = [bool]$script:Hub.CodeHelp
+    $y = $card.Bottom + (Px 12)
+    $linkText = if ($help) { Tx '\u2039 Volver a las sesiones' } else { Tx 'C\u00f3mo se ven los archivos en las respuestas \u203a' }
+    $lw = (Measure-TextWidth $linkText $F.Small) + (Px 4)
+    $link = New-Rect ($X0 + $Inner - $lw) $y $lw (Px 18)
+    Draw-Text $G $linkText $F.Small $(if ($Hover -eq 'code-help') { $P.AccentHover } else { $P.Accent }) $link.X $link.Y $link.Width $link.Height 'Right'
+    Add-Hit $Map 'code-help' $link { $script:Hub.CodeHelp = -not $script:Hub.CodeHelp; $script:HubDialog.Invalidate() }
+    if ($help) {
+        Draw-Text $G (Tx 'ARCHIVOS E IM\u00c1GENES EN LAS RESPUESTAS') $F.Caps $P.Muted $X0 $y ($Inner - $lw - (Px 10)) (Px 18)
+        Draw-HubPeekHelp $G $X0 ($y + (Px 26)) $Inner
+        return
+    } else {
+        Draw-Text $G ('SESIONES' + $(if ($sessions.Count -gt 2) { (Tx '  \u00b7  +{0} m\u00e1s') -f ($sessions.Count - 2) } else { '' })) $F.Caps $P.Muted $X0 $y ($Inner - $lw - (Px 10)) (Px 18)
+        $y += Px 22
+        if (-not $sessions.Count) {
+            $row = New-Rect $X0 $y $Inner (Px 40)
+            Fill-Round $G $row (Px 8) $P.Surface
+            Draw-Text $G (Tx 'Ninguna sesi\u00f3n abierta desde el men\u00fa.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
+            $y += Px 46
+        }
+        $now = Get-Date
+        for ($i = 0; $i -lt [Math]::Min(2, $sessions.Count); $i++) {
+            $session = $sessions[$i]
+            $row = New-Rect $X0 $y $Inner (Px 50)
+            Fill-Round $G $row (Px 8) $P.Surface
+            $hex = if ($session.Live) { Get-HubSlotHex $session.Color } else { [System.Drawing.ColorTranslator]::ToHtml($P.Faint) }
+            Draw-HubEgg $G ($row.X + (Px 20)) ($row.Y + (Px 25)) (Px 24) $hex
+            $right = $row.Right - (Px 12)
+            if ($session.Live) {
+                $sw = Get-PillWidth 'Mostrar'
+                $btn = New-Rect ($right - $sw) ($row.Y + (Px 13)) $sw (Px 24)
+                Draw-PillButton $G $Map $Hover "code-show-$i" $btn 'Mostrar' ([scriptblock]::Create("Show-HubCodeWindow $i"))
+                $right = $btn.X - (Px 10)
+            } else {
+                Draw-Text $G 'cerrada' $F.Small $P.Faint ($right - (Px 80)) $row.Y (Px 80) $row.Height 'Right'
+                $right -= Px 90
+            }
+            $name = if ($session.Name) { $session.Name } else { ((L 'Ventana {0}') -f ($session.Slot + 1)) }
+            if ($session.Role) { $name += (Tx ' \u00b7 ') + $session.Role }
+            $textX = $row.X + (Px 36)
+            $folder = Split-Path -Leaf $session.Dir
+            $folderW = [Math]::Min([int](($right - $textX) * 0.4), (Measure-TextWidth $folder $F.Small))
+            Draw-Text $G $name $F.BodyStrong $(if ($session.Live) { $P.Text } else { $P.Muted }) $textX ($row.Y + (Px 6)) ($right - $textX - $folderW - (Px 8)) (Px 20)
+            $side = if ($session.Slot % 2 -eq 0) { 'izquierda' } else { 'derecha' }
+            $meta = @((L 'mitad {0} de la pantalla {1}') -f (L $side), ([int][Math]::Floor(($session.Slot % $slots) / 2) + 1))
+            if ($session.Backend -eq 'freellm') { $meta = @('FreeLLMAPI') + $meta }
+            if ($session.At) { $meta += (L 'desde ') + (Format-DialogDateTime $session.At $now) }
+            if ($session.Voice) { $meta += (L 'voz ') + (Format-VoiceName $session.Voice) }
+            Draw-Text $G ($meta -join ((Tx '  \u00b7  '))) $F.Small $P.Muted $textX ($row.Y + (Px 26)) ($right - $textX) (Px 18)
+            Draw-Text $G $folder $F.Small $P.Faint ($right - $folderW) ($row.Y + (Px 6)) $folderW (Px 20) 'Right'
+            $y += Px 56
+        }
+    }
 
-    # Ahorro de tokens: context-mode
-    $mcard = New-Rect $X0 (Px 260) $Inner (Px 94)
-    Draw-HubCard $G $mcard
-    # Where the session eggs go: the taskbar, or a strip stuck to one edge of the screen (lib\traysessions.ps1).
-    Draw-HubPicker $G $Map $Hover 'code-eggs' (New-Rect ($mcard.X + (Px 6)) ($mcard.Y + (Px 56)) ($mcard.Width - (Px 12)) (Px 30)) 'Huevos' $script:EggDockLabels[(Get-EggDock).Edge] 'Step-HubEggDock'
+    # Settings of the sessions: one row each, what it does and its control.
+    $y = [Math]::Max($y + (Px 4), (Px 370))
+    Draw-HubCaption $G 'AJUSTES DE LAS SESIONES' $X0 $y $Inner ''
+    $scard = New-Rect $X0 ($y + (Px 22)) $Inner (Px 140)
+    Draw-HubCard $G $scard
+    $rowX = $scard.X + (Px 6)
+    $rowW = $scard.Width - (Px 12)
+    $menuText = if ($c.MenuInstalled) { Tx '\u2713 Clic derecho en una carpeta del Explorador \u203a Abrir con Claude Code.' } else { Tx 'El men\u00fa del Explorador no est\u00e1 instalado: ejecuta install.ps1.' }
+    $limitSub = if ($limit) { $menuText } else { (Tx 'Sin l\u00edmite: desde la {0}\u00aa se superponen.') -f ($slots + 1) }
+    Draw-HubToggleRow $G $Map $Hover 'code-limit' (New-Rect $rowX ($scard.Y + (Px 6)) $rowW (Px 42)) ((Tx 'Una sesi\u00f3n por media pantalla, hasta {0} ({1})') -f $slots, $screensText) $limitSub $limit ([scriptblock]::Create("Set-HubSessionLimit `$$(-not $limit)"))
     $cm = $c.ContextMode
     $job = $c.MaxxStatus
     $busy = $job -and $job.state -eq 'running'
     $sub = if ($busy) { Tx 'Aplicando el cambio con claude plugin\u2026' }
         elseif ($job -and $job.state -eq 'error' -and $job.action -like 'contextmode*') { [string]$job.message }
-        elseif ($cm -and $cm.Enabled) { Tx '\u2713 Salidas grandes fuera del contexto y memoria al compactar, en las sesiones nuevas.' }
-        else { Tx 'Guarda fuera del contexto las salidas grandes (logs, p\u00e1ginas, JSON) y recuerda la sesi\u00f3n al compactar: la cuota dura m\u00e1s.' }
-    Draw-HubToggleRow $G $Map $Hover 'maxx-cm' (New-Rect ($mcard.X + (Px 6)) ($mcard.Y + (Px 7)) ($mcard.Width - (Px 12)) (Px 42)) 'Ahorro de contexto (context-mode)' $sub ([bool]($cm -and $cm.Enabled)) ([scriptblock]::Create("Set-HubContextMode `$$(-not ($cm -and $cm.Enabled))")) (-not $busy)
+        else { Tx 'Deja fuera del contexto las salidas largas de las herramientas: la cuota dura m\u00e1s.' }
+    Draw-HubToggleRow $G $Map $Hover 'maxx-cm' (New-Rect $rowX ($scard.Y + (Px 52)) $rowW (Px 42)) 'Ahorro de contexto (context-mode)' $sub ([bool]($cm -and $cm.Enabled)) ([scriptblock]::Create("Set-HubContextMode `$$(-not ($cm -and $cm.Enabled))")) (-not $busy)
+    # Where the session eggs go: the taskbar, or a strip stuck to one edge of the screen (lib\traysessions.ps1).
+    # In $EggDockEdges' order, the one Step-HubEggDock steps through (the labels' table has none).
+    $eggs = [ordered]@{}
+    foreach ($edge in $EggDockEdges) { $eggs[$edge] = $script:EggDockLabels[$edge] }
+    Draw-HubDropdown $G $Map $Hover 'code-eggs' (New-Rect $rowX ($scard.Y + (Px 102)) $rowW (Px 30)) (Tx 'Icono de cada sesi\u00f3n') $eggs (Get-EggDock).Edge 'Step-HubEggDock'
 
-    # The link at the bottom swaps the session list for the guide to Peek (file and image previews) and back.
-    $help = [bool]$script:Hub.CodeHelp
-    $link = New-Rect $X0 (Px 600) $Inner (Px 20)
-    Draw-Text $G $(if ($help) { (Tx '\u2039 Volver a las sesiones') } else { (Tx 'C\u00f3mo se ven los archivos y las im\u00e1genes en las respuestas \u203a') }) $F.Small $(if ($Hover -eq 'code-help') { $P.AccentHover } else { $P.Accent }) $link.X $link.Y $link.Width $link.Height
-    Add-Hit $Map 'code-help' $link { $script:Hub.CodeHelp = -not $script:Hub.CodeHelp; $script:HubDialog.Invalidate() }
-    if ($help) { Draw-HubPeekHelp $G $X0 (Px 368) $Inner; return }
-
-    $sessions = @($c.CodeSessions)
-    $live = @($sessions | Where-Object { $_.Live }).Count
-    $y = Px 368
-    Draw-HubCaption $G 'SESIONES' $X0 $y $Inner ($(if ($limit) { (L '{0} de {1} abiertas') -f $live, $slots } else { (L '{0} abiertas') -f $live }) + $(if ($sessions.Count -gt 3) { (Tx '  \u00b7  +{0} m\u00e1s') -f ($sessions.Count - 3) } else { '' }))
-    $y += Px 22
-    if (-not $sessions.Count) {
-        $row = New-Rect $X0 $y $Inner (Px 40)
-        Fill-Round $G $row (Px 8) $P.Surface
-        Draw-Text $G (Tx 'Ninguna sesi\u00f3n abierta desde el men\u00fa.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
-    }
-    $now = Get-Date
-    for ($i = 0; $i -lt [Math]::Min(3, $sessions.Count); $i++) {
-        $session = $sessions[$i]
-        $row = New-Rect $X0 $y $Inner (Px 50)
-        Fill-Round $G $row (Px 8) $P.Surface
-        $hex = if ($session.Live) { Get-HubSlotHex $session.Color } else { [System.Drawing.ColorTranslator]::ToHtml($P.Faint) }
-        Draw-HubEgg $G ($row.X + (Px 20)) ($row.Y + (Px 25)) (Px 24) $hex
-        $right = $row.Right - (Px 12)
-        if ($session.Live) {
-            $bw = Get-PillWidth 'Mostrar'
-            $btn = New-Rect ($right - $bw) ($row.Y + (Px 13)) $bw (Px 24)
-            Draw-PillButton $G $Map $Hover "code-show-$i" $btn 'Mostrar' ([scriptblock]::Create("Show-HubCodeWindow $i"))
-            $right = $btn.X - (Px 10)
-        } else {
-            Draw-Text $G 'cerrada' $F.Small $P.Faint ($right - (Px 80)) $row.Y (Px 80) $row.Height 'Right'
-            $right -= Px 90
-        }
-        $name = if ($session.Name) { $session.Name } else { ((L 'Ventana {0}') -f ($session.Slot + 1)) }
-        if ($session.Role) { $name += (Tx ' \u00b7 ') + $session.Role }
-        $textX = $row.X + (Px 36)
-        $folder = Split-Path -Leaf $session.Dir
-        $folderW = [Math]::Min([int](($right - $textX) * 0.4), (Measure-TextWidth $folder $F.Small))
-        Draw-Text $G $name $F.BodyStrong $(if ($session.Live) { $P.Text } else { $P.Muted }) $textX ($row.Y + (Px 6)) ($right - $textX - $folderW - (Px 8)) (Px 20)
-        $side = if ($session.Slot % 2 -eq 0) { 'izquierda' } else { 'derecha' }
-        $sub = $session.Dir
-        $meta = @((L 'mitad {0} de la pantalla {1}') -f (L $side), ([int][Math]::Floor(($session.Slot % $slots) / 2) + 1))
-        if ($session.Backend -eq 'freellm') { $meta = @('FreeLLMAPI') + $meta }
-        if ($session.At) { $meta += (L 'desde ') + (Format-DialogDateTime $session.At $now) }
-        if ($session.Voice) { $meta += (L 'voz ') + (Format-VoiceName $session.Voice) }
-        Draw-Text $G ($meta -join ((Tx '  \u00b7  '))) $F.Small $P.Muted $textX ($row.Y + (Px 26)) ($right - $textX) (Px 18)
-        Draw-Text $G $folder $F.Small $P.Faint ($right - $folderW) ($row.Y + (Px 6)) $folderW (Px 20) 'Right'
-        $y += Px 56
-    }
-    Draw-Wrapped $G (Tx 'Al cerrar una ventana su mitad queda libre para la siguiente. Las sesiones de otros PCs se abren desde Otros PCs.') $F.Small $P.Faint $X0 (Px 562) $Inner (Px 34)
+    $fy = $scard.Bottom + (Px 8)
+    if (Test-HubModule 'freellm') { Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 $fy $Inner (Px 84)) }
+    else { Draw-HubPolicyNote $G (New-Rect $X0 $fy $Inner (Px 84)) 'Modelos gratis con FreeLLMAPI' (Tx 'Apagado por la pol\u00edtica de la empresa: las sesiones usan solo el plan de Claude, sin enviar prompts a proveedores de terceros.') }
 }
+
 
 # What Peek (peek\README.md) does with the paths in Claude's answers: what each gesture shows or opens.
 $script:PeekHelpRows = @(
@@ -2311,53 +2436,176 @@ function Draw-HubPcsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-HubSwitch $G $Map 'pcs-accept' $sx ($card.Y + (Px 9)) $on ([scriptblock]::Create("Set-BridgeAccept `$$(-not $on)")) $true $hit
     }
 
-    # diagram
-    $net = New-Rect $X0 (Px 148) $Inner (Px 268)
+    # diagram, shorter: the list below says the same in words
+    $net = New-Rect $X0 (Px 148) $Inner (Px 200)
     Draw-HubCard $G $net
     Draw-HubNetwork $G $Map $Hover $net $true 'none'
 
-    # paired PCs with their actions
-    $y = Px 428
-    $peers = @(Get-HubNetworkNodes | Where-Object { $_.Paired })
-    Draw-HubCaption $G 'EMPAREJADOS' $X0 $y $Inner $(if ($peers.Count -gt 3) { "+$($peers.Count - 3) " + (Tx 'm\u00e1s en Otros PCs') } else { '' })
+    # every PC: paired ones first, then the ones found and not paired, each with what can be done now
+    $y = Px 362
+    $nodes = @(Get-HubNetworkNodes | Where-Object { $_.Id })
+    $rows = @(@($nodes | Where-Object { $_.Paired }) + @($nodes | Where-Object { -not $_.Paired }))
+    Draw-HubCaption $G 'TUS PCS' $X0 $y $Inner $(if ($rows.Count -gt 4) { "+$($rows.Count - 4) " + (Tx 'm\u00e1s en Otros PCs') } else { '' })
     $y += Px 22
-    if (-not $peers.Count) {
+    if (-not $rows.Count) {
         $row = New-Rect $X0 $y $Inner (Px 40)
         Fill-Round $G $row (Px 8) $P.Surface
         Draw-Text $G (Tx 'A\u00fan no hay PCs emparejados. Abre Otros PCs en los dos para emparejarlos.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
         $y += Px 44
     }
-    foreach ($node in @($peers | Select-Object -First 3)) {
-        $row = New-Rect $X0 $y $Inner (Px 40)
+    foreach ($node in @($rows | Select-Object -First 4)) {
+        $row = New-Rect $X0 $y $Inner (Px 50)
         Fill-Round $G $row (Px 8) $P.Surface
         $style = Get-HubLinkStyle $node.State
-        Draw-HubDot $G ($row.X + (Px 14)) ($row.Y + (Px 16)) (Px 8) $style.Color
+        $live = $node.State -eq 'session' -or $node.State -eq 'online'
+        Draw-HubDot $G ($row.X + (Px 14)) ($row.Y + (Px 21)) (Px 8) $(if ($live) { $P.Ok } else { $style.Color })
         $right = $row.Right - (Px 10)
-        $buttons = @(@{ Id = "pcs-claude-$($node.Id)"; Label = 'Claude Code'; Action = "Open-BridgeTerminal '$($node.Id)' -Claude"; Accent = $false },
-                     @{ Id = "pcs-term-$($node.Id)"; Label = 'Terminal'; Action = "Open-BridgeTerminal '$($node.Id)'"; Accent = $true })
-        if ($node.Sessions.Count) { $buttons = @(@{ Id = "pcs-stop-$($node.Id)"; Label = 'Desconectar'; Action = "Stop-HubPeerSessions '$($node.Id)'"; Accent = $false }) + $buttons }
+        # Only what works now: a PC not seen today gets no buttons, one not paired gets Emparejar.
+        $buttons = @()
+        if (-not $node.Paired) { $buttons = @(@{ Id = "pcs-pair-$($node.Id)"; Label = 'Emparejar'; Action = 'Show-BridgeDialog' }) }
+        elseif ($live) {
+            $buttons = @(@{ Id = "pcs-term-$($node.Id)"; Label = 'Terminal'; Action = "Open-BridgeTerminal '$($node.Id)'" },
+                         @{ Id = "pcs-claude-$($node.Id)"; Label = 'Claude Code'; Action = "Open-BridgeTerminal '$($node.Id)' -Claude" })
+            if ($node.Sessions.Count) { $buttons += @{ Id = "pcs-stop-$($node.Id)"; Label = 'Desconectar'; Action = "Stop-HubPeerSessions '$($node.Id)'" } }
+        }
         foreach ($button in $buttons) {
             $bw = Get-PillWidth $button.Label
-            $rect = New-Rect ($right - $bw) ($row.Y + (Px 8)) $bw (Px 24)
-            Draw-PillButton $G $Map $Hover $button.Id $rect $button.Label ([scriptblock]::Create($button.Action)) -Accent:$button.Accent
+            $rect = New-Rect ($right - $bw) ($row.Y + (Px 12)) $bw (Px 26)
+            Draw-PillButton $G $Map $Hover $button.Id $rect $button.Label ([scriptblock]::Create($button.Action))
             $right = $rect.X - (Px 6)
         }
         $textX = $row.X + (Px 30)
-        $nameW = [Math]::Min((Measure-TextWidth $node.Name $F.BodyStrong) + (Px 4), $right - $textX)
-        Draw-Text $G $node.Name $F.BodyStrong $P.Text $textX $row.Y $nameW $row.Height
+        $textW = $right - $textX - (Px 10)
+        Draw-Text $G $node.Name $F.BodyStrong $P.Text $textX ($row.Y + (Px 5)) $textW (Px 20)
         $sub = $node.Sub
         if ($node.Address) { $sub = $node.Address + (Tx '  \u00b7  ') + $sub }
-        Draw-Text $G $sub $F.Small $(if ($node.State -eq 'session') { $P.Accent } else { $P.Muted }) ($textX + $nameW + (Px 10)) $row.Y ($right - $textX - $nameW - (Px 14)) $row.Height
-        $y += Px 44
+        Draw-Text $G $sub $F.Small $(if ($live) { $P.Ok } else { $P.Muted }) $textX ($row.Y + (Px 26)) $textW (Px 18)
+        $y += Px 54
     }
 
-    $label = 'Emparejar o buscar un PC...'
+    $label = 'Emparejar otro PC'
     $bw = (Get-PillWidth $label) + (Px 10)
-    Draw-PillButton $G $Map $Hover 'pcs-open' (New-Rect $X0 (Px 584) $bw (Px 30)) $label { Show-BridgeDialog } -Accent
-    Draw-Wrapped $G (Tx 'Emparejar solo se acepta con la ventana de Otros PCs abierta. Cada conexi\u00f3n entrante te pide permiso.') $F.Small $P.Faint ($X0 + $bw + (Px 14)) (Px 582) ($Inner - $bw - (Px 14)) (Px 34)
+    $by = [Math]::Max($y + (Px 8), (Px 590))
+    Draw-PillButton $G $Map $Hover 'pcs-open' (New-Rect $X0 $by $bw (Px 30)) $label { Show-BridgeDialog } -Accent
+    Draw-Wrapped $G (Tx 'El otro PC tambi\u00e9n debe tener abierta Otros PCs mientras emparejas. Cada conexi\u00f3n entrante te pide permiso.') $F.Small $P.Muted ($X0 + $bw + (Px 14)) ($by - (Px 2)) ($Inner - $bw - (Px 14)) (Px 34)
 }
 
 # ---------------------------------------------------------------- Claude Whisper
+
+# A few options side by side with the current one highlighted. A click on another runs "$Command <steps>", the same
+# step command the pickers use, so the setting is saved the same way. Returns the control's rectangle.
+function Draw-HubSegmented($G, $Map, $Hover, [string]$Id, [int]$Right, [int]$Y, $Options, [string]$Current, [string]$Command, [bool]$Enabled = $true) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    $keys = @($Options.Keys)
+    $widths = @($keys | ForEach-Object { (Measure-TextWidth $Options[$_] $script:HubFonts.Label) + (Px 22) })
+    $total = [int](($widths | Measure-Object -Sum).Sum) + (Px 4)
+    $box = New-Rect ($Right - $total) $Y $total (Px 28)
+    Fill-Round $G $box (Px 7) $P.Back
+    Stroke-Round $G $box (Px 7) $P.Border
+    $at = [array]::IndexOf($keys, $Current)
+    $x = $box.X + (Px 2)
+    for ($i = 0; $i -lt $keys.Count; $i++) {
+        $seg = New-Rect $x ($box.Y + (Px 2)) $widths[$i] ($box.Height - (Px 4))
+        $hitId = "$Id-$($keys[$i])"
+        $on = $i -eq $at
+        if ($on) { Fill-Round $G $seg (Px 5) $P.AccentTint } elseif ($Enabled -and $Hover -eq $hitId) { Fill-Round $G $seg (Px 5) $P.SurfaceHover }
+        $color = if ($on) { $P.Accent } elseif ($Enabled) { $P.Muted } else { $P.Faint }
+        Draw-Text $G $Options[$keys[$i]] $(if ($on) { $script:HubFonts.Label } else { $F.Small }) $color $seg.X $seg.Y $seg.Width $seg.Height 'Center'
+        if ($Enabled -and -not $on) { Add-Hit $Map $hitId $seg ([scriptblock]::Create("$Command $($i - $at)")) }
+        $x += $widths[$i]
+    }
+    $box
+}
+
+# "Ctrl+Alt+Shift+R" as one key cap per key, from $X. Returns the width; -Measure only measures (to right-align).
+function Draw-HubKeys($G, [string]$Keys, [int]$X, [int]$Y, [switch]$Measure) {
+    $P = $script:Palette
+    $font = $script:HubFonts.Key
+    # Not $x: PowerShell names ignore case, so it would be the $X parameter itself.
+    $capX = $X
+    foreach ($key in @(([string]$Keys -split '\+') | Where-Object { $_ })) {
+        $w = (Measure-TextWidth $key $font) + (Px 10)
+        if (-not $Measure) {
+            $cap = New-Rect $capX $Y $w (Px 20)
+            Fill-Round $G $cap (Px 4) $P.Back
+            Stroke-Round $G $cap (Px 4) $P.Border
+            Draw-Text $G $key $font $P.Text $cap.X $cap.Y $cap.Width $cap.Height 'Center'
+        }
+        $capX += $w + (Px 4)
+    }
+    [Math]::Max(0, $capX - $X - (Px 4))
+}
+
+# A value picked from a list that opens under it: Windows' own menu, in the palette. Choosing runs "$Command <steps>",
+# the step command the pickers use, so the setting is saved the same way.
+$script:HubDropdowns = @{}
+function Draw-HubDropdown($G, $Map, $Hover, [string]$Id, [System.Drawing.Rectangle]$Row, [string]$Label, $Options, [string]$Current, [string]$Command, [bool]$Enabled = $true) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    Draw-Text $G $Label $F.Body $(if ($Enabled) { $P.Text } else { $P.Muted }) ($Row.X + (Px 10)) $Row.Y (Px 150) $Row.Height
+    $box = New-Rect ($Row.Right - (Px 168)) ($Row.Y + (Px 3)) (Px 160) ($Row.Height - (Px 6))
+    Fill-Round $G $box (Px 7) $(if ($Enabled -and $Hover -eq $Id) { $P.SurfaceHover } else { $P.Back })
+    Stroke-Round $G $box (Px 7) $P.Border
+    $value = if ($Options.Contains($Current)) { $Options[$Current] } else { $Current }
+    Draw-Text $G $value $F.Body $(if ($Enabled) { $P.Text } else { $P.Muted }) ($box.X + (Px 10)) $box.Y ($box.Width - (Px 34)) $box.Height
+    Draw-Text $G (Tx '\u25be') $F.Body $P.Muted ($box.Right - (Px 26)) $box.Y (Px 18) $box.Height 'Center'
+    if (-not $Enabled) { return }
+    $script:HubDropdowns[$Id] = @{ Box = $box; Options = $Options; Current = $Current; Command = $Command; Zoom = $Map.Zoom }
+    Add-Hit $Map $Id $box ([scriptblock]::Create("Show-HubDropdown '$Id'"))
+}
+
+function Show-HubDropdown([string]$Id) {
+    $d = $script:HubDropdowns[$Id]
+    if (-not $d -or -not $script:HubDialog) { return }
+    # The default colors are light blue on white; compiled on the first dropdown only.
+    if (-not ('ClaudeTray.DarkMenuColors' -as [type])) {
+        Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
+using System.Drawing;
+using System.Windows.Forms;
+namespace ClaudeTray {
+    public class DarkMenuColors : ProfessionalColorTable {
+        private readonly Color back, hover, border;
+        public DarkMenuColors(Color back, Color hover, Color border) { this.back = back; this.hover = hover; this.border = border; }
+        public override Color ToolStripDropDownBackground { get { return back; } }
+        public override Color ImageMarginGradientBegin { get { return back; } }
+        public override Color ImageMarginGradientMiddle { get { return back; } }
+        public override Color ImageMarginGradientEnd { get { return back; } }
+        public override Color MenuBorder { get { return border; } }
+        public override Color MenuItemBorder { get { return hover; } }
+        public override Color MenuItemSelected { get { return hover; } }
+    }
+}
+'@
+    }
+    $P = $script:Palette
+    if ($script:HubDropdownMenu) { $script:HubDropdownMenu.Dispose() }
+    $menu = New-Object System.Windows.Forms.ContextMenuStrip
+    $script:HubDropdownMenu = $menu
+    $menu.Renderer = New-Object System.Windows.Forms.ToolStripProfessionalRenderer((New-Object ClaudeTray.DarkMenuColors($P.Surface, $P.SurfaceHover, $P.Border)))
+    $menu.ShowImageMargin = $false
+    $menu.ShowCheckMargin = $false
+    $menu.BackColor = $P.Surface
+    $menu.Font = $script:Fonts.Body
+    $zoom = if ($d.Zoom -and $d.Zoom -lt 1) { $d.Zoom } else { 1 }
+    $menu.MinimumSize = New-Object System.Drawing.Size([int]($d.Box.Width * $zoom), 0)
+    $keys = @($d.Options.Keys)
+    $at = [array]::IndexOf($keys, $d.Current)
+    for ($i = 0; $i -lt $keys.Count; $i++) {
+        $item = New-Object System.Windows.Forms.ToolStripMenuItem((L $d.Options[$keys[$i]]))
+        $item.ForeColor = if ($i -eq $at) { $P.Accent } else { $P.Text }
+        $item.Padding = New-Object System.Windows.Forms.Padding(4, 3, 4, 3)
+        if ($i -ne $at) { $item.Add_Click([scriptblock]::Create("$($d.Command) $($i - $at)")) }
+        [void]$menu.Items.Add($item)
+    }
+    $menu.Show($script:HubDialog, (New-Object System.Drawing.Point([int]($d.Box.X * $zoom), [int](($d.Box.Bottom + (Px 2)) * $zoom))))
+}
+
+function Draw-HubGroupTitle($G, [string]$Text, [int]$X, [int]$Y, [int]$W) {
+    Draw-Text $G $Text $script:Fonts.Caps $script:Palette.Accent $X $Y $W (Px 18)
+}
+
+$script:HubWhisperModelLabels = [ordered]@{ sonnet = 'Sonnet'; haiku = 'Haiku'; opus = 'Opus' }
 
 function Draw-HubWhisperSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
@@ -2368,119 +2616,130 @@ function Draw-HubWhisperSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $settings = $c.WhisperSettings
     if (-not $settings) { $settings = Get-WhisperDefaults }
 
-    # status and the main actions
+    # status and the one main action
     $card = New-Rect $X0 (Px 72) $Inner (Px 70)
     Draw-HubCard $G $card
     $icon = New-Rect ($card.X + (Px 14)) ($card.Y + (Px 15)) (Px 40) (Px 40)
     Draw-HubDot $G $icon.X $icon.Y $icon.Width $(if ($running) { $P.AccentTint } else { $P.Back })
     Draw-Text $G (Tx '\ue720') $HF.NodeLarge $(if ($running) { $P.Accent } else { $P.Muted }) $icon.X $icon.Y $icon.Width $icon.Height 'Center'
-    $right = $card.Right - (Px 16)
-    foreach ($button in @(@{ Id = 'whisper-open'; Label = $(if ($running) { 'Mostrar ventana' } else { 'Abrir Claude Whisper' }); Action = { Open-HubWhisper }; Accent = $true },
-                          @{ Id = 'whisper-context'; Label = 'Contexto...'; Action = { Edit-HubWhisperContext }; Accent = $false })) {
-        $bw = (Get-PillWidth $button.Label) + (Px 8)
-        $rect = New-Rect ($right - $bw) ($card.Y + (Px 21)) $bw (Px 28)
-        Draw-PillButton $G $Map $Hover $button.Id $rect $button.Label $button.Action -Accent:$button.Accent
-        $right = $rect.X - (Px 8)
-    }
+    $label = if ($running) { 'Mostrar ventana' } else { 'Abrir Claude Whisper' }
+    $bw = (Get-PillWidth $label) + (Px 8)
+    $open = New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 21)) $bw (Px 28)
+    Draw-PillButton $G $Map $Hover 'whisper-open' $open $label { Open-HubWhisper } -Accent
     $tx = $icon.Right + (Px 12)
+    $state = if ($running) { 'Abierto' } else { 'Cerrado' }
     Draw-HubDot $G $tx ($card.Y + (Px 21)) (Px 8) $(if ($running) { $P.Ok } else { $P.Faint })
-    Draw-Text $G $(if ($running) { (Tx 'Abierto \u00b7 copiloto de llamadas') } else { (Tx 'Cerrado \u00b7 copiloto de llamadas') }) $F.BodyStrong $P.Text ($tx + (Px 14)) ($card.Y + (Px 13)) ($right - $tx - (Px 14)) (Px 22)
-    Draw-Wrapped $G (Tx 'Transcribe la llamada y te dice qu\u00e9 responder, con tu suscripci\u00f3n de Claude.') $F.Small $P.Muted $tx ($card.Y + (Px 36)) ($right - $tx - (Px 6)) (Px 30)
+    Draw-Text $G $state $F.BodyStrong $P.Text ($tx + (Px 14)) ($card.Y + (Px 13)) ($open.X - $tx - (Px 26)) (Px 22)
+    Draw-Wrapped $G (Tx 'Transcribe la llamada y te dice qu\u00e9 responder, con tu suscripci\u00f3n de Claude.') $F.Small $P.Muted $tx ($card.Y + (Px 36)) ($open.X - $tx - (Px 12)) (Px 30)
 
-    $leftW = Px 290
-    $rx = $X0 + $leftW + (Px 16)
-    $rw = $Inner - $leftW - (Px 16)
+    $leftW = [int]($Inner * 0.54)
+    $rx = $X0 + $leftW + (Px 14)
+    $rw = $Inner - $leftW - (Px 14)
 
-    # settings
+    # settings, in three groups; edited here only while Whisper is closed (Set-HubWhisperSetting)
     $enabled = -not $running
-    Draw-HubCaption $G 'AJUSTES' $X0 (Px 154) $leftW $(if ($running) { 'en su ventana' } else { '' })
-    $scard = New-Rect $X0 (Px 176) $leftW (Px 228)
+    $scard = New-Rect $X0 (Px 154) $leftW (Px 356)
     Draw-HubCard $G $scard
     $rowX = $scard.X + (Px 4)
     $rowW = $scard.Width - (Px 8)
-    $ry = $scard.Y + (Px 6)
-    Draw-HubPicker $G $Map $Hover 'wl' (New-Rect $rowX $ry $rowW (Px 30)) 'Idioma' $script:WhisperLanguages[$settings.language] "Set-HubWhisperSetting 'language'" $enabled
-    $ry += Px 31
-    Draw-HubPicker $G $Map $Hover 'wm' (New-Rect $rowX $ry $rowW (Px 30)) 'Modelo' ($script:WhisperModels[$settings.model] -replace ' \(.*\)$', '') "Set-HubWhisperSetting 'model'" $enabled
-    $ry += Px 31
-    foreach ($toggle in @(@('autoAnswer', 'Responder solo a preguntas'), @('useMic', (Tx 'Transcribir mi micr\u00f3fono')), @('gateMic', 'Sin auriculares (evita el eco)'),
-                          @('meetingNotice', 'Avisar al empezar una llamada'), @('topMost', 'Ventana siempre visible'))) {
-        Draw-HubToggleRow $G $Map $Hover "ws-$($toggle[0])" (New-Rect $rowX $ry $rowW (Px 30)) $toggle[1] '' ([bool]$settings[$toggle[0]]) ([scriptblock]::Create("Set-HubWhisperSetting '$($toggle[0])'")) $enabled
-        $ry += Px 31
-    }
-
-    # hotkeys
-    Draw-HubCaption $G 'ATAJOS GLOBALES' $X0 (Px 414) $leftW ''
-    $kcard = New-Rect $X0 (Px 436) $leftW (Px 92)
-    Draw-HubCard $G $kcard
-    $ky = $kcard.Y + (Px 8)
-    foreach ($key in @(@($settings.hotkeyAnswer, 'Responder ahora'), @($settings.hotkeyScreen, 'Resolver la pantalla'), @($settings.hotkeyToggle, 'Mostrar u ocultar'))) {
-        Draw-Text $G $key[0] $HF.Key $P.Accent ($kcard.X + (Px 14)) $ky (Px 150) (Px 25)
-        Draw-Text $G $key[1] $F.Small $P.Muted ($kcard.X + (Px 14)) $ky ($kcard.Width - (Px 28)) (Px 25) 'Right'
-        $ky += Px 25
-    }
+    $gx = $scard.X + (Px 14)
+    $ry = $scard.Y + (Px 10)
+    Draw-HubGroupTitle $G 'ESCUCHAR' $gx $ry $rowW
+    $ry += Px 22
+    Draw-HubDropdown $G $Map $Hover 'wl' (New-Rect $rowX $ry $rowW (Px 30)) 'Idioma' $script:WhisperLanguages $settings.language "Set-HubWhisperSetting 'language'" $enabled
+    $ry += Px 32
+    Draw-HubToggleRow $G $Map $Hover 'ws-useMic' (New-Rect $rowX $ry $rowW (Px 30)) (Tx 'Transcribir tambi\u00e9n mi micr\u00f3fono') '' ([bool]$settings.useMic) { Set-HubWhisperSetting 'useMic' } $enabled
+    $ry += Px 32
+    Draw-HubToggleRow $G $Map $Hover 'ws-gateMic' (New-Rect $rowX $ry $rowW (Px 42)) 'Uso altavoces, sin auriculares' (Tx 'Evita que tu micr\u00f3fono transcriba el eco') ([bool]$settings.gateMic) { Set-HubWhisperSetting 'gateMic' } $enabled
+    $ry += Px 50
+    Draw-HubGroupTitle $G 'RESPONDER' $gx $ry $rowW
+    $ry += Px 22
+    Draw-Text $G 'Modelo' $F.Body $(if ($enabled) { $P.Text } else { $P.Muted }) ($rowX + (Px 10)) $ry (Px 120) (Px 30)
+    [void](Draw-HubSegmented $G $Map $Hover 'wm' ($scard.Right - (Px 12)) ($ry + (Px 1)) $script:HubWhisperModelLabels $settings.model "Set-HubWhisperSetting 'model'" $enabled)
+    $ry += Px 34
+    Draw-HubToggleRow $G $Map $Hover 'ws-autoAnswer' (New-Rect $rowX $ry $rowW (Px 42)) 'Responder sola a las preguntas' 'Apagado, responde solo cuando lo pides' ([bool]$settings.autoAnswer) { Set-HubWhisperSetting 'autoAnswer' } $enabled
+    $ry += Px 44
+    Draw-HubToggleRow $G $Map $Hover 'ws-meetingNotice' (New-Rect $rowX $ry $rowW (Px 30)) 'Avisarme al empezar una llamada' '' ([bool]$settings.meetingNotice) { Set-HubWhisperSetting 'meetingNotice' } $enabled
+    $ry += Px 38
+    Draw-HubGroupTitle $G 'VENTANA' $gx $ry $rowW
+    $ry += Px 22
+    Draw-HubToggleRow $G $Map $Hover 'ws-topMost' (New-Rect $rowX $ry $rowW (Px 30)) (Tx 'Siempre encima de las dem\u00e1s ventanas') '' ([bool]$settings.topMost) { Set-HubWhisperSetting 'topMost' } $enabled
     $note = if ($running) { Tx 'Mientras est\u00e1 abierto, cambia los ajustes desde su ventana (Contexto y el men\u00fa \u22ef).' }
             else { Tx 'Los cambios se aplican la pr\u00f3xima vez que lo abras.' }
-    Draw-Wrapped $G $note $F.Small $P.Faint $X0 (Px 536) $leftW (Px 34)
+    Draw-Wrapped $G $note $F.Small $P.Muted $X0 ($scard.Bottom + (Px 8)) $leftW (Px 34)
 
-    # calls
-    $count = [int]$c.CallCount
-    Draw-HubCaption $G $(if ($count) { (L 'LLAMADAS ({0})') -f $count } else { 'LLAMADAS' }) $rx (Px 154) $rw ''
-    $folder = New-Rect ($rx + $rw - (Px 110)) (Px 154) (Px 110) (Px 18)
-    Draw-Text $G (Tx 'Abrir carpeta \u203a') $F.Small $(if ($Hover -eq 'whisper-folder') { $P.AccentHover } else { $P.Accent }) $folder.X $folder.Y $folder.Width $folder.Height 'Right'
-    Add-Hit $Map 'whisper-folder' $folder { Open-HubCallFolder }
-    $calls = @($c.Calls)
-    $y = Px 176
-    if (-not $calls.Count) {
-        $row = New-Rect $rx $y $rw (Px 60)
-        Fill-Round $G $row (Px 8) $P.Surface
-        Draw-Wrapped $G (Tx 'A\u00fan no hay llamadas. Abre Claude Whisper durante una llamada y pulsa Escuchar: cada llamada se guarda aqu\u00ed.') $F.Small $P.Muted ($rx + (Px 14)) ($y + (Px 10)) ($rw - (Px 28)) (Px 44)
-    }
-    $now = Get-Date
-    for ($i = 0; $i -lt $calls.Count; $i++) {
-        $call = $calls[$i]
-        $row = New-Rect $rx $y $rw (Px 46)
-        $hitId = "whisper-call-$i"
-        Fill-Round $G $row (Px 8) $(if ($Hover -eq $hitId) { $P.SurfaceHover } else { $P.Surface })
-        $when = if ($call.Started) { Format-DialogDateTime $call.Started $now } else { $call.Name }
-        Draw-Text $G $when $F.BodyStrong $P.Text ($row.X + (Px 12)) ($row.Y + (Px 4)) ($row.Width - (Px 24)) (Px 20)
-        $answers = if ($call.Answers -eq 1) { L '1 respuesta' } else { ((L '{0} respuestas') -f $call.Answers) }
-        Draw-Text $G ((Format-CallDuration $call.Minutes) + (Tx '  \u00b7  ') + $answers) $F.Small $P.Muted ($row.X + (Px 12)) ($row.Y + (Px 4)) ($row.Width - (Px 24)) (Px 20) 'Right'
-        $topic = if ($call.Topic) { $call.Topic } else { 'Sin preguntas' }
-        Draw-Text $G $topic $F.Small $P.Muted ($row.X + (Px 12)) ($row.Y + (Px 24)) ($row.Width - (Px 24)) (Px 18)
-        Add-Hit $Map $hitId $row ([scriptblock]::Create("Open-HubCall $i"))
-        $y += Px 50
-    }
-
-    # context summary
-    $cy = Px 436
-    Draw-HubCaption $G 'CONTEXTO' $rx $cy $rw ''
-    $ccard = New-Rect $rx ($cy + (Px 22)) $rw (Px 92)
+    # context, with its Editar button inside
+    $ccard = New-Rect $rx (Px 154) $rw (Px 118)
     $hitId = 'whisper-context-card'
     Fill-Round $G $ccard (Px 10) $(if ($Hover -eq $hitId) { $P.SurfaceHover } else { $P.Surface })
+    Add-Hit $Map $hitId $ccard { Edit-HubWhisperContext }
+    $ebw = Get-PillWidth 'Editar'
+    Draw-PillButton $G $Map $Hover 'whisper-context' (New-Rect ($ccard.Right - (Px 12) - $ebw) ($ccard.Y + (Px 10)) $ebw (Px 24)) 'Editar' { Edit-HubWhisperContext }
+    Draw-Text $G 'CONTEXTO PARA LAS RESPUESTAS' $F.Caps $P.Muted ($ccard.X + (Px 14)) ($ccard.Y + (Px 13)) ($ccard.Width - $ebw - (Px 40)) (Px 18)
     $termCount = @(([string]$settings.keyterms) -split '[,;\r\n]+' | Where-Object { $_.Trim() }).Count
     $lines = @(
         @('Perfil', $(if ($settings.profile) { ((L '{0} caracteres') -f ([string]$settings.profile).Length) } else { (Tx 'vac\u00edo: a\u00f1ade tu CV') })),
         @((Tx 'Conversaci\u00f3n'), $(if ($settings.meeting) { (([string]$settings.meeting) -split "`n")[0].Trim() } else { 'sin describir' })),
         @((Tx 'T\u00e9rminos'), $(if ($termCount) { "$termCount " + (Tx 'para la transcripci\u00f3n') } else { 'ninguno' }))
     )
-    $ly = $ccard.Y + (Px 8)
+    $ly = $ccard.Y + (Px 42)
     foreach ($line in $lines) {
-        Draw-Text $G $line[0] $F.Small $P.Muted ($ccard.X + (Px 12)) $ly (Px 90) (Px 24)
-        Draw-Text $G $line[1] $F.Body $P.Text ($ccard.X + (Px 100)) $ly ($ccard.Width - (Px 112)) (Px 24)
-        $ly += Px 25
+        Draw-Text $G $line[0] $F.Small $P.Muted ($ccard.X + (Px 14)) $ly (Px 90) (Px 24)
+        Draw-Text $G $line[1] $F.Body $P.Text ($ccard.X + (Px 104)) $ly ($ccard.Width - (Px 118)) (Px 24)
+        $ly += Px 24
     }
-    Add-Hit $Map $hitId $ccard { Edit-HubWhisperContext }
+
+    # global hotkeys: what each does, its key caps under it (the column is too narrow for both on one line)
+    $kcard = New-Rect $rx ($ccard.Bottom + (Px 12)) $rw (Px 172)
+    Draw-HubCard $G $kcard
+    Draw-Text $G 'ATAJOS, EN CUALQUIER VENTANA' $F.Caps $P.Muted ($kcard.X + (Px 14)) ($kcard.Y + (Px 10)) ($kcard.Width - (Px 28)) (Px 18)
+    $ky = $kcard.Y + (Px 32)
+    foreach ($key in @(@($settings.hotkeyAnswer, 'Responder ahora'), @($settings.hotkeyScreen, 'Resolver la pantalla'), @($settings.hotkeyToggle, 'Mostrar u ocultar'))) {
+        Draw-Text $G $key[1] $F.Small $P.Text ($kcard.X + (Px 14)) $ky ($kcard.Width - (Px 28)) (Px 18)
+        [void](Draw-HubKeys $G $key[0] ($kcard.X + (Px 14)) ($ky + (Px 19)))
+        $ky += Px 46
+    }
+
+    # the latest calls
+    $count = [int]$c.CallCount
+    $cy = $kcard.Bottom + (Px 14)
+    Draw-HubCaption $G $(if ($count) { (L 'LLAMADAS ({0})') -f $count } else { 'LLAMADAS' }) $rx $cy $rw ''
+    $folder = New-Rect ($rx + $rw - (Px 110)) $cy (Px 110) (Px 18)
+    Draw-Text $G (Tx 'Abrir carpeta \u203a') $F.Small $(if ($Hover -eq 'whisper-folder') { $P.AccentHover } else { $P.Accent }) $folder.X $folder.Y $folder.Width $folder.Height 'Right'
+    Add-Hit $Map 'whisper-folder' $folder { Open-HubCallFolder }
+    $calls = @($c.Calls)
+    $y = $cy + (Px 22)
+    if (-not $calls.Count) {
+        $row = New-Rect $rx $y $rw (Px 60)
+        Fill-Round $G $row (Px 8) $P.Surface
+        Draw-Wrapped $G (Tx 'A\u00fan no hay llamadas. Abre Claude Whisper durante una llamada y pulsa Escuchar: cada llamada se guarda aqu\u00ed.') $F.Small $P.Muted ($rx + (Px 14)) ($y + (Px 10)) ($rw - (Px 28)) (Px 44)
+    }
+    $now = Get-Date
+    for ($i = 0; $i -lt [Math]::Min(3, $calls.Count); $i++) {
+        $call = $calls[$i]
+        $row = New-Rect $rx $y $rw (Px 46)
+        $hitId = "whisper-call-$i"
+        Fill-Round $G $row (Px 8) $(if ($Hover -eq $hitId) { $P.SurfaceHover } else { $P.Surface })
+        $when = if ($call.Started) { Format-DialogDateTime $call.Started $now } else { $call.Name }
+        Draw-Text $G $when $F.BodyStrong $P.Text ($row.X + (Px 12)) ($row.Y + (Px 4)) ($row.Width - (Px 24)) (Px 20)
+        Draw-Text $G (Format-CallDuration $call.Minutes) $F.Small $P.Muted ($row.X + (Px 12)) ($row.Y + (Px 4)) ($row.Width - (Px 24)) (Px 20) 'Right'
+        $topic = if ($call.Topic) { $call.Topic } else { 'Sin preguntas' }
+        Draw-Text $G $topic $F.Small $P.Muted ($row.X + (Px 12)) ($row.Y + (Px 24)) ($row.Width - (Px 24)) (Px 18)
+        Add-Hit $Map $hitId $row ([scriptblock]::Create("Open-HubCall $i"))
+        $y += Px 50
+    }
 }
 
 # ---------------------------------------------------------------- Voz
+
+$script:HubVoiceEngineLabels = [ordered]@{ edge = 'Edge'; elevenlabs = 'ElevenLabs'; gemini = 'Gemini'; sapi = 'Windows' }
 
 function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
     $F = $script:Fonts
     $c = $script:Hub.Cache
 
-    $card = New-Rect $X0 (Px 72) $Inner (Px 150)
+    $card = New-Rect $X0 (Px 72) $Inner (Px 112)
     Draw-HubCard $G $card
     if (-not $c.VoiceInstalled) {
         Draw-Wrapped $G (Tx 'La voz no est\u00e1 instalada. Vuelve a ejecutar install.ps1.') $F.Body $P.Warn ($card.X + (Px 16)) ($card.Y + (Px 16)) ($card.Width - (Px 32)) (Px 40)
@@ -2488,27 +2747,38 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
     $rowX = $card.X + (Px 6)
     $rowW = $card.Width - (Px 12)
-    Draw-HubToggleRow $G $Map $Hover 'voice-on' (New-Rect $rowX ($card.Y + (Px 8)) $rowW (Px 42)) 'Voz en todas las sesiones' (Tx 'Cada sesi\u00f3n lee en voz alta un resumen de cada respuesta, con su propia voz.') (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)"))
-    Draw-HubToggleRow $G $Map $Hover 'voice-keys' (New-Rect $rowX ($card.Y + (Px 54)) $rowW (Px 42)) 'Atajos de teclado' (Tx 'Ctrl+Alt+Shift+O repite lo \u00faltimo  \u00b7  Ctrl+Alt+Shift+P detiene el audio') ([bool]$c.HotkeysOn) ([scriptblock]::Create("Set-HubHotkeys `$$(-not $c.HotkeysOn)"))
-    $x = $card.X + (Px 16)
-    foreach ($button in @(@{ Id = 'voice-test'; Label = 'Probar voz'; Action = { Invoke-VoiceCtl 'test' 'Reproduciendo una frase de prueba...' }; Accent = $true },
-                          @{ Id = 'voice-repeat'; Label = (Tx 'Repetir lo \u00faltimo'); Action = { Invoke-VoiceCtl 'repeat' 'Repitiendo...' }; Accent = $false },
-                          @{ Id = 'voice-stop'; Label = 'Detener audio'; Action = { Invoke-VoiceCtl 'stop' 'Audio detenido.' }; Accent = $false })) {
-        $bw = Get-PillWidth $button.Label
-        Draw-PillButton $G $Map $Hover $button.Id (New-Rect $x ($card.Y + (Px 110)) $bw (Px 26)) $button.Label $button.Action -Accent:$button.Accent
-        $x += $bw + (Px 8)
+    $row = New-Rect $rowX ($card.Y + (Px 8)) $rowW (Px 42)
+    Draw-HubToggleRow $G $Map $Hover 'voice-on' $row 'Voz en todas las sesiones' (Tx 'Si la apagas, ninguna sesi\u00f3n habla') (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)"))
+    # Drawn after its row, so its click wins over the row's (Find-Hit takes the last one).
+    $bw = Get-PillWidth 'Probar voz'
+    Draw-PillButton $G $Map $Hover 'voice-test' (New-Rect ($row.Right - (Px 58) - $bw) ($row.Y + (Px 8)) $bw (Px 26)) 'Probar voz' { Invoke-VoiceCtl 'test' 'Reproduciendo una frase de prueba...' } -Accent
+    # A one-space second line puts the label on top; the key caps go under it.
+    $row = New-Rect $rowX ($card.Y + (Px 56)) $rowW (Px 50)
+    Draw-HubToggleRow $G $Map $Hover 'voice-keys' $row 'Atajos de teclado' ' ' ([bool]$c.HotkeysOn) ([scriptblock]::Create("Set-HubHotkeys `$$(-not $c.HotkeysOn)"))
+    $kx = $row.X + (Px 10)
+    foreach ($pair in @(@((Tx 'Repetir lo \u00faltimo'), 'Ctrl+Alt+Shift+O'), @('Detener', 'Ctrl+Alt+Shift+P'))) {
+        $lw = (Measure-TextWidth $pair[0] $F.Small) + (Px 6)
+        Draw-Text $G $pair[0] $F.Small $P.Muted $kx ($row.Y + (Px 24)) $lw (Px 20)
+        $kx += $lw + (Draw-HubKeys $G $pair[1] ($kx + $lw) ($row.Y + (Px 24))) + (Px 18)
     }
 
-    # engine card
-    $ecard = New-Rect $X0 (Px 232) $Inner (Px 112)
-    Draw-HubCard $G $ecard
+    # engine: the four side by side, its credits and its key
     $state = $c.VoiceEngine
     $engine = if ($state) { $state.Engine } else { 'edge' }
-    Draw-HubPicker $G $Map $Hover 'voice-engine' (New-Rect ($ecard.X + (Px 6)) ($ecard.Y + (Px 8)) ($ecard.Width - (Px 12)) (Px 32)) 'Motor de voz' $script:VoiceEngines[$engine] 'Set-HubVoiceEngine'
+    $ey = $card.Bottom + (Px 12)
+    $credits = if ($engine -eq 'elevenlabs' -and $state.ElevenKey -and $state.Credits -and $state.Credits.limit -and -not $state.Snooze) { $state.Credits } else { $null }
+    $keyed = $engine -in @('elevenlabs', 'gemini')
+    $eh = (Px 96) + $(if ($credits) { Px 66 } else { 0 }) + $(if ($keyed) { Px 42 } else { 0 })
+    $ecard = New-Rect $X0 $ey $Inner $eh
+    Draw-HubCard $G $ecard
+    $seg = Draw-HubSegmented $G $Map $Hover 'voice-engine' ($ecard.Right - (Px 14)) ($ecard.Y + (Px 12)) $script:HubVoiceEngineLabels $engine 'Set-HubVoiceEngine'
+    $tx = $ecard.X + (Px 16)
+    $tw = $seg.X - $tx - (Px 16)
+    Draw-Text $G 'Motor de voz' $F.BodyStrong $P.Text $tx ($ecard.Y + (Px 12)) $tw (Px 22)
     $detail = switch ($engine) {
         'elevenlabs' {
             if (-not $state.ElevenKey) { Tx 'La m\u00e1s natural. Crea una cuenta gratis en elevenlabs.io (unos 10.000 cr\u00e9ditos al mes, unos 100 res\u00famenes) y pega aqu\u00ed tu clave. Sin clave se usa Edge.' }
-            else { $credits = Format-ElevenCredits $state.Credits; (Tx 'Voces de tu cuenta, una distinta por sesi\u00f3n. ') + $(if ($credits) { (L 'Quedan ') + $credits + '.' } else { '' }) + (Tx ' Sin cr\u00e9ditos, pasa sola a Edge.') }
+            else { (Tx 'Voces de tu cuenta, una distinta por sesi\u00f3n. ') + (Tx ' Sin cr\u00e9ditos, pasa sola a Edge.') }
         }
         'gemini' {
             if (-not $state.GeminiKey) { Tx 'Muy natural. Pide una clave gratis en aistudio.google.com (capa gratuita con l\u00edmite diario) y p\u00e9gala aqu\u00ed. Sin clave se usa Edge.' }
@@ -2524,28 +2794,49 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         if ($engine -eq 'elevenlabs' -and "$($state.Snooze.Why)" -like 'sin cr*') { $detail = Get-ElevenNoCreditsText $state.Credits }
         $detailColor = $P.Warn
     }
-    Draw-Wrapped $G $detail $F.Small $detailColor ($ecard.X + (Px 16)) ($ecard.Y + (Px 44)) ($ecard.Width - (Px 32)) (Px 34)
-    $x = $ecard.X + (Px 16)
-    $buttons = @(
-        @{ Id = 'voice-key-eleven'; Label = $(if ($state -and $state.ElevenKey) { 'Cambiar clave ElevenLabs' } else { 'Pegar clave ElevenLabs' }); Action = { Set-HubVoiceKey 'elevenlabs' }; Accent = ($engine -eq 'elevenlabs' -and -not ($state -and $state.ElevenKey)) },
-        @{ Id = 'voice-key-gemini'; Label = $(if ($state -and $state.GeminiKey) { 'Cambiar clave Gemini' } else { 'Pegar clave Gemini' }); Action = { Set-HubVoiceKey 'gemini' }; Accent = ($engine -eq 'gemini' -and -not ($state -and $state.GeminiKey)) }
-    )
-    if ($state -and $state.ElevenKey) { $buttons += @{ Id = 'voice-credits'; Label = (Tx 'Ver cr\u00e9ditos'); Action = { Update-HubVoiceCredits }; Accent = $false } }
-    foreach ($button in $buttons) {
-        $bw = Get-PillWidth $button.Label
-        Draw-PillButton $G $Map $Hover $button.Id (New-Rect $x ($ecard.Bottom - (Px 32)) $bw (Px 24)) $button.Label $button.Action -Accent:$button.Accent
-        $x += $bw + (Px 8)
+    Draw-Wrapped $G $detail $F.Small $detailColor $tx ($ecard.Y + (Px 38)) $tw (Px 50)
+    $y = $ecard.Y + (Px 96)
+    if ($credits -or $keyed) {
+        $pen = New-HubPen $P.Border 1
+        $G.DrawLine($pen, $tx, ($y - (Px 6)), ($ecard.Right - (Px 16)), ($y - (Px 6)))
+        $pen.Dispose()
+    }
+    $rw = $ecard.Width - (Px 32)
+    if ($credits) {
+        $limit = [int]$credits.limit
+        $left = [Math]::Max(0, $limit - [int]$credits.used)
+        Draw-Text $G (Tx 'Cr\u00e9ditos de ElevenLabs') $F.Body $P.Text $tx $y $rw (Px 22)
+        Draw-Text $G ((L '{0} de {1} ').Trim() -f $left.ToString('N0', $UiCulture), $limit.ToString('N0', $UiCulture)) $F.BodyStrong $P.Text $tx $y $rw (Px 22) 'Right'
+        $track = New-Rect $tx ($y + (Px 26)) $rw (Px 8)
+        Fill-Round $G $track (Px 4) $P.Track
+        $fraction = [Math]::Min(1.0, $left / [double]$limit)
+        if ($fraction -gt 0) { Fill-Round $G (New-Rect $tx $track.Y ([Math]::Max((Px 8), [int]($rw * $fraction))) $track.Height) (Px 4) $(if ($fraction -lt 0.1) { $P.Warn } else { $P.Ok }) }
+        $renew = ''
+        if ($credits.resetAt) { try { $renew = (L 'Se renuevan el {0}, con tu plan mensual.') -f ([datetime]$credits.resetAt).ToString('d MMM', $UiCulture).TrimEnd('.') } catch { } }
+        $link = New-Rect ($tx + $rw - (Px 160)) ($y + (Px 38)) (Px 160) (Px 20)
+        Draw-Text $G $renew $F.Small $P.Muted $tx ($y + (Px 38)) ($rw - (Px 170)) (Px 20)
+        Draw-Text $G (Tx 'Actualizar cr\u00e9ditos') $F.Small $(if ($Hover -eq 'voice-credits') { $P.AccentHover } else { $P.Accent }) $link.X $link.Y $link.Width $link.Height 'Right'
+        Add-Hit $Map 'voice-credits' $link { Update-HubVoiceCredits }
+        $y += Px 66
+    }
+    if ($keyed) {
+        $hasKey = if ($engine -eq 'elevenlabs') { [bool]$state.ElevenKey } else { [bool]$state.GeminiKey }
+        $label = if ($hasKey) { 'Cambiar clave' } else { 'Pegar clave' }
+        $bw = Get-PillWidth $label
+        Draw-PillButton $G $Map $Hover 'voice-key' (New-Rect ($tx + $rw - $bw) ($y + (Px 2)) $bw (Px 26)) $label ([scriptblock]::Create("Set-HubVoiceKey '$engine'")) -Accent:(-not $hasKey)
+        Draw-Text $G $(if ($hasKey) { (L 'Clave guardada') } else { (L 'Sin clave: mientras, se usa Edge.') }) $F.Small $(if ($hasKey) { $P.Muted } else { $P.Warn }) $tx $y ($rw - $bw - (Px 12)) (Px 30)
     }
 
-    $y = Px 358
+    # sessions of the last 12 hours, each with its own switch
+    $y = $ecard.Bottom + (Px 16)
     $sessions = @($c.VoiceSessions)
-    $more = if ($sessions.Count -gt 4) { (Tx '+{0} m\u00e1s  \u00b7  ') -f ($sessions.Count - 4) } else { '' }
-    Draw-HubCaption $G 'SESIONES RECIENTES' $X0 $y $Inner ($more + (Tx '\u00daltimas 12 horas  \u00b7  /voz dentro de una sesi\u00f3n para cambiar la suya'))
+    Draw-HubCaption $G (Tx 'SESIONES DE LAS \u00daLTIMAS 12 H') $X0 $y $Inner $(if ($sessions.Count -gt 4) { (Tx '+{0} m\u00e1s') -f ($sessions.Count - 4) } else { '' })
     $y += Px 22
     if (-not $sessions.Count) {
         $row = New-Rect $X0 $y $Inner (Px 40)
         Fill-Round $G $row (Px 8) $P.Surface
         Draw-Text $G (Tx 'Ninguna sesi\u00f3n ha hablado en las \u00faltimas horas.') $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 40)
+        $y += Px 44
     }
     $now = Get-Date
     for ($i = 0; $i -lt [Math]::Min(4, $sessions.Count); $i++) {
@@ -2557,16 +2848,16 @@ function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $name = $session.Name
         if ($session.Role) { $name += (Tx ' \u00b7 ') + $session.Role }
         $textX = $row.X + (Px 36)
-        $textW = $row.Width - (Px 140)
-        Draw-Text $G $name $F.BodyStrong $P.Text $textX ($row.Y + (Px 4)) $textW (Px 20)
+        $textW = $row.Width - (Px 100)
+        Draw-Text $G $name $F.BodyStrong $(if ($session.Muted) { $P.Muted } else { $P.Text }) $textX ($row.Y + (Px 4)) $textW (Px 20)
         $ago = $now - $session.Used
         $used = if ($ago.TotalMinutes -lt 1) { L 'ahora' } elseif ($ago.TotalHours -lt 1) { (L 'hace {0} min') -f [int]$ago.TotalMinutes } else { (L 'a las ') + (Format-Clock $session.Used) }
-        Draw-Text $G ((L 'voz ') + (Format-VoiceName $session.Voice) + (Tx '  \u00b7  ') + $used) $F.Small $P.Muted $textX ($row.Y + (Px 23)) $textW (Px 18)
-        $sx = $row.Right - (Px 50)
-        Draw-Text $G $(if ($session.Muted) { 'callada' } else { 'habla' }) $F.Small $P.Muted ($sx - (Px 70)) $row.Y (Px 62) $row.Height 'Right'
-        Draw-HubSwitch $G $Map "voice-session-$i" $sx ($row.Y + (Px 12)) (-not $session.Muted) ([scriptblock]::Create("Set-HubVoiceSessionMuted $i"))
+        $when = if ($session.Muted) { L 'silenciada' } else { $used }
+        Draw-Text $G ((L 'voz ') + (Format-VoiceName $session.Voice) + (Tx '  \u00b7  ') + $when) $F.Small $P.Muted $textX ($row.Y + (Px 23)) $textW (Px 18)
+        Draw-HubSwitch $G $Map "voice-session-$i" ($row.Right - (Px 50)) ($row.Y + (Px 12)) (-not $session.Muted) ([scriptblock]::Create("Set-HubVoiceSessionMuted $i"))
         $y += Px 48
     }
+    Draw-Text $G (Tx 'Para cambiar la voz de una sesi\u00f3n, escribe /voz dentro de ella.') $F.Small $P.Muted $X0 ($y + (Px 2)) $Inner (Px 20)
 }
 
 # ---------------------------------------------------------------- preview (tray.ps1 -RenderHubTo)
@@ -2581,8 +2872,7 @@ function Draw-HubSettingsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     Draw-HubCaption $G 'IDIOMA' $X0 (Px 74) $Inner ''
     $card = New-Rect $X0 (Px 96) $Inner (Px 96)
     Draw-HubCard $G $card
-    $name = $script:Hub.Languages[$script:UiLanguage]
-    Draw-HubPicker $G $Map $Hover 'language' (New-Rect ($card.X + (Px 8)) ($card.Y + (Px 12)) ($card.Width - (Px 16)) (Px 30)) 'Idioma' $(if ($name) { $name } else { $script:UiLanguage }) 'Step-HubLanguage'
+    Draw-HubDropdown $G $Map $Hover 'language' (New-Rect ($card.X + (Px 8)) ($card.Y + (Px 12)) ($card.Width - (Px 16)) (Px 30)) 'Idioma' $script:Hub.Languages $script:UiLanguage 'Step-HubLanguage'
     Draw-Wrapped $G (Tx 'El de esta ventana, la bandeja y sus avisos. Claude Whisper y las dem\u00e1s ventanas lo toman al abrirse de nuevo.') $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 52)) ($card.Width - (Px 36)) (Px 36)
 }
 
@@ -2613,7 +2903,11 @@ function Set-HubPreview {
         [pscustomobject]@{ Slot = 2; Hwnd = 0; Live = $false; Dir = 'D:\datos\informe'; At = $now.AddHours(-5); Color = 'green'; Name = 'Camila'; Role = 'analista'; Voice = 'es-PE-CamilaNeural' }
     )
     $c.MenuInstalled = $true
-    $c.Screens = 2
+    # Three screens: a laptop left of the main one and a monitor to its right; sessions start on the main one.
+    $c.Screens = 3
+    $c.ScreenAreas = @([pscustomobject]@{ Left = -1920; Top = 0; Right = 0; Bottom = 1080 }, [pscustomobject]@{ Left = 0; Top = 0; Right = 2560; Bottom = 1440 },
+        [pscustomobject]@{ Left = 2560; Top = 0; Right = 4480; Bottom = 1080 })
+    $c.ScreenFirst = 'windows'
     $c.ContextMode = [pscustomobject]@{ Installed = $true; Enabled = $true }
     $c.MaxxStatus = $null
     # Skills y MCP: one package installed, one installing, one not.

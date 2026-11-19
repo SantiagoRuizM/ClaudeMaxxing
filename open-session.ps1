@@ -72,7 +72,7 @@ try {
     Import-WinApi
 
     $areas = @(Get-WorkAreas)
-    $slots = Get-HalfSlots $areas
+    $slots = Get-HalfSlots $areas (Get-ScreenFirst)
     $sessions = @(Read-JsonFile $SessionsFile | Where-Object { $_ -and [ClaudeTrayWin]::IsLiveWindow([long]$_.hwnd, $TerminalClasses) })
     $slot = Get-FreeSlot $slots.Count $sessions (-not (Test-SessionLimit))
     if ($slot -lt 0) {

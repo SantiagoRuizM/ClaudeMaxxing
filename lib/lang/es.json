@@ -1,5 +1,25 @@
 {
-  "name": "Español",
+  "name": "Espa\u00f1ol",
   "culture": "es-ES",
-  "strings": {}
+  "strings": {
+    "Claude Whisper": "Copiloto de llamadas",
+    "Claude Whisper...": "Copiloto de llamadas...",
+    "CLAUDE WHISPER": "COPILOTO DE LLAMADAS",
+    "LLAMADAS WHISPER": "LLAMADAS DEL COPILOTO",
+    "Abrir Claude Whisper": "Abrir el copiloto",
+    "Abriendo Claude Whisper...": "Abriendo el copiloto de llamadas...",
+    "Claude Whisper est\u00e1 abierto: usa Contexto en su ventana.": "El copiloto de llamadas est\u00e1 abierto: usa Contexto en su ventana.",
+    "Claude Whisper est\u00e1 abierto: cambia sus ajustes desde su ventana.": "El copiloto de llamadas est\u00e1 abierto: cambia sus ajustes desde su ventana.",
+    "A\u00fan no hay llamadas. Abre Claude Whisper durante una llamada y pulsa Escuchar: cada llamada se guarda aqu\u00ed.": "A\u00fan no hay llamadas. Abre el copiloto durante una llamada y pulsa Escuchar: cada llamada se guarda aqu\u00ed.",
+    "{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir Claude Whisper.": "{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir el copiloto de llamadas.",
+    "El de esta ventana, la bandeja y sus avisos. Claude Whisper y las dem\u00e1s ventanas lo toman al abrirse de nuevo.": "El de esta ventana, la bandeja y sus avisos. El copiloto de llamadas y las dem\u00e1s ventanas lo toman al abrirse de nuevo.",
+    "Claude Whip": "Modo director",
+    "Claude Whip activado.": "Modo director activado.",
+    "Claude Whip apagado.": "Modo director apagado.",
+    "Umbral de Claude Whip cambiado.": "Umbral del modo director cambiado.",
+    "No se pudo guardar Claude Whip.": "No se pudo guardar el modo director.",
+    "Activa al menos un agente abajo: sin agentes, Claude Whip no entra en acci\u00f3n.": "Activa al menos un agente abajo: sin agentes, el modo director no entra en acci\u00f3n.",
+    "SelfHarness": "Foco",
+    "Claude Whisper est\u00e1 abierto": "El copiloto de llamadas est\u00e1 abierto"
+  }
 }

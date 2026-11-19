@@ -321,10 +321,11 @@ For a company whose people use Claude Code on their seats (Team or Enterprise pl
 | Field | Meaning |
 |---|---|
 | `company` | The name shown in Empresa |
-| `disabled` | Modules turned off: `freellm`, `bridge` (Otros PCs), `whisper`, `whip`, `ambientes` (Ambientes and SelfHarness), `judge` (Planear sesión). Default: all but `judge`, because FreeLLMAPI sends prompts to free third-party providers, Otros PCs gives a shell over SSH, Claude Whisper sends calls to an undocumented service, Claude Whip hands the code to other companies' agents and Ambientes reads every Chrome tab and sends their titles to TypeSafe or Anthropic. `[]` allows all. A change applies within 5 minutes with the tray running (a module turned off stops; one turned back on waits for the next start), and the Whip plugin reads IT's policy itself |
+| `disabled` | Modules turned off: `freellm`, `bridge` (Otros PCs), `whisper`, `whip`, `ambientes` (Ambientes and its Foco y ajustes tab), `judge` (Claude Judge, the link in Planear sesión). Default: all but `judge`, because FreeLLMAPI sends prompts to free third-party providers, Otros PCs gives a shell over SSH, Claude Whisper sends calls to an undocumented service, Claude Whip hands the code to other companies' agents and Ambientes reads every Chrome tab and sends their titles to TypeSafe or Anthropic. `[]` allows all. A change applies within 5 minutes with the tray running (a module turned off stops; one turned back on waits for the next start), and the Whip plugin reads IT's policy itself |
 | `seatName`, `seatMonthlyUsd` | The seat and what it costs per month, for the return on it |
 | `reportDir` | A folder the team shares (`\\server\share\...`, environment variables allowed) for the reports. Empty: `Documents\ClaudeMaxxing\informes` |
 | `autoReport` | `true` sends the report there every 7 days, without asking |
+| `reportPresence` | `true` leaves a small file per person in `reportDir\presence` every 5 minutes (sessions open and the current window's use), so Empresa shows who is connected now. Default `false` |
 | `reportProjects` | `false` leaves project names out of the report |
 | `marketplaces`, `plugins` | The team kit: plugin marketplaces (`owner/repo` or an `https` URL) and plugins (`name@marketplace`) |
 

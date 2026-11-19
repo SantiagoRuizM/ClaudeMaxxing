@@ -1,10 +1,37 @@
 # Half-screen slots for Claude Code sessions opened from the Explorer menu. Pure helpers, no Win32 calls.
 # Rects are physical pixels: work areas are [pscustomobject]@{ Left; Top; Right; Bottom }.
 
-# Two slots per monitor (left half, right half), monitors ordered left to right, then top to bottom.
-function Get-HalfSlots($WorkAreas) {
+$ScreenOrderFile = Join-Path $TrayHome 'screens.json'
+
+# Monitors in the order sessions fill them: left to right, then top to bottom. $First moves one to the front:
+# 'windows' the main one (Windows' primary, whose top-left is the desktop's origin) or an index ('0', '1'...) in that
+# left-to-right order. Anything else, or a monitor that is gone, keeps left to right.
+function Get-ScreenOrder($Areas, [string]$First = '') {
+    $sorted = @($Areas | Sort-Object Left, Top)
+    $pick = -1
+    if ($First -eq 'windows') {
+        # shortcut: the primary is the one holding the point (100, 100); a taskbar on its left or top is narrower
+        # than 100 px. Read the monitor flags (MONITORINFOF_PRIMARY) if a layout ever breaks this.
+        for ($i = 0; $i -lt $sorted.Count; $i++) {
+            $a = $sorted[$i]
+            if ([int]$a.Left -le 100 -and 100 -lt [int]$a.Right -and [int]$a.Top -le 100 -and 100 -lt [int]$a.Bottom) { $pick = $i; break }
+        }
+    } elseif ($First -match '^\d+$' -and [int]$First -lt $sorted.Count) { $pick = [int]$First }
+    if ($pick -gt 0) { $sorted = @($sorted[$pick]) + @(for ($i = 0; $i -lt $sorted.Count; $i++) { if ($i -ne $pick) { $sorted[$i] } }) }
+    , $sorted
+}
+
+# Which monitor goes first (Claude Code > Primera pantalla): '' left to right, 'windows' or an index.
+function Get-ScreenFirst {
+    $saved = Read-JsonFile $ScreenOrderFile
+    if ($saved -and $saved.first) { [string]$saved.first } else { '' }
+}
+function Set-ScreenFirst([string]$First) { Write-JsonFile $ScreenOrderFile @{ first = $First } }
+
+# Two slots per monitor (left half, right half), monitors in Get-ScreenOrder's order.
+function Get-HalfSlots($WorkAreas, [string]$First = '') {
     $slots = @()
-    foreach ($area in @($WorkAreas | Sort-Object Left, Top)) {
+    foreach ($area in (Get-ScreenOrder $WorkAreas $First)) {
         $left = [int]$area.Left
         $top = [int]$area.Top
         $width = [int]$area.Right - $left

@@ -247,3 +247,160 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
     }
     Draw-Text $G ((Tx 'Calculado con tus \u00faltimos 30 d\u00edas; la bandeja mantiene agendados los pr\u00f3ximos ') + $settings.days + (Tx ' d\u00edas.')) $F.Small $P.Faint $x ($y + (Px 24)) $w (Px 18)
 }
+
+# ---------------------------------------------------------------- Planear sesion
+
+# Planear sesion: the automatic agenda told as its idea. A short message opens each 5-hour window at the right
+# time, so the hour you use Claude most falls on the change from one window to the next: that hour has the end of
+# one window and the start of another to spend. Claude Judge (put a plan on trial) stays one link away.
+function Draw-HubPlanSession($G, $Map, $Hover, [int]$X0, [int]$Inner) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    if ($script:Hub.PlanJudge -and (Test-HubModule 'judge')) {
+        Draw-HubPlanSection $G $Map $Hover $X0 $Inner
+        $back = New-Rect $X0 ($script:Hub.H - (Px 40)) (Px 260) (Px 20)
+        Draw-Text $G (Tx '\u2039 Volver a planear la sesi\u00f3n') $F.Small $(if ($Hover -eq 'plan-back') { $P.AccentHover } else { $P.Accent }) $back.X $back.Y $back.Width $back.Height
+        Add-Hit $Map 'plan-back' $back { $script:Hub.PlanJudge = $false; $script:HubDialog.Invalidate() }
+        return
+    }
+    $view = $script:Hub.Cache.Auto
+    $plan = if ($view) { $view.Plan } else { $null }
+    $settings = if ($view) { $view.Settings } else { Get-AutoPlanSettings $null }
+    $on = [bool]$settings.enabled
+
+    # what it does, in one line, with this PC's numbers
+    $y = Px 70
+    if ($plan -and $plan.HasData) {
+        # The message whose window ends at the peak: five hours before it.
+        $first = Format-HourMark (([int]$plan.Boundary + 19) % 24) 5
+        $lead = (Tx 'Tu hora de m\u00e1s uso es a las {0}. Un mensaje corto a las {1} abre una ventana de 5 h que acaba justo ah\u00ed: tu pico tiene el final de una ventana y el comienzo de la siguiente.') -f (Format-HourMark $plan.Boundary), $first
+    } else {
+        $lead = Tx 'Hace falta saber cu\u00e1ndo usas Claude: abre Estad\u00edsticas una vez (lee tus conversaciones de Claude Code) y vuelve aqu\u00ed.'
+    }
+    Draw-Wrapped $G $lead $F.Body $P.Muted $X0 $y $Inner (Px 40)
+
+    # the day: average use per hour, the 5-hour windows under it and the change at the peak
+    $card = New-Rect $X0 (Px 116) $Inner (Px 160)
+    Draw-HubCard $G $card
+    Draw-Text $G (Tx 'TU D\u00cdA \u00b7 USO MEDIO POR HORA Y VENTANAS DE 5 H') $F.Caps $P.Muted ($card.X + (Px 16)) ($card.Y + (Px 12)) ($card.Width - (Px 32)) (Px 18)
+    if ($plan -and $plan.HasData) {
+        $line = New-Rect ($card.X + (Px 16)) ($card.Y + (Px 54)) ($card.Width - (Px 32)) (Px 92)
+        $hourW = $line.Width / 24.0
+        $bandY = $line.Y
+        $bandH = Px 62
+        # the windows as bands behind the bars, in turn lighter and darker, each with its hours
+        for ($i = 0; $i -lt $plan.Starts.Count; $i++) {
+            $from = ($plan.Starts[$i] % 24) + 5 / 60.0
+            $to = $from + 5
+            $tint = New-Object System.Drawing.SolidBrush($(if ($i % 2) { [System.Drawing.Color]::FromArgb(40, $P.Muted) } else { [System.Drawing.Color]::FromArgb(70, $P.Muted) }))
+            foreach ($segment in @(@($from, $to), @(($from - 24), ($to - 24)))) {
+                $a = [Math]::Max(0.0, [double]$segment[0]); $b = [Math]::Min(24.0, [double]$segment[1])
+                if ($b -le $a) { continue }
+                $G.FillRectangle($tint, [single]($line.X + $a * $hourW), [single]$bandY, [single](($b - $a) * $hourW), [single]$bandH)
+                if ($segment[0] -ge 0 -and ($b - $a) -ge 3) {
+                    Draw-Text $G ((Format-HourMark ([int]$plan.Starts[$i]) 5) + (Tx '\u2013') + (Format-HourMark (([int]$plan.Starts[$i] + 5) % 24) 5)) $F.Small $P.Muted ([int]($line.X + $a * $hourW) + (Px 6)) ($bandY + (Px 2)) ([int](($b - $a) * $hourW)) (Px 18)
+                }
+            }
+            $tint.Dispose()
+        }
+        $maxUse = ($plan.Profile | Measure-Object -Maximum).Maximum
+        $barsH = Px 40
+        for ($h = 0; $h -lt 24; $h++) {
+            $value = [double]$plan.Profile[$h]
+            if ($maxUse -le 0 -or $value -le 0) { continue }
+            $bh = [Math]::Max((Px 2), [int]($barsH * $value / $maxUse))
+            $bx = $line.X + [int]($h * $hourW) + (Px 2)
+            $peak = $h -eq $plan.Peak.Start -or $h -eq (($plan.Peak.Start + 1) % 24)
+            Draw-HubBar $G (New-Rect $bx ($bandY + $bandH - $bh) ([int]$hourW - (Px 4)) $bh) (Px 2) $(if ($peak) { $P.AccentHover } else { $P.Faint })
+        }
+        # the change at the peak, in the accent
+        $mx = [int]($line.X + ($plan.Boundary + 5 / 60.0) * $hourW)
+        $pen = New-HubPen $P.Accent 2
+        $G.DrawLine($pen, $mx, $bandY - (Px 14), $mx, $bandY + $bandH)
+        $pen.Dispose()
+        $mark = (Tx 'pico {0} \u00b7 cambio de ventana') -f (Format-HourMark $plan.Boundary)
+        $mw = (Measure-TextWidth $mark $F.Small) + (Px 8)
+        Draw-Text $G $mark $F.Small $P.Accent ([Math]::Min($mx + (Px 6), $line.Right - $mw)) ($bandY - (Px 20)) $mw (Px 18)
+        $tx = $line.X
+        foreach ($hour in 0, 6, 12, 18, 24) {
+            Draw-Text $G ('{0:00}' -f $hour) $F.Small $P.Faint ([int]($line.X + $hour * $hourW) - (Px 12)) ($bandY + $bandH + (Px 4)) (Px 24) (Px 16) 'Center'
+        }
+    }
+
+    # settings (left) and the next messages (right)
+    $gap = Px 12
+    $leftW = [int](($Inner - $gap) * 0.56)
+    $scard = New-Rect $X0 ($card.Bottom + $gap) $leftW (Px 226)
+    Draw-HubCard $G $scard
+    $rowX = $scard.X + (Px 6)
+    $rowW = $scard.Width - (Px 12)
+    $hasPlan = $plan -and $plan.HasData
+    Draw-HubToggleRow $G $Map $Hover 'plan-auto' (New-Rect $rowX ($scard.Y + (Px 8)) $rowW (Px 42)) 'Abrir las ventanas solo' (Tx 'Un mensaje corto a Claude en cada cambio') $on $(if ($hasPlan) { [scriptblock]::Create("Set-AutoEnabled `$$(-not $on)") } else { $null }) $hasPlan
+    $peaks = [ordered]@{ '-1' = $(if ($hasPlan -and -not $plan.Manual) { (Tx 'Autom\u00e1tica ({0})') -f (Format-HourMark $plan.Boundary) } else { Tx 'Autom\u00e1tica' }) }
+    for ($h = 0; $h -lt 24; $h++) { $peaks["$h"] = Format-HourMark $h }
+    $current = if ($settings.boundary -ge 0) { "$($settings.boundary)" } else { '-1' }
+    Draw-HubDropdown $G $Map $Hover 'plan-peak' (New-Rect $rowX ($scard.Y + (Px 56)) $rowW (Px 30)) 'Hora pico' $peaks $current 'Step-HubPlanPeak' $hasPlan
+    $days = [ordered]@{}
+    for ($d = 1; $d -le 7; $d++) { $days["$d"] = $(if ($d -eq 1) { Tx '1 d\u00eda' } else { (Tx '{0} d\u00edas') -f $d }) }
+    Draw-HubDropdown $G $Map $Hover 'plan-days' (New-Rect $rowX ($scard.Y + (Px 90)) $rowW (Px 30)) 'Agendar por delante' $days "$($settings.days)" 'Step-HubPlanDays' $hasPlan
+    $fx = $scard.X + (Px 16)
+    $fw = $scard.Width - (Px 32)
+    Draw-Text $G (Tx 'Desde d\u00f3nde se env\u00eda') $F.Body $P.Text $fx ($scard.Y + (Px 130)) $fw (Px 22)
+    Draw-Wrapped $G 'Desde este PC (Programador de tareas): tiene que estar encendido. Con el PC apagado, usa la nube.' $F.Small $P.Muted $fx ($scard.Y + (Px 152)) $fw (Px 36)
+    $cloud = New-Rect $fx ($scard.Y + (Px 192)) (Px 220) (Px 20)
+    Draw-Text $G (Tx 'Agendar en la nube \u203a') $F.Small $(if ($Hover -eq 'plan-cloud') { $P.AccentHover } else { $P.Accent }) $cloud.X $cloud.Y $cloud.Width $cloud.Height
+    Add-Hit $Map 'plan-cloud' $cloud { Open-HubSchedule }
+
+    $ncard = New-Rect ($X0 + $leftW + $gap) $scard.Y ($Inner - $leftW - $gap) $scard.Height
+    Draw-HubCard $G $ncard
+    $nx = $ncard.X + (Px 16)
+    $nw = $ncard.Width - (Px 32)
+    Draw-Text $G (Tx 'PR\u00d3XIMOS MENSAJES') $F.Caps $P.Muted $nx ($ncard.Y + (Px 12)) $nw (Px 18)
+    $slots = if ($view) { @($view.Slots) } else { @() }
+    $ny = $ncard.Y + (Px 36)
+    if (-not $on -or -not $slots.Count) {
+        Draw-Wrapped $G $(if ($on) { Tx 'Nada que agendar todav\u00eda.' } else { Tx 'Apagado: act\u00edvalo para que ClaudeMaxxing abra cada ventana a su hora.' }) $F.Small $P.Muted $nx $ny $nw (Px 40)
+    } else {
+        $now = Get-Date
+        foreach ($slot in @($slots | Select-Object -First 4)) {
+            $at = [datetime]$slot
+            Draw-Text $G (Format-DialogDateTime $at $now) $F.Body $P.Text $nx $ny $nw (Px 20)
+            Draw-Text $G ((Tx 'abre {0}') -f ((Format-HourMark $at.Hour $at.Minute) + (Tx '\u2013') + (Format-HourMark ($at.Hour + 5) $at.Minute))) $F.Small $P.Muted $nx $ny $nw (Px 20) 'Right'
+            $ny += Px 34
+        }
+    }
+    $conflicts = if ($view) { @($view.Conflicts).Count } else { 0 }
+    if ($conflicts) {
+        $label = 'Limpiar'
+        $bw = Get-PillWidth $label
+        Draw-Text $G $(if ($conflicts -eq 1) { Tx '1 sesi\u00f3n agendada a mano corta la cadena' } else { (Tx '{0} sesiones agendadas a mano cortan la cadena') -f $conflicts }) $F.Small $P.Warn $nx ($ncard.Bottom - (Px 34)) ($nw - $bw - (Px 8)) (Px 24)
+        Draw-PillButton $G $Map $Hover 'plan-clean' (New-Rect ($ncard.Right - (Px 16) - $bw) ($ncard.Bottom - (Px 34)) $bw (Px 24)) $label { Remove-AutoConflicts }
+    }
+
+    # Claude Judge, one link away: put what you want to do today on trial before opening sessions.
+    if (Test-HubModule 'judge') {
+        $judge = New-Rect $X0 ($scard.Bottom + (Px 12)) $Inner (Px 20)
+        Draw-Text $G (Tx 'Antes de empezar, pon a prueba lo que vas a hacer hoy con Claude Judge \u203a') $F.Small $(if ($Hover -eq 'plan-judge') { $P.AccentHover } else { $P.Accent }) $judge.X $judge.Y $judge.Width $judge.Height
+        Add-Hit $Map 'plan-judge' $judge { $script:Hub.PlanJudge = $true; $script:HubDialog.Invalidate() }
+    }
+}
+
+# Hora pico: '-1' (computed) then each hour; Step-AutoBoundary moves the hour by a delta or resets it.
+function Step-HubPlanPeak([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $view = $script:Hub.Cache.Auto
+    if (-not $view -or -not $view.Plan) { return }
+    $keys = @('-1') + @(0..23 | ForEach-Object { "$_" })
+    $current = if ($view.Settings.boundary -ge 0) { "$($view.Settings.boundary)" } else { '-1' }
+    $target = $keys[[Math]::Max(0, [Math]::Min($keys.Count - 1, [array]::IndexOf($keys, $current) + $Delta))]
+    if ($target -eq '-1') { Step-AutoBoundary 0 -Reset } else { Step-AutoBoundary ([int]$target - [int]$view.Plan.Boundary) }
+}
+
+function Step-HubPlanDays([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $settings = Get-AutoPlanSettings (Read-JsonFile $AutoPlanFile)
+    $settings.days = [Math]::Max(1, [Math]::Min(7, [int]$settings.days + $Delta))
+    Save-AutoSettings $settings
+    if ($settings.enabled) { Invoke-AutoSchedule -Force }
+    Update-HubAuto
+}

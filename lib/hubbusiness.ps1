@@ -60,6 +60,12 @@ function Update-PolicyAtRuntime {
 # Every 5 minutes from the tray: calibrate, and send the weekly report when the policy asks for it.
 function Invoke-BusinessTick {
     if (-not (Test-HubBusiness)) { return }
+    $policy = $script:Business.Policy
+    if ($policy.reportDir -and $policy.reportPresence) {
+        # A share that is not there (off the company network) only skips this tick.
+        $percent = if ($script:View -and $script:View.HasData -and $script:View.Session.Active) { [int]$script:View.Session.Percent } else { $null }
+        try { Write-TeamPresence (Get-ReportDir $policy) @(Read-JsonFile $SessionsFile | Where-Object { $_ }).Count $percent (Get-Date) } catch { }
+    }
     $seat = Update-BusinessCapacity (Get-SeatState)
     if (-not (Test-ReportDue $script:Business $seat (Get-Date))) { return }
     try {
@@ -89,6 +95,10 @@ function Update-HubBusiness([switch]$Force) {
     $c.BusinessReport = Get-HubSeatReport $seat
     $c.BusinessObjectives = Get-BusinessObjectives
     $c.BusinessObjectivesManaged = Test-Path -LiteralPath (Join-Path $MachinePolicyDir 'objetivos.md')
+    # The team: everyone's last report and, with reportPresence, who is connected now.
+    $policy = $script:Business.Policy
+    $c.BusinessTeam = if ($policy.reportDir) { try { @(Get-TeamReport (Get-ReportDir $policy)) } catch { @() } } else { @() }
+    $c.BusinessPresence = if ($policy.reportDir -and $policy.reportPresence) { try { Get-TeamPresence (Get-ReportDir $policy) } catch { @{} } } else { @{} }
     $installed = @(Get-ClaudePlugins (Join-Path $env:USERPROFILE '.claude') | Where-Object { -not $_.Project } | ForEach-Object { $_.Key })
     $c.BusinessKit = @(@($script:Business.Policy.plugins) | ForEach-Object { [pscustomobject]@{ Ref = $_; Installed = ($installed -contains $_); Valid = (Test-PluginRef $_) } })
 }
@@ -244,100 +254,151 @@ function Draw-HubBusinessSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     if ($null -eq $c.BusinessReport) { try { Update-HubBusiness -Force } catch { } }
     $b = $script:Business
     $policy = $b.Policy
-    $dot = (Tx '  \u00b7  ')
+    $now = Get-Date
+    $gap = Px 12
 
-    # the edition and its policy
-    $card = New-Rect $X0 (Px 72) $Inner (Px 76)
+    # The team: last report of each person, with who is connected now when the policy shares presence.
+    $presence = if ($c.BusinessPresence) { $c.BusinessPresence } else { @{} }
+    $byKey = [ordered]@{}
+    foreach ($r in @($c.BusinessTeam)) { $byKey[([string]$r.computer + '\' + [string]$r.user).ToLowerInvariant()] = @{ Report = $r; Presence = $null } }
+    foreach ($key in @($presence.Keys)) {
+        if ($byKey.Contains($key)) { $byKey[$key].Presence = $presence[$key] } else { $byKey[$key] = @{ Report = $null; Presence = $presence[$key] } }
+    }
+    # Not $p: PowerShell names ignore case, and $P is the palette.
+    $people = @(foreach ($entry in $byKey.Values) {
+        $r = $entry.Report; $seen = $entry.Presence
+        $source = if ($r) { $r } else { $seen }
+        $online = Test-PresenceOnline $seen $now
+        $last = if ($seen -and $seen.at) { [string]$seen.at } elseif ($r) { [string]$r.at } else { '' }
+        [pscustomobject]@{
+            User = [string]$source.user; Computer = [string]$source.computer; Me = ([string]$source.user -eq $env:USERNAME -and [string]$source.computer -eq $env:COMPUTERNAME)
+            Online = $online; Sessions = $(if ($online) { [int]$seen.sessions } else { 0 }); Percent = $(if ($online -and $null -ne $seen.sessionPercent) { [int]$seen.sessionPercent } else { $null })
+            Tokens = $(if ($r -and $r.tokens) { [double]$r.tokens } else { 0 }); Cost = $(if ($r) { [double]$r.apiCostUsd } else { 0 }); Last = $last
+            Rec = $(if ($r) { [string]$r.recommendation } else { '' }); Seat = $(if ($r) { [string]$r.seatName } else { '' }); SeatUsd = $(if ($r) { [double]$r.seatMonthlyUsd } else { 0 })
+        }
+    })
+    $people = @($people | Sort-Object @{ Expression = { $_.Online }; Descending = $true }, @{ Expression = { $_.Tokens }; Descending = $true })
+
+    # numbers of the team (or, without a team folder, of this seat)
+    $tiles = New-Rect $X0 (Px 72) $Inner (Px 78)
+    if ($people.Count) {
+        $w = [int](($Inner - 3 * $gap) / 4)
+        $online = @($people | Where-Object { $_.Online })
+        $tokens = ($people | Measure-Object -Property Tokens -Sum).Sum
+        $cost = ($people | Measure-Object -Property Cost -Sum).Sum
+        $seats = ($people | Measure-Object -Property SeatUsd -Sum).Sum
+        $up = @($people | Where-Object { $_.Rec -eq 'up' }).Count
+        $down = @($people | Where-Object { $_.Rec -eq 'down' }).Count
+        if ($policy.reportPresence) {
+            Draw-HubStat $G (New-Rect $tiles.X $tiles.Y $w $tiles.Height) 'CONECTADOS AHORA' ((L '{0} de {1}') -f $online.Count, $people.Count) ((L '{0} sesiones abiertas') -f (($online | Measure-Object -Property Sessions -Sum).Sum + 0))
+        } else {
+            Draw-HubStat $G (New-Rect $tiles.X $tiles.Y $w $tiles.Height) 'PERSONAS' ([string]$people.Count) 'con informe en la carpeta'
+        }
+        Draw-HubStat $G (New-Rect ($tiles.X + $w + $gap) $tiles.Y $w $tiles.Height) (Tx 'TOKENS \u00b7 30 D\u00cdAS') $(if ($tokens) { Format-HubTokens $tokens } else { [string][char]0x2013 }) 'de todo el equipo'
+        Draw-HubStat $G (New-Rect ($tiles.X + 2 * ($w + $gap)) $tiles.Y $w $tiles.Height) 'VALOR EN LA API' (Format-Usd $cost) $(if ($seats) { (L '{0}/mes en asientos') -f (Format-Usd $seats) } else { '' })
+        Draw-HubStat $G (New-Rect ($tiles.X + 3 * ($w + $gap)) $tiles.Y ($Inner - 3 * ($w + $gap)) $tiles.Height) 'ASIENTOS' $(if ($up) { (L '{0} cortos') -f $up } else { 'Bien' }) $(if ($down -eq 1) { L '1 sobra' } else { (L '{0} sobran') -f $down }) $(if ($up) { $P.Warn } else { $P.Ok })
+    } else {
+        Draw-HubBusinessTiles $G $tiles
+    }
+
+    # the team, one row per person
+    $y = $tiles.Bottom + (Px 14)
+    Draw-HubCaption $G 'EQUIPO' $X0 $y $Inner $(if ($people.Count -gt 6) { (Tx '+{0} m\u00e1s en el informe del equipo') -f ($people.Count - 6) } else { '' })
+    $card = New-Rect $X0 ($y + (Px 22)) $Inner (Px 222)
     Draw-HubCard $G $card
     $tx = $card.X + (Px 16)
-    $bw = Get-PillWidth (Tx 'Pol\u00edtica')
-    Draw-PillButton $G $Map $Hover 'biz-policy' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 14)) $bw (Px 26)) (Tx 'Pol\u00edtica') { Open-HubPolicy }
-    $tw = $card.Width - (Px 42) - $bw
-    $title = (Tx 'Edici\u00f3n Empresa') + $(if ($policy.company) { $dot + $policy.company } else { '' })
-    Draw-Text $G $title $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) $tw (Px 22)
-    Draw-Text $G (Get-HubDisabledText) $F.Small $P.Muted $tx ($card.Y + (Px 36)) ($card.Width - (Px 32)) (Px 18)
-    $source = if ($b.Managed) { (Tx 'Pol\u00edtica de TI: ') + $b.Source } elseif ($b.Source) { (Tx 'Pol\u00edtica propia: ') + $b.Source } else { (Tx 'Pol\u00edtica por defecto (pulsa Pol\u00edtica para cambiarla)') }
-    Draw-Text $G $source $F.Small $P.Faint $tx ($card.Y + (Px 54)) ($card.Width - (Px 32)) (Px 18)
-
-    Draw-HubBusinessTiles $G (New-Rect $X0 (Px 160) $Inner (Px 78))
-
-    # reports
-    $card = New-Rect $X0 (Px 250) $Inner (Px 70)
-    Draw-HubCard $G $card
-    $right = $card.Right - (Px 16)
-    $by = $card.Y + (Px 14)
-    if ($policy.reportDir) {
-        $bw = Get-PillWidth 'Informe del equipo'
-        Draw-PillButton $G $Map $Hover 'biz-team' (New-Rect ($right - $bw) $by $bw (Px 26)) 'Informe del equipo' { Open-HubTeamReport }
-        $right -= $bw + (Px 8)
-    }
-    $bw = Get-PillWidth 'Exportar mi informe'
-    Draw-PillButton $G $Map $Hover 'biz-export' (New-Rect ($right - $bw) $by $bw (Px 26)) 'Exportar mi informe' { Export-HubSeatReport } -Accent
-    $right -= $bw + (Px 10)
-    Draw-Text $G 'Informes' $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) ($right - $tx) (Px 22)
-    $where = if ($policy.reportDir) { (L 'Carpeta del equipo: ') + (Get-ReportDir $policy) } else { (L 'En ') + (Get-ReportDir $policy) + (Tx ' (pon reportDir en la pol\u00edtica para compartirlos)') }
-    Draw-Text $G $where $F.Small $P.Muted $tx ($card.Y + (Px 36)) ($card.Width - (Px 32)) (Px 18)
-    $seat = $c.BusinessSeat
-    $last = ''
-    if ($seat -and $seat.lastReportAt) { try { $last = (Tx '\u00daltimo: ') + (Format-DialogDateTime ([datetime]$seat.lastReportAt) (Get-Date)) } catch { } }
-    if ($seat -and $seat.lastReportError) { $lastColor = $P.Error; $last = (L 'No se pudo enviar: ') + $seat.lastReportError } else { $lastColor = $P.Faint }
-    $auto = if ($policy.autoReport) { (Tx 'Se exporta solo cada 7 d\u00edas.') } else { 'Se exporta solo cuando lo pulsas.' }
-    Draw-Text $G ((@($auto, $last) | Where-Object { $_ }) -join $dot) $F.Small $lastColor $tx ($card.Y + (Px 52)) ($card.Width - (Px 32)) (Px 16)
-
-    # objectives
-    $card = New-Rect $X0 (Px 332) $Inner (Px 100)
-    Draw-HubCard $G $card
-    $label = if ($c.BusinessObjectivesManaged) { 'Ver' } else { 'Editar' }
-    $bw = Get-PillWidth $label
-    Draw-PillButton $G $Map $Hover 'biz-objectives' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 14)) $bw (Px 26)) $label { Edit-HubObjectives }
-    $head = (L 'Objetivos de la empresa') + $(if ($c.BusinessObjectivesManaged) { $dot + (L 'de TI') } else { '' })
-    Draw-Text $G $head $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) ($card.Width - (Px 42) - $bw) (Px 22)
-    $objectives = [string]$c.BusinessObjectives
-    if ($objectives) {
-        $lines = @($objectives -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch '^#' } | Select-Object -First 3)
-        Draw-Wrapped $G ($lines -join "`n") $F.Small $P.Muted $tx ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 56)
+    $tw = $card.Width - (Px 32)
+    if (-not $people.Count) {
+        $text = if ($policy.reportDir) { Tx 'Todav\u00eda no hay informes en la carpeta del equipo: cada persona aparece al exportar el suyo.' } else { Tx 'Pon reportDir en la pol\u00edtica (una carpeta compartida) para ver aqu\u00ed al equipo: qui\u00e9n est\u00e1 conectado, sus tokens y su \u00faltima conexi\u00f3n.' }
+        Draw-Wrapped $G $text $F.Small $P.Muted $tx ($card.Y + (Px 14)) $tw (Px 40)
     } else {
-        Draw-Wrapped $G (Tx 'Sin objetivos. Escr\u00edbelos y Claude Judge (Planear sesi\u00f3n) juzgar\u00e1 cada idea tambi\u00e9n por si mueve alguno.') $F.Small $P.Faint $tx ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 40)
+        $cols = @(@{ T = 'PERSONA'; X = 0.0 }, @{ T = 'ESTADO'; X = 0.17 }, @{ T = (Tx 'SESI\u00d3N'); X = 0.36 }, @{ T = 'TOKENS 30 D'; X = 0.52 }, @{ T = (Tx '\u00daLTIMA CONEXI\u00d3N'); X = 0.64 }, @{ T = 'ASIENTO'; X = 0.82 })
+        foreach ($col in $cols) { Draw-Text $G $col.T $F.Caps $P.Muted ($tx + [int]($tw * $col.X)) ($card.Y + (Px 10)) (Px 150) (Px 18) }
+        $ry = $card.Y + (Px 34)
+        foreach ($person in @($people | Select-Object -First 6)) {
+            $pen = New-HubPen $P.Border 1
+            $G.DrawLine($pen, $tx, $ry, $tx + $tw, $ry)
+            $pen.Dispose()
+            $cy = $ry + (Px 4)
+            $colX = { param($i) $tx + [int]($tw * $cols[$i].X) }
+            $colW = { param($i) $(if ($i -lt $cols.Count - 1) { [int]($tw * ($cols[$i + 1].X - $cols[$i].X)) - (Px 8) } else { [int]($tw * (1 - $cols[$i].X)) }) }
+            Draw-Text $G ($person.User + $(if ($person.Me) { (Tx ' \u00b7 t\u00fa') } else { '' })) $F.BodyStrong $P.Text (& $colX 0) $cy (& $colW 0) (Px 22)
+            Draw-HubDot $G (& $colX 1) ($cy + (Px 7)) (Px 8) $(if ($person.Online) { $P.Ok } else { $P.Faint })
+            $state = if ($person.Online) { $(if ($person.Sessions -eq 1) { Tx '1 sesi\u00f3n' } elseif ($person.Sessions) { (Tx '{0} sesiones') -f $person.Sessions } else { 'sin sesiones' }) } else { 'desconectado' }
+            Draw-Text $G $state $F.Small $(if ($person.Online) { $P.Text } else { $P.Muted }) ((& $colX 1) + (Px 14)) $cy ((& $colW 1) - (Px 14)) (Px 22)
+            if ($null -ne $person.Percent) {
+                $bar = New-Rect (& $colX 2) ($cy + (Px 8)) (Px 44) (Px 6)
+                Fill-Round $G $bar (Px 3) $P.Track
+                if ($person.Percent -gt 0) { Fill-Round $G (New-Rect $bar.X $bar.Y ([Math]::Max((Px 6), [int]($bar.Width * [Math]::Min(100, $person.Percent) / 100))) $bar.Height) (Px 3) $P[(Get-UsageLevel $person.Percent)] }
+                Draw-Text $G "$($person.Percent) %" $F.Small $P.Text ($bar.Right + (Px 6)) $cy (Px 40) (Px 22)
+            } else { Draw-Text $G ([string][char]0x2013) $F.Small $P.Faint (& $colX 2) $cy (Px 20) (Px 22) }
+            Draw-Text $G $(if ($person.Tokens) { Format-HubTokens $person.Tokens } else { [string][char]0x2013 }) $F.Small $P.Text (& $colX 3) $cy (& $colW 3) (Px 22)
+            $last = if ($person.Online) { L 'ahora' } elseif ($person.Last) { try { Format-DialogDateTime ([datetime]$person.Last) $now } catch { '' } } else { '' }
+            Draw-Text $G $last $F.Small $P.Muted (& $colX 4) $cy (& $colW 4) (Px 22)
+            $recColor = switch ($person.Rec) { 'up' { $P.Warn } 'down' { $P.Ok } default { $P.Muted } }
+            Draw-Text $G (Format-SeatAdvice $person.Rec) $F.Small $recColor (& $colX 5) $cy (& $colW 5) (Px 22)
+            $ry += Px 30
+        }
     }
 
-    # the team kit
-    $kit = @($c.BusinessKit)
-    $missing = @($kit | Where-Object { -not $_.Installed -and $_.Valid })
-    Draw-HubCaption $G 'KIT DEL EQUIPO' $X0 (Px 444) $Inner $(if ($kit.Count) { ((L '{0} de {1} instalados') -f @($kit | Where-Object { $_.Installed }).Count, $kit.Count) } else { '' })
-    $card = New-Rect $X0 (Px 466) $Inner (Px 140)
-    Draw-HubCard $G $card
-    $job = $c.MaxxStatus
-    $busy = $job -and $job.state -eq 'running'
-    if (-not $kit.Count) {
-        Draw-Wrapped $G (Tx 'La pol\u00edtica no define plugins. A\u00f1ade "marketplaces" (owner/repo) y "plugins" (nombre@marketplace) y cada persona los instala con un clic: skills, MCP y comandos del equipo.') $F.Small $P.Faint $tx ($card.Y + (Px 14)) ($card.Width - (Px 32)) (Px 60)
-        return
-    }
-    $right = $card.Right - (Px 16)
-    if ($busy -and $job.action -eq 'team-install') {
-        Draw-Text $G (Tx 'Instalando\u2026') $F.Small $P.Accent ($right - (Px 110)) ($card.Y + (Px 12)) (Px 110) (Px 26) 'Right'
-    } elseif ($missing.Count -and -not $busy) {
-        $bw = Get-PillWidth 'Instalar lo que falta'
-        Draw-PillButton $G $Map $Hover 'biz-kit' (New-Rect ($right - $bw) ($card.Y + (Px 12)) $bw (Px 26)) 'Instalar lo que falta' { Install-HubTeamKit } -Accent
-    }
-    $y = $card.Y + (Px 14)
-    foreach ($item in @($kit | Select-Object -First 5)) {
-        $mark = if (-not $item.Valid) { '!' } elseif ($item.Installed) { [string][char]0x2713 } else { [string][char]0x25CB }
-        $color = if (-not $item.Valid) { $P.Error } elseif ($item.Installed) { $P.Ok } else { $P.Muted }
-        Draw-Text $G $mark $F.BodyStrong $color $tx $y (Px 18) (Px 20)
-        $name, $market = ([string]$item.Ref).Split('@', 2)
-        Draw-Text $G $name $F.Body $P.Text ($tx + (Px 22)) $y (Px 220) (Px 20)
-        Draw-Text $G $(if ($item.Valid) { $market } else { (Tx 'nombre no v\u00e1lido: usa nombre@marketplace') }) $F.Small $P.Faint ($tx + (Px 250)) ($y + (Px 2)) (Px 200) (Px 18)
-        $y += Px 22
-    }
-    if ($job -and $job.action -eq 'team-install' -and $job.state -ne 'running') {
-        Draw-Text $G ([string]$job.message) $F.Small $(if ($job.state -eq 'error') { $P.Error } else { $P.Ok }) $tx ($card.Bottom - (Px 24)) ($card.Width - (Px 32)) (Px 18)
+    # reports, the team kit and the policy, side by side
+    $by = $card.Bottom + $gap
+    # Reports gets the most room: its two buttons side by side.
+    $w0 = [int](($Inner - 2 * $gap) * 0.38)
+    $w1 = [int](($Inner - 2 * $gap) * 0.29)
+    $bh = Px 92
+    foreach ($i in 0, 1, 2) {
+        $bxs = @($X0, ($X0 + $w0 + $gap), ($X0 + $w0 + $w1 + 2 * $gap))
+        $box = New-Rect $bxs[$i] $by $(if ($i -eq 0) { $w0 } elseif ($i -eq 1) { $w1 } else { $Inner - $w0 - $w1 - 2 * $gap }) $bh
+        Draw-HubCard $G $box
+        $bx = $box.X + (Px 14)
+        $bw = $box.Width - (Px 28)
+        switch ($i) {
+            0 {
+                Draw-Text $G 'Informes' $F.BodyStrong $P.Text $bx ($box.Y + (Px 10)) $bw (Px 22)
+                $seat = $c.BusinessSeat
+                $sub = if ($seat -and $seat.lastReportError) { (L 'No se pudo enviar: ') + $seat.lastReportError } elseif ($seat -and $seat.lastReportAt) { try { (Tx '\u00daltimo: ') + (Format-DialogDateTime ([datetime]$seat.lastReportAt) $now) } catch { '' } } else { Tx 'Sin enviar todav\u00eda' }
+                Draw-Text $G $sub $F.Small $(if ($seat -and $seat.lastReportError) { $P.Error } else { $P.Muted }) $bx ($box.Y + (Px 32)) $bw (Px 18)
+                $label = 'Exportar mi informe'
+                $pw = Get-PillWidth $label
+                Draw-PillButton $G $Map $Hover 'biz-export' (New-Rect $bx ($box.Bottom - (Px 36)) $pw (Px 26)) $label { Export-HubSeatReport } -Accent
+                if ($policy.reportDir) {
+                    $tw2 = Get-PillWidth 'Equipo'
+                    Draw-PillButton $G $Map $Hover 'biz-team' (New-Rect ($bx + $pw + (Px 6)) ($box.Bottom - (Px 36)) $tw2 (Px 26)) 'Equipo' { Open-HubTeamReport }
+                }
+            }
+            1 {
+                $kit = @($c.BusinessKit)
+                $missing = @($kit | Where-Object { -not $_.Installed -and $_.Valid })
+                Draw-Text $G 'Kit del equipo' $F.BodyStrong $P.Text $bx ($box.Y + (Px 10)) $bw (Px 22)
+                $job = $c.MaxxStatus
+                $busy = $job -and $job.state -eq 'running'
+                $sub = if (-not $kit.Count) { (Tx 'La pol\u00edtica no define plugins.') } elseif ($missing.Count) { (L 'Falta {0}: {1}') -f $missing.Count, ((@($missing | ForEach-Object { ([string]$_.Ref).Split('@')[0] })) -join ', ') } else { (L '{0} de {0} instalados') -f $kit.Count }
+                Draw-Text $G $sub $F.Small $(if ($missing.Count) { $P.Warn } else { $P.Muted }) $bx ($box.Y + (Px 32)) $bw (Px 18)
+                if ($busy -and $job.action -eq 'team-install') { Draw-Text $G (Tx 'Instalando\u2026') $F.Small $P.Accent $bx ($box.Bottom - (Px 36)) $bw (Px 26) }
+                elseif ($missing.Count) {
+                    $pw = Get-PillWidth 'Instalar lo que falta'
+                    Draw-PillButton $G $Map $Hover 'biz-kit' (New-Rect $bx ($box.Bottom - (Px 36)) $pw (Px 26)) 'Instalar lo que falta' { Install-HubTeamKit }
+                }
+            }
+            2 {
+                $off = @($policy.disabled | Where-Object { $script:BusinessModules.Contains([string]$_) })
+                Draw-Text $G $(if ($off.Count) { (Tx 'TI apag\u00f3 {0} m\u00f3dulos') -f $off.Count } else { 'Todo encendido' }) $F.BodyStrong $P.Text $bx ($box.Y + (Px 10)) $bw (Px 22)
+                Draw-Text $G ((@($off | ForEach-Object { $script:BusinessModules[[string]$_] })) -join ', ') $F.Small $P.Muted $bx ($box.Y + (Px 32)) $bw (Px 18)
+                $pw = Get-PillWidth (Tx 'Pol\u00edtica')
+                Draw-PillButton $G $Map $Hover 'biz-policy' (New-Rect $bx ($box.Bottom - (Px 36)) $pw (Px 26)) (Tx 'Pol\u00edtica') { Open-HubPolicy }
+                $ow = Get-PillWidth 'Objetivos'
+                Draw-PillButton $G $Map $Hover 'biz-objectives' (New-Rect ($bx + $pw + (Px 6)) ($box.Bottom - (Px 36)) $ow (Px 26)) 'Objetivos' { Edit-HubObjectives }
+            }
+        }
     }
 }
+
 
 # ---------------------------------------------------------------- preview (tray.ps1 -RenderHubTo, -HubSection business or home-business)
 
 function Set-BusinessPreview {
-    $policy = Merge-BusinessPolicy ([pscustomobject]@{ company = 'Acme'; seatName = 'Premium'; seatMonthlyUsd = 150; reportDir = '\\files\claude\informes'; autoReport = $true
+    $policy = Merge-BusinessPolicy ([pscustomobject]@{ company = 'Acme'; seatName = 'Premium'; seatMonthlyUsd = 150; reportDir = '\\files\claude\informes'; autoReport = $true; reportPresence = $true
         marketplaces = @('acme/claude-kit'); plugins = @('acme-standards@acme-kit', 'jira-mcp@acme-kit', 'skill-creator@claude-plugins-official') })
     $script:Business = [pscustomobject]@{ Edition = 'business'; Business = $true; Policy = $policy; Source = 'C:\ProgramData\ClaudeMaxxing\policy.json'; Managed = $true }
     $c = $script:Hub.Cache
@@ -350,4 +411,17 @@ function Set-BusinessPreview {
     $c.BusinessObjectivesManaged = $true
     $c.BusinessKit = @([pscustomobject]@{ Ref = 'acme-standards@acme-kit'; Installed = $true; Valid = $true }, [pscustomobject]@{ Ref = 'jira-mcp@acme-kit'; Installed = $false; Valid = $true },
         [pscustomobject]@{ Ref = 'skill-creator@claude-plugins-official'; Installed = $true; Valid = $true })
+    # The team: six reports, four people connected now (this PC is one of them).
+    $team = @(
+        @('ana', $env:COMPUTERNAME, 31.2e6, 1840, 'up', 2, 37, 0), @('luis', 'PC-LUIS', 44.8e6, 2410, 'up', 3, 88, 0), @('marta', 'PC-MARTA', 22.5e6, 1210, 'fit', 1, 12, 0),
+        @('diego', 'PC-DIEGO', 18.0e6, 960, 'fit', 0, $null, 0), @('paula', 'PC-PAULA', 27.1e6, 1490, 'fit', -1, $null, 0.4), @('sara', 'PC-SARA', 2.4e6, 130, 'down', -1, $null, 9))
+    $c.BusinessTeam = @(foreach ($t in $team) {
+        $user = if ($t[1] -eq $env:COMPUTERNAME) { $env:USERNAME } else { $t[0] }
+        [pscustomobject]@{ user = $user; computer = $t[1]; at = $now.AddDays(-$t[7] - 1).ToString('o'); tokens = $t[2]; apiCostUsd = $t[3]; recommendation = $t[4]; seatName = 'Premium'; seatMonthlyUsd = 150 } })
+    $c.BusinessPresence = @{}
+    foreach ($t in $team) {
+        $user = if ($t[1] -eq $env:COMPUTERNAME) { $env:USERNAME } else { $t[0] }
+        $at = if ($t[5] -ge 0) { $now.AddMinutes(-2) } else { $now.AddDays(-$t[7]).AddHours(-3) }
+        $c.BusinessPresence[($t[1] + '\' + $user).ToLowerInvariant()] = [pscustomobject]@{ user = $user; computer = $t[1]; at = $at.ToString('o'); sessions = [Math]::Max(0, $t[5]); sessionPercent = $t[6] }
+    }
 }

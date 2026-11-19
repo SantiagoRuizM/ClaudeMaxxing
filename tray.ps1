@@ -394,7 +394,8 @@ $Notify.Visible = -not $Rendering
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 # Grouped like the ClaudeMaxxing window: the window, usage, scheduling, the other tools. Names match its sections.
 [void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
-if (Test-HubModule 'judge') { [void]$menu.Items.Add((Ux 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' }) }
+# Planear sesion is the automatic agenda's tab now; Claude Judge (the policy's 'judge') is a link inside it.
+[void]$menu.Items.Add((Ux 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' })
 [void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
 [void]$menu.Items.Add('Actualizar uso', $null, { Start-UsageRefresh; Show-Popup })
