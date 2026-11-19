@@ -153,6 +153,13 @@ $whipState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.
 Write-Host "Claude Whip: $whipState"
 if ($whipState -like 'skipped*') { Add-Warning "Claude Whip $whipState" }
 
+# PDF: Claude reads PDFs as Markdown (PyMuPDF4LLM) instead of page images, in every session.
+$pdfState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'pdf')
+Write-Host "PDF: $pdfState"
+if ($pdfState -like 'skipped*') { Add-Warning "PDF $pdfState" }
+$pdfNote = Install-PdfDependencies (Join-Path $InstallDir 'pdf')
+if ($pdfNote.Warn) { Add-Warning $pdfNote.Text } else { Write-Host $pdfNote.Text }
+
 # ---------------------------------------------------------------- 5. Explorer menu
 Write-Step 'Explorer menu (Abrir con Claude Code)'
 if ($SkipMenu) {

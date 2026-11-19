@@ -15,7 +15,9 @@ $script:RuntimeFiles = @(
     'peek\windows\reveal.ps1',
     # Claude Whip: the plugin that holds a session to reading and planning when the plan runs low (lib\whip.ps1).
     'whip\.claude-plugin\plugin.json', 'whip\hooks\hooks.json', 'whip\hooks\register.ts', 'whip\hooks\rules.ts',
-    'whip\skills\claude-whip\SKILL.md', 'whip\bin\whip-run.sh', 'whip\bin\whip-check.sh'
+    'whip\skills\claude-whip\SKILL.md', 'whip\bin\whip-run.sh', 'whip\bin\whip-check.sh',
+    # PDF: the plugin whose skill has Claude read PDFs as Markdown (PyMuPDF goes in pdf\venv, Install-PdfDependencies).
+    'pdf\.claude-plugin\plugin.json', 'pdf\skills\pdf-markdown\SKILL.md', 'pdf\bin\pdf2md.sh', 'pdf\bin\pdf2md.py'
 )
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
 # claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
@@ -150,9 +152,9 @@ function Invoke-Winget([string]$Id) {
         Out-Null
 }
 
-# A Python 3.8+ that really runs. On a clean Windows, the python.exe on PATH is a Store alias that only opens
+# A Python 3.$Minor+ that really runs. On a clean Windows, the python.exe on PATH is a Store alias that only opens
 # the Store, so each candidate is run.
-function Find-Python {
+function Find-Python([int]$Minor = 8) {
     $candidates = New-Object System.Collections.Generic.List[object]
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($py) { $candidates.Add(@($py.Source, '-3')) }
@@ -169,11 +171,42 @@ function Find-Python {
         $pyArgs = @($candidate | Select-Object -Skip 1)
         if (-not (Test-Path -LiteralPath $exe)) { continue }
         try {
-            $ok = & $exe @pyArgs -c 'import sys; print(sys.version_info >= (3, 8))' 2>$null
+            $ok = & $exe @pyArgs -c "import sys; print(sys.version_info >= (3, $Minor))" 2>$null
             if ($LASTEXITCODE -eq 0 -and "$ok".Trim() -eq 'True') { return , $candidate }
         } catch { }
     }
     $null
+}
+
+# The python.exe of a Python environment of our own at $VenvDir, made when missing (Python itself with winget when
+# there is none); $null when it cannot be made.
+function New-PythonVenv([string]$VenvDir, [string]$Label, [int]$Minor = 8) {
+    $venvPython = Join-Path $VenvDir 'Scripts\python.exe'
+    if (Test-Path -LiteralPath $venvPython) { return $venvPython }
+    $python = Find-Python $Minor
+    if (-not $python -and (Test-Winget)) {
+        Write-Host 'installing Python with winget...'
+        Invoke-Winget 'Python.Python.3.12'
+        $python = Find-Python $Minor
+    }
+    if (-not $python) { return $null }
+    Write-Host "creating the $Label Python environment..."
+    $pyArgs = @($python | Select-Object -Skip 1)
+    & $python[0] @pyArgs -m venv $VenvDir 2>&1 | Out-Null
+    if (Test-Path -LiteralPath $venvPython) { $venvPython } else { $null }
+}
+
+# PDF (pdf\): PyMuPDF, which brings PyMuPDF4LLM (AGPL-3.0, about 250 MB with its layout model), in a Python
+# environment of its own. pip fetches it on this PC; the repo never ships it. Returns a note for the installer.
+function Install-PdfDependencies([string]$PdfDir) {
+    $python = New-PythonVenv (Join-Path $PdfDir 'venv') 'PDF' 11
+    if ($python) {
+        Write-Host 'installing or updating PyMuPDF (PDF to Markdown)...'
+        & $python -m pip install --disable-pip-version-check --quiet --upgrade pymupdf 2>&1 | Out-Null
+        & $python -I -c 'import pymupdf4llm' 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { return New-Note "PyMuPDF4LLM: $python" }
+    }
+    New-Note -Warn 'PyMuPDF could not be installed (needs Python 3.11+ and internet): Claude reads PDFs as page images, which costs more of the plan, until you run install.ps1 again.'
 }
 
 function Find-Ffplay {
@@ -218,21 +251,8 @@ function Install-VoiceDependencies([string]$VoiceDir) {
     # edge-tts, always in our own Python environment and always the latest release: Microsoft changes the
     # service's token every few months and older versions get 403 (another app's copy on PATH may be stale).
     $venvEdge = Join-Path $VoiceDir 'venv\Scripts\edge-tts.exe'
-    $venvPython = Join-Path $VoiceDir 'venv\Scripts\python.exe'
-    if (-not (Test-Path -LiteralPath $venvPython)) {
-        $python = Find-Python
-        if (-not $python -and (Test-Winget)) {
-            Write-Host 'installing Python with winget...'
-            Invoke-Winget 'Python.Python.3.12'
-            $python = Find-Python
-        }
-        if ($python) {
-            Write-Host 'creating the voice Python environment...'
-            $pyArgs = @($python | Select-Object -Skip 1)
-            & $python[0] @pyArgs -m venv (Join-Path $VoiceDir 'venv') 2>&1 | Out-Null
-        }
-    }
-    if (Test-Path -LiteralPath $venvPython) {
+    $venvPython = New-PythonVenv (Join-Path $VoiceDir 'venv') 'voice'
+    if ($venvPython) {
         Write-Host 'installing or updating edge-tts...'
         & $venvPython -m pip install --disable-pip-version-check --quiet --upgrade edge-tts 2>&1 | Out-Null
     }

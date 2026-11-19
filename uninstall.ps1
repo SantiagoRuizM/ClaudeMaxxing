@@ -81,6 +81,7 @@ Write-Host (Uninstall-EggFont)
 Write-Host "Peek: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'peek'))"
 Write-Host "Theme: $(Uninstall-ThemeSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'theme'))"
 Write-Host "Claude Whip: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip'))"
+Write-Host "PDF: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'pdf'))"
 
 if (Test-Path -LiteralPath $UninstallKey) { Remove-Item -LiteralPath $UninstallKey -Recurse; Write-Host 'Settings > Apps entry removed' }
 

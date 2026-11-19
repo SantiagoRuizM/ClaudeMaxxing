@@ -73,7 +73,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 
 | Where | What |
 |---|---|
-| `%LOCALAPPDATA%\ClaudeMaxxing` | The runtime: tray, menu launcher, voice. Voice settings for this PC go in `voice\config.local.json`, and edge-tts in `voice\venv` when it has to be installed |
+| `%LOCALAPPDATA%\ClaudeMaxxing` | The runtime: tray, menu launcher, voice. Voice settings for this PC go in `voice\config.local.json`, and edge-tts in `voice\venv` when it has to be installed. PyMuPDF (PDF to Markdown, about 250 MB) in `pdf\venv` |
 | `%LOCALAPPDATA%\ClaudeCodeMenu` | The Explorer extension (DLL, stub, icons) |
 | Packages | `ClaudeCode.ContextMenu`, a sparse package signed with this PC's `CN=ClaudeCodeMenu` certificate (CurrentUser\My, trusted in LocalMachine\TrustedPeople) |
 | `HKCU\Software\ClaudeCodeMenu\Launcher` | The command the menu entry runs |
@@ -200,6 +200,10 @@ Nothing global changes. `~/.claude/settings.json`, the scheduled warm-up, sessio
 ### Ahorro de tokens: context-mode
 
 The **Ahorro de contexto (context-mode)** switch in ClaudeMaxxing > Claude Code installs or turns on [context-mode](https://github.com/mksglu/context-mode) (Elastic License 2.0) as a Claude Code plugin, from its own marketplace through `claude plugin`. It keeps big tool outputs (logs, web pages, JSON) out of the context window and keeps the session's memory across compactions, so the plan's quota lasts longer. It applies to new sessions; turning the switch off disables the plugin. Its optional statusline is not installed, because the statusline is what feeds the usage tray. Its code is never copied into this repo.
+
+### PDF: reading a PDF for less of the plan
+
+Every Claude Code session loads the `pdf` plugin (through `CLAUDE_CODE_PLUGIN_DIRS`, like Peek). Its `pdf-markdown` skill has Claude turn a PDF into Markdown (text, headings, tables, with page markers) with [PyMuPDF4LLM](https://github.com/pymupdf/pymupdf4llm) instead of loading its pages as images, which costs many times more tokens: a 10-page manual is about 2,000 tokens. Pages with no text (a scan) and figures are still read with Read. The installer puts PyMuPDF in a Python environment of its own (`pdf\venv`, Python 3.11+, about 250 MB); PyMuPDF is AGPL-3.0, downloaded from PyPI on your PC, and never copied into this repo.
 
 ### Otros PCs: terminals between your PCs
 
