@@ -1,8 +1,10 @@
 # Changelog
 
-ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major** version changes how it installs or what it keeps on your PC in a way that needs you to act, a **minor** one adds tools or options, a **patch** one fixes things. The version lives in `lib/common.ps1` (`$AppVersion`) and must match the newest entry here; pushing the tag `v<version>` publishes a GitHub Release with the ZIP to install (`.github/workflows/release.yml`).
+ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major** version changes how it installs or what it keeps on your PC in a way that needs you to act, a **minor** one adds tools or options, a **patch** one fixes things. The version lives in `lib/common.ps1` (`$AppVersion`) and must match the newest entry here; pushing the tag `v<version>` publishes a GitHub Release with the ZIP to install (`.github/workflows/release.yml`). What counts as each kind of change, and how to release, is in [VERSIONING.md](VERSIONING.md).
 
 ## Unreleased
+
+- **Versioning policy** in `VERSIONING.md`: what counts as major, minor and patch, and how to release. A release must be tagged on `main` (or a `release/*` branch) and have a changelog entry.
 
 - **Claude Whip follows the forecast**: past half the 5-hour window, if it is on pace to run out before it resets, Whip comes on before its threshold and says at what time the limit would come. The shell guard is tighter (a lone `&`, extra lines, `$(...)`, backticks, `git -c`/`config`/`apply`, `sort -o`, `VAR=` prefixes, a `whip-check.sh` planted in the repo) and MCP tools that run code or write are blocked. The check stops a test command after 20 minutes.
 - **Claude Whip shows each agent's account**: the email, the plan (ChatGPT Plus, Copilot Free...) and until when, from each CLI's own login files; Copilot's plan comes from `gh api`, refreshed every 6 hours.

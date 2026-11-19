@@ -54,7 +54,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 - **Otros PCs is off until you turn it on** (**Activar** in its window, or `install.ps1 -Bridge`). Turning it on downloads the portable [Win32-OpenSSH](https://github.com/PowerShell/Win32-OpenSSH) release from GitHub (about 5 MB) and asks for a second UAC prompt for its firewall rules. The download is pinned: the zip must match a fixed SHA-256, and every program in it must be signed by Microsoft. An install where it was already set up keeps it.
 - The menu entry appears after you restart Explorer or sign out and back in.
 - To update, download a newer release (or `git pull`) and run `install.ps1` again. It is idempotent, and it keeps your per-PC settings (`voice\config.local.json`) and all your data.
-- Versions follow [Semantic Versioning](https://semver.org); what each one changed is in [CHANGELOG.md](CHANGELOG.md). The installed version shows in Settings > Apps > ClaudeMaxxing.
+- Versions follow [Semantic Versioning](https://semver.org); what each one changed is in [CHANGELOG.md](CHANGELOG.md), and what counts as a major, minor or patch version (and how to release) is in [VERSIONING.md](VERSIONING.md). The installed version shows in Settings > Apps > ClaudeMaxxing.
 
 | Option | Effect |
 |---|---|

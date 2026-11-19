@@ -21,12 +21,22 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: The tag is the version in lib\common.ps1
         shell: powershell
         run: |
           . .\lib\common.ps1
           if ("v$AppVersion" -ne $env:GITHUB_REF_NAME) { throw "tag $env:GITHUB_REF_NAME, but lib\common.ps1 says $AppVersion" }
+
+      # VERSIONING.md: releases come from main, or from a release/X.Y branch for a fix to an older version.
+      - name: The tag is on main or a release branch
+        shell: bash
+        run: |
+          if ! git branch -r --contains "$GITHUB_SHA" | grep -qE 'origin/(main|release/[^ ]+)$'; then
+            echo "tag $GITHUB_REF_NAME is not on main or a release/* branch"; exit 1
+          fi
 
       # get.ps1 (the one-command installer) downloads the ZIP and checks it against SHA256SUMS.txt.
       - name: Release with the ZIP, its SHA-256, get.ps1 and the changelog entry
@@ -38,4 +48,5 @@ jobs:
           git archive --format=zip --prefix="ClaudeMaxxing-$v/" -o "ClaudeMaxxing-$v.zip" HEAD
           sha256sum "ClaudeMaxxing-$v.zip" > SHA256SUMS.txt
           awk -v v="$v" '/^## /{ f = ($2 == v) } f' CHANGELOG.md | tail -n +2 > notes.md
+          grep -q '[^[:space:]]' notes.md || { echo "CHANGELOG.md has no entry for $v"; exit 1; }
           gh release create "$GITHUB_REF_NAME" "ClaudeMaxxing-$v.zip" SHA256SUMS.txt get.ps1 --title "ClaudeMaxxing $v" --notes-file notes.md
