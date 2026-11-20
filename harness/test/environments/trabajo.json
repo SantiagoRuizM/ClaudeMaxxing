@@ -1,0 +1,52 @@
+{
+  "name": "Trabajo",
+  "focus": "Cliente: backend Django + frontend React/Vite",
+  "chromeProfile": "Profile 7",
+  "graceSeconds": 8,
+  "closeProfiles": [{ "email": "personal@example.com", "reason": "perfil Personal: personal, fuera de Trabajo" }],
+  "folder": "C:\\Users\\me\\Documents\\Projects\\Trabajo",
+  "music": { "folder": "C:\\Users\\me\\Music\\Brain" },
+  "docker": { "composeDir": "C:\\Users\\me\\Documents\\Projects\\Trabajo\\Cliente" },
+  "claude": { "dir": "C:\\Users\\me\\Documents\\Projects\\Trabajo\\Cliente" },
+  "devServers": [
+    {
+      "name": "Frontend Vite",
+      "port": 5173,
+      "cwd": "C:\\Users\\me\\Documents\\Projects\\Trabajo\\Cliente\\frontend",
+      "command": "npm run dev -- --port 5173 --strictPort"
+    }
+  ],
+  "tabs": {
+    "open": [
+      { "name": "Django Admin", "url": "http://localhost:8000/api/v1/admin/" },
+      { "name": "Frontend", "url": "http://localhost:5173/" },
+      { "name": "GitHub PRs", "url": "https://github.com/example-org/Cliente/pulls", "match": "github\\.com/example-org/Cliente/pulls?\\b" },
+      { "name": "GitHub Actions", "url": "https://github.com/example-org/Cliente/actions", "match": "github\\.com/example-org/Cliente/actions" },
+      { "name": "AWS", "url": "https://example.awsapps.com/start", "match": "awsapps\\.com|console\\.aws\\.amazon\\.com|signin\\.aws" },
+      { "name": "Producción", "url": "https://app.example.com/", "match": "^https://app\\.example\\.com/" }
+    ],
+    "close": [
+      { "match": "music\\.youtube\\.com", "reason": "otra música: en Trabajo suena Brain.fm" },
+      { "match": "web\\.whatsapp\\.com", "reason": "mensajería" },
+      { "match": "mail\\.google\\.com", "reason": "correo" },
+      { "match": "claude\\.ai/", "reason": "chat de Claude fuera del repo" },
+      { "match": "calendar\\.google\\.com", "reason": "agenda: fuera del bloque de foco" }
+    ],
+    "keep": [
+      { "match": "^https?://(localhost|127\\.0\\.0\\.1)(:|/)", "reason": "servidor local" },
+      { "match": "^chrome(-extension)?://", "reason": "página interna de Chrome" },
+      { "match": "^https://github\\.com/example-org/", "reason": "repos de Trabajo" },
+      { "match": "awsapps\\.com|console\\.aws\\.amazon\\.com|signin\\.aws", "reason": "AWS de Trabajo" },
+      { "match": "^https://app\\.(sandbox\\.)?example\\.com/", "reason": "producción y sandbox" }
+    ],
+    "focusTopics": "\\b(django|drf|rest framework|react|vite|tailwind|shadcn|typescript|postgres(ql)?|docker|celery|redis|apis?|trabajo|cliente|tanstack|python|pytest|uv|aws|ecs|fargate|terraform|opentofu|github actions|playwright|vitest|expo|react native)\\b"
+  },
+  "closeApps": [
+    { "process": "steam", "reason": "juegos" },
+    { "process": "ollama", "reason": "modelos locales: consume RAM y GPU" },
+    { "process": "ollama app", "reason": "bandeja de Ollama" },
+    { "process": "FreeLLMAPI", "reason": "no se usa en Trabajo" },
+    { "process": "SystemSettings", "reason": "Configuración de Windows abierta" },
+    { "process": "RtkUWP", "reason": "Realtek Audio Console abierta" }
+  ]
+}

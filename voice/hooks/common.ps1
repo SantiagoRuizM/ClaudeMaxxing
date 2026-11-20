@@ -9,6 +9,7 @@ $HistoryDir    = Join-Path $StateDir 'history'
 $MuteFile      = Join-Path $StateDir 'muted'
 $LogFile       = Join-Path $StateDir 'claude-voice.log'
 $DuckFile      = Join-Path $StateDir 'duck.json'
+$SpeakingFile  = Join-Path $StateDir 'speaking.json'  # el reproductor que tiene el turno (play.ps1); lo lee la bandeja
 $Utf8          = New-Object System.Text.UTF8Encoding($false)
 $DefaultMarker = [char]::ConvertFromUtf32(0x1F50A)  # altavoz
 $DefaultPool   = @('es-CO-SalomeNeural', 'es-CO-GonzaloNeural', 'es-US-PalomaNeural', 'es-US-AlonsoNeural',
@@ -74,8 +75,26 @@ function Read-JsonFile([string]$Path) {
     try { return [IO.File]::ReadAllText($Path, $Utf8) | ConvertFrom-Json } catch { return $null }
 }
 
+# An API key from config.local.json: "dpapi:<base64>" (lib\common.ps1, Protect-Secret) or a plain one saved before.
+function Unprotect-Secret([string]$Value) {
+    if (-not $Value.StartsWith('dpapi:')) { return $Value }
+    Add-Type -AssemblyName System.Security
+    try { [Text.Encoding]::UTF8.GetString([System.Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($Value.Substring(6)), $null, 'CurrentUser')) }
+    catch { '' }
+}
+
+# -InputObject keeps a one-item array an array. Written to a temporary file and renamed over the old one, so another
+# session's hook never reads it half written (in place when a reader blocks the rename).
 function Write-JsonFile([string]$Path, $Value) {
-    [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 6), $Utf8)
+    $json = ConvertTo-Json -InputObject $Value -Depth 6
+    $tmp = '{0}.{1}.tmp' -f $Path, [guid]::NewGuid().ToString('N').Substring(0, 8)
+    try {
+        [IO.File]::WriteAllText($tmp, $json, $Utf8)
+        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [IO.File]::Move($tmp, $Path) }
+    } catch {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        [IO.File]::WriteAllText($Path, $json, $Utf8)
+    }
 }
 
 # Lee el JSON del evento desde stdin como bytes UTF-8. No usa [Console]::InputEncoding
@@ -124,6 +143,48 @@ function Get-SessionFile([string]$Kind, [string]$SessionId) {
     Join-Path $StateDir ('{0}-{1}' -f $Kind, (Get-SessionKey $SessionId))
 }
 
+# Titulo de la pestana en las sesiones del menu: open-session.ps1 las abre con CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
+# (sin el asterisco ni el spinner de Claude Code delante) y los hooks escriben "Nombre - rol" en la consola del
+# claude de la sesion. -Busy le anade un espacio de ancho cero al final mientras trabaja: la bandeja lo lee para
+# animar el huevo (Test-SessionTitleBusy en lib\traysessions.ps1). Va al final del hook, ya escrito su JSON.
+function Set-SessionTerminalTitle($Info, [switch]$Busy) {
+    if ("$env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE" -ne '1' -or -not $Info -or -not "$($Info.title)") { return }
+    Import-Native
+    $claudePid = [ClaudeVoice.Title]::FindAncestor($PID, 'claude', 6)
+    if (-not $claudePid) { return }
+    $text = "$($Info.title)"
+    if ($Busy) { $text += [char]0x200B }
+    [void][ClaudeVoice.Title]::Set($claudePid, $text)
+}
+
+# El id con que el menu abrio esta ventana: claude conserva su --session-id en la linea de comandos aunque /clear
+# le de otro id a la conversacion. Se guarda una vez por sesion en origin-<clave> (vacio si no lo hay); la bandeja
+# encuentra por el el huevo de quien habla. $ParentId: el proceso desde donde subir (el que lanzo el hook).
+function Save-SessionOrigin([string]$SessionId, [int]$ParentId = $PID) {
+    $file = Get-SessionFile 'origin' $SessionId
+    if ((Get-SessionKey $SessionId) -eq 'manual' -or (Test-Path -LiteralPath $file)) { return }
+    $origin = ''
+    $procId = $ParentId
+    for ($depth = 0; $depth -lt 8 -and $procId -gt 0; $depth++) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+        if (-not $proc) { break }
+        if ("$($proc.CommandLine)" -match '--session-id\s+"?([0-9A-Fa-f-]{36})') { $origin = Get-SessionKey $Matches[1]; break }
+        $procId = [int]$proc.ParentProcessId
+    }
+    Write-JsonFile $file ([pscustomobject]@{ origin = $origin })
+}
+
+# The transcript of the turn that just started, in turn-<origin key> (the id the menu opened the window with, the
+# tray's key for its egg; the current id when there is none). The tray reads its tail: Claude Code runs no hook when
+# the user interrupts a turn (Test-SessionTurnEnded in lib\traysessions.ps1).
+function Save-SessionTurn([string]$SessionId, [string]$TranscriptPath) {
+    if ((Get-SessionKey $SessionId) -eq 'manual') { return }
+    Save-SessionOrigin $SessionId
+    $origin = Read-JsonFile (Get-SessionFile 'origin' $SessionId)
+    $key = if ($origin -and "$($origin.origin)") { "$($origin.origin)" } else { Get-SessionKey $SessionId }
+    Write-JsonFile (Join-Path $StateDir "turn-$key") ([pscustomobject]@{ transcript = $TranscriptPath })
+}
+
 # Archivos de un tipo (voice-*, name-*) usados en las ultimas horas = sesiones activas.
 function Get-ActiveStateFiles($Config, [string]$Kind) {
     $hours = [int](Get-Opt $Config 'sessionActiveHours' 12)
@@ -131,18 +192,41 @@ function Get-ActiveStateFiles($Config, [string]$Kind) {
         Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-$hours) }
 }
 
-# Silenciado si: CLAUDEVOICE=off en el entorno de la sesion, silencio global o silencio de la sesion.
+# Claude Whisper (whisper.ps1) tiene este mutex mientras escucha: una voz bajaria el volumen de la llamada
+# y Whisper la transcribiria como si fuera la otra parte.
+function Test-WhisperListening {
+    $m = $null
+    if ([System.Threading.Mutex]::TryOpenExisting('Local\ClaudeWhisperListening', [ref]$m)) { $m.Dispose(); return $true }
+    $false
+}
+
+# Silenciado si: CLAUDEVOICE=off en el entorno de la sesion, Claude Whisper escuchando una llamada,
+# silencio global o silencio de la sesion.
 function Test-Muted([string]$SessionId) {
     if ("$env:CLAUDEVOICE" -eq 'off') { return $true }
+    if (Test-WhisperListening) { return $true }
     if (Test-Path $MuteFile) { return $true }
     return Test-Path (Get-SessionFile 'muted' $SessionId)
 }
 
+# El pool de voces con la preferencia de genero (voiceGender: f, m o mix, de Configuracion en la ventana).
+# Si no queda ninguna de ese genero, el pool entero.
+function Get-VoicePool($Config) {
+    $pool = @(Get-Opt $Config 'edge.voicePool' $DefaultPool)
+    $want = "$(Get-Opt $Config 'voiceGender' 'mix')"
+    if ($want -notin 'f', 'm') { return $pool }
+    $kept = @($pool | Where-Object { (Get-VoiceGender $Config $_) -eq $want })
+    if ($kept.Count) { return $kept }
+    return $pool
+}
+
 # Voz de la sesion, por prioridad: CLAUDEVOICE_VOICE > elegida con /voz > asignada del pool
-# (la primera que no use otra sesion activa) > edge.voice.
+# (la primera que no use otra sesion activa) > edge.voice (o la primera del genero preferido).
 function Get-SessionVoice($Config, [string]$SessionId) {
     if ($env:CLAUDEVOICE_VOICE) { return $env:CLAUDEVOICE_VOICE }
+    $pool = Get-VoicePool $Config
     $fallback = Get-Opt $Config 'edge.voice' 'es-CO-SalomeNeural'
+    if ($pool -notcontains $fallback -and "$(Get-Opt $Config 'voiceGender' 'mix')" -in 'f', 'm') { $fallback = $pool[0] }
     $file = Get-SessionFile 'voice' $SessionId
     if (Test-Path $file) {
         (Get-Item $file).LastWriteTime = Get-Date
@@ -153,7 +237,6 @@ function Get-SessionVoice($Config, [string]$SessionId) {
     Use-StateLock {
         if (Test-Path $file) { return [IO.File]::ReadAllText($file, $Utf8).Trim() }  # otra llamada gano
         $recent = Get-ActiveStateFiles $Config 'voice' | ForEach-Object { [IO.File]::ReadAllText($_.FullName, $Utf8).Trim() }
-        $pool  = @(Get-Opt $Config 'edge.voicePool' $DefaultPool)
         $voice = $pool | Where-Object { $recent -notcontains $_ } | Select-Object -First 1
         if (-not $voice) { $voice = $pool[@($recent).Count % $pool.Count] }
         [IO.File]::WriteAllText($file, $voice, $Utf8)
@@ -276,10 +359,75 @@ function Complete-SessionRole($Config, [string]$SessionId, $Info, [string]$Promp
     return $done
 }
 
+# What the voice says when a turn ends on the plan's limit: the window that is full (from the statusline's usage.json)
+# and when it comes back. Empty when no window is full (a passing rate limit) or another session said it in the last
+# 10 minutes: several sessions hit the same limit together.
+function Get-PlanLimitNotice([datetime]$Now = (Get-Date),
+        [string]$TrayDir = (Join-Path $env:USERPROFILE '.claude\usage-tray')) {
+    $usage = Read-JsonFile (Join-Path $TrayDir 'usage.json')
+    if (-not $usage -or -not $usage.rate_limits) { return '' }
+    $nowSec = ([DateTimeOffset]$Now).ToUnixTimeSeconds()
+    $reset = $null
+    foreach ($w in @($usage.rate_limits.five_hour, $usage.rate_limits.seven_day)) {
+        if (-not $w -or $null -eq $w.used_percentage -or [double]$w.used_percentage -lt 99 -or [long]$w.resets_at -le $nowSec) { continue }
+        $at = [DateTimeOffset]::FromUnixTimeSeconds([long]$w.resets_at).LocalDateTime
+        if (-not $reset -or $at -gt $reset) { $reset = $at }
+    }
+    if (-not $reset) { return '' }
+    $mark = Join-Path $StateDir 'limit-notice'
+    $last = 0L
+    if (Test-Path -LiteralPath $mark) { [void][long]::TryParse(([IO.File]::ReadAllText($mark)).Trim(), [ref]$last) }
+    if ($nowSec - $last -lt 600 -and $nowSec -ge $last) { return '' }
+    [IO.File]::WriteAllText($mark, [string]$nowSec)
+    $es = [Globalization.CultureInfo]::GetCultureInfo('es-ES')
+    $when = if ($reset.Date -eq $Now.Date) { 'a las ' + $reset.ToString('H:mm') }
+        elseif ($reset.Date -eq $Now.Date.AddDays(1)) { 'ma' + [char]0x00F1 + 'ana a las ' + $reset.ToString('H:mm') }
+        else { 'el ' + $reset.ToString('dddd', $es) + ' a las ' + $reset.ToString('H:mm') }
+    'Se acab' + [char]0x00F3 + " el plan de Claude. Vuelve $when."
+}
+
+# Context for a session's first prompt: the other menu sessions still open (sessions.json from open-session.ps1,
+# kept to the ones the tray shows as live in eggs.json), with their name, role and folder, so this one knows who
+# else is working and leaves their changes alone. Empty when there are none or the tray is not running.
+function Get-OtherSessionsNote([string]$SessionId, [string]$Cwd,
+        [string]$TrayDir = (Join-Path $env:USERPROFILE '.claude\usage-tray'), [int]$ParentId = $PID) {
+    # eggs.json outlives a tray that was killed: it only counts while the tray in tray.pid is running.
+    $trayPid = 0
+    $pidFile = Join-Path $TrayDir 'tray.pid'
+    if (Test-Path -LiteralPath $pidFile) { [void][int]::TryParse(([IO.File]::ReadAllText($pidFile)).Trim(), [ref]$trayPid) }
+    if (-not $trayPid -or -not (Get-Process -Id $trayPid -ErrorAction SilentlyContinue)) { return '' }
+    $live = Read-JsonFile (Join-Path $TrayDir 'eggs.json')
+    if (-not $live) { return '' }
+    $liveKeys = @($live.PSObject.Properties.Name)
+    $own = Get-SessionKey $SessionId
+    # After /clear this is a new id with no origin yet (Save-SessionTurn runs later): without it, this window's own
+    # menu session would be listed as another one.
+    Save-SessionOrigin $SessionId $ParentId
+    $ownOrigin = Read-JsonFile (Get-SessionFile 'origin' $SessionId)
+    # Assigned first: PowerShell 5.1's ConvertFrom-Json sends a JSON array down the pipeline as one object.
+    $all = Read-JsonFile (Join-Path $TrayDir 'sessions.json')
+    $lines = foreach ($s in @($all)) {
+        if (-not $s -or -not $s.sessionId) { continue }
+        $key = Get-SessionKey $s.sessionId
+        if ($liveKeys -notcontains $s.sessionId -or $key -eq $own -or ($ownOrigin -and $key -eq "$($ownOrigin.origin)")) { continue }
+        $info = Read-JsonFile (Get-SessionFile 'name' $s.sessionId)
+        $who = if ($info -and $info.title) { "$($info.title)" } else { "$($s.name)" }
+        $same = if ($Cwd -and "$($s.dir)".TrimEnd('\') -eq $Cwd.TrimEnd('\')) { ', tu misma carpeta' } else { '' }
+        '- {0}: {1}{2}' -f $who, $s.dir, $same
+    }
+    if (-not @($lines).Count) { return '' }
+    "Otras sesiones de Claude Code abiertas en este PC (nombre: carpeta):`n" + (@($lines) -join "`n") +
+        "`nLas que trabajan en tu carpeta pueden tener cambios sin commitear: no los toques ni los commitees. No las saludes ni les escribas salvo que el usuario lo pida."
+}
+
 # Borra estado de sesiones viejas para que %TEMP% no crezca sin limite.
 function Remove-StaleState {
-    Get-ChildItem $StateDir -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^(voice|muted|name|chime)-' -and $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+    Get-ChildItem $StateDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^(voice|muted|name|chime|origin|turn|engine-off)-' -and $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    # Native-<hash>.dll from older hook versions: the newest is the one in use (a loaded one is locked anyway).
+    Get-ChildItem $StateDir -Filter 'Native-*.dll' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending |
+        Select-Object -Skip 1 | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
@@ -357,11 +505,11 @@ function Get-History([int]$Count = 1, [string]$SessionId = '') {
 
 # ---------- bajar la musica ----------
 
-# Compila Mixer.cs (volumen por app) y Chime.cs (firma musical) a una DLL, una sola vez por
-# version de las fuentes, y la carga.
+# Compila Mixer.cs (volumen por app), Chime.cs (firma musical) y Title.cs (titulo de la pestana) a una
+# DLL, una sola vez por version de las fuentes, y la carga.
 function Import-Native {
     if ('ClaudeVoice.Chime' -as [type]) { return }
-    $sources = @('Mixer.cs', 'Chime.cs') | ForEach-Object { Join-Path $PSScriptRoot $_ }
+    $sources = @('Mixer.cs', 'Chime.cs', 'Title.cs') | ForEach-Object { Join-Path $PSScriptRoot $_ }
     $sha  = [Security.Cryptography.SHA1]::Create()
     $all  = [Text.Encoding]::UTF8.GetBytes((($sources | ForEach-Object { [IO.File]::ReadAllText($_) }) -join "`n"))
     $hash = ([BitConverter]::ToString($sha.ComputeHash($all)) -replace '-', '').Substring(0, 12)

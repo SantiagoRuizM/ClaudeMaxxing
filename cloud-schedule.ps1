@@ -13,15 +13,15 @@ Clear-ClaudeSessionEnv
 
 $logFile = Join-Path $RunsDir "cloud-$Id.log"
 try {
-    $config = Read-JsonFile $ConfigFile
-    if (-not $config -or -not $config.claudePath -or -not (Test-Path -LiteralPath $config.claudePath)) {
+    $claude = Resolve-ClaudePath
+    if (-not $claude) {
         throw 'claude not found; run install.ps1 again'
     }
     $when = [datetime]::ParseExact($At, 'yyyy-MM-ddTHH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
     if (-not (Test-Path -LiteralPath $RunsDir)) { New-Item -ItemType Directory -Force -Path $RunsDir | Out-Null }
     Push-Location $RunsDir
     try {
-        $output = & $config.claudePath -p (Format-CloudSchedulePrompt $when) --model sonnet `
+        $output = & $claude -p (Format-CloudSchedulePrompt $when) --model sonnet `
             --allowedTools RemoteTrigger --setting-sources user --no-session-persistence 2>&1 | Out-String
     } finally {
         Pop-Location

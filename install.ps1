@@ -9,15 +9,27 @@
 #      UAC prompt to trust this PC's signing certificate) and points it at the installed open-session.ps1,
 #   6. voice: /voz for menu sessions, edge-tts and ffplay (winget and pip, unless -SkipVoiceDeps) and the
 #      global hotkeys (unless -NoHotkeys),
-#   7. startup shortcut, an entry in Settings > Apps (its uninstall runs the installed uninstall.ps1), and
+#   7. Otros PCs, opt-in (-Bridge, the "Activar" button in the tray, or already set up by an earlier install;
+#      never with -SkipBridge): the pinned, Microsoft-signed portable OpenSSH in <install>\ssh, the Include in
+#      ~/.ssh/config, and the firewall rules (Private networks, local subnet; one UAC prompt the first time),
+#   8. startup shortcut, an entry in Settings > Apps (its uninstall runs the installed uninstall.ps1), and
 #      starts the tray.
+# Edition: -Personal (the default) or -Business (--personal / --business work too, and --bussines). The choice is
+# kept for the next update; a policy in %ProgramData%\ClaudeMaxxing (IT) makes it business. -PolicyFile <json> copies
+# a company policy for this user (and implies -Business). See lib\business.ps1 and business\policy.example.json.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$InstallDir,
     [switch]$NoStart,
     [switch]$SkipMenu,
     [switch]$BuildMenu,
     [switch]$SkipVoiceDeps,
-    [switch]$NoHotkeys
+    [switch]$NoHotkeys,
+    [switch]$SkipBridge,
+    [switch]$Bridge,
+    [switch]$Personal,
+    [Alias('Bussines')][switch]$Business,
+    [string]$PolicyFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +38,9 @@ $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $RepoRoot 'lib\statusline.ps1')
 . (Join-Path $RepoRoot 'lib\schedule.ps1')
 . (Join-Path $RepoRoot 'lib\installer.ps1')
+. (Join-Path $RepoRoot 'lib\bridge.ps1')
+. (Join-Path $RepoRoot 'lib\bridgeinstall.ps1')
+. (Join-Path $RepoRoot 'lib\business.ps1')
 if (-not $InstallDir) { $InstallDir = $DefaultInstallDir }
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
 if ($InstallDir -eq $RepoRoot.TrimEnd('\')) { throw 'The install folder cannot be the repo itself.' }
@@ -66,10 +81,34 @@ if ([Environment]::OSVersion.Version.Build -lt 22000) {
     Add-Warning 'This is not Windows 11 (untested): the "Abrir con Claude Code" entry may not show, or only under "Show more options".'
 }
 
+# ---------------------------------------------------------------- edition
+Write-Step 'Edition'
+$managed = Test-Path -LiteralPath (Join-Path $MachinePolicyDir 'policy.json')
+$saved = Read-JsonFile $EditionFile
+$edition = Resolve-Edition ($Business.IsPresent -or [bool]$PolicyFile) $Personal.IsPresent $(if ($saved) { [string]$saved.edition } else { '' }) $managed
+if ($Personal -and $managed) { Add-Warning "-Personal ignored: IT's policy in $MachinePolicyDir makes this PC business." }
+if ($PolicyFile) {
+    $policyPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PolicyFile)
+    if (-not (Read-JsonFile $policyPath)) { throw "The policy file is missing or is not valid JSON: $policyPath" }
+    New-Item -ItemType Directory -Force -Path $BusinessHome | Out-Null
+    Copy-Item -LiteralPath $policyPath -Destination $UserPolicyFile -Force
+    Write-Host "policy copied to $UserPolicyFile"
+}
+Write-JsonFile $EditionFile ([ordered]@{ edition = $edition; at = (Get-Date).ToString('o') })
+$businessState = Get-BusinessState
+Write-Host "edition: $edition"
+if ($businessState.Business) {
+    Write-Host "policy: $(if ($businessState.Source) { $businessState.Source } else { 'defaults (FreeLLMAPI, Otros PCs and Claude Whisper off)' })"
+    $off = @($businessState.Policy.disabled)
+    Write-Host "turned off by the policy: $(if ($off.Count) { $off -join ', ' } else { 'nothing' })"
+}
+
 # ---------------------------------------------------------------- 2. previous install
 Write-Step 'Stopping the running tray'
 $stopped = Stop-RecordedTray
 if ($stopped) { Write-Host "tray stopped (PID $stopped)" } else { Write-Host 'no tray running' }
+$stopped = Stop-RecordedWhisper
+if ($stopped) { Write-Host "Claude Whisper stopped (PID $stopped)" }
 
 # ---------------------------------------------------------------- 3. runtime files
 Write-Step 'Copying the runtime'
@@ -98,6 +137,28 @@ if ($statusline) {
 } else {
     Add-Warning 'No bash statusline script in ~/.claude/settings.json, so Claude Code does not report usage to the tray on every response. The tray still asks the usage endpoint on start, when opened and with its refresh button.'
 }
+
+# Peek: the paths in Claude's replies become links with a preview, in every Claude Code session.
+$peekState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'peek')
+Write-Host "Peek: $peekState"
+if ($peekState -like 'skipped*') { Add-Warning "Peek $peekState" }
+
+# Theme: the prompt Claude Code pins at the top of the transcript, in Claude orange, in every session.
+$themeState = Install-ThemeSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'theme')
+Write-Host "Theme: $themeState"
+if ($themeState -like 'skipped*') { Add-Warning "Theme $themeState" }
+
+# Claude Whip: loaded in every session, idle until switched on in the window (ClaudeMaxxing > Claude Whip).
+$whipState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip')
+Write-Host "Claude Whip: $whipState"
+if ($whipState -like 'skipped*') { Add-Warning "Claude Whip $whipState" }
+
+# PDF: Claude reads PDFs as Markdown (PyMuPDF4LLM) instead of page images, in every session.
+$pdfState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'pdf')
+Write-Host "PDF: $pdfState"
+if ($pdfState -like 'skipped*') { Add-Warning "PDF $pdfState" }
+$pdfNote = Install-PdfDependencies (Join-Path $InstallDir 'pdf')
+if ($pdfNote.Warn) { Add-Warning $pdfNote.Text } else { Write-Host $pdfNote.Text }
 
 # ---------------------------------------------------------------- 5. Explorer menu
 Write-Step 'Explorer menu (Abrir con Claude Code)'
@@ -139,7 +200,50 @@ if (-not $NoHotkeys) {
     & $powershell -NoProfile -ExecutionPolicy Bypass -File $ctl hotkeys on | ForEach-Object { Write-Host $_ }
 }
 
-# ---------------------------------------------------------------- 7. startup, Settings > Apps, start
+# ---------------------------------------------------------------- Ambientes
+Write-Step 'Ambientes (Chrome extension and its native host)'
+Write-Host (Register-HarnessHost $InstallDir)
+# The extension's icons: the ClaudeMaxxing jellyfish, drawn from logo.png into the install (not in the repo).
+& $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderLogoTo (Join-Path $InstallDir 'harness\extension\icons')
+Write-Host (Add-HarnessManifestIcons $InstallDir)
+# The menu sessions' tabs: the session's egg in its color as the tab icon (lib\sessions.ps1 opens them with it).
+& $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderEggsTo (Join-Path $InstallDir 'eggs')
+Write-Host (Install-EggFont (Join-Path $RepoRoot 'font\ClaudeMaxxingEggs.ttf'))
+Write-Host (Install-TerminalProfiles (Join-Path $InstallDir 'eggs'))
+Write-Host "extension: load it once per Chrome profile (chrome://extensions > Developer mode > Load unpacked > $(Join-Path $InstallDir 'harness\extension')); updates only need its reload button"
+Write-Host "environments and state (per PC): $(Join-Path $TrayHome 'harness')"
+
+# ---------------------------------------------------------------- 7. Otros PCs
+Write-Step 'Otros PCs (terminals between PCs over SSH)'
+if (-not (Test-ModuleAllowed $businessState 'bridge')) {
+    # Turned off by the company policy: what an earlier personal install set up goes too (one UAC prompt).
+    Write-Host 'skipped (company policy)'
+    Write-Host (Uninstall-SshInclude)
+    if (@(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count) {
+        Write-Host 'removing the Otros PCs firewall rules (accept the UAC prompt)...'
+        [void](Invoke-Elevated (Get-BridgeFirewallRemovalScript))
+        if (@(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count) {
+            Add-Warning "The Otros PCs firewall rules are still there (UAC declined): remove the '$BridgeFirewallGroup' group in Windows Defender Firewall."
+        }
+    }
+} elseif ($SkipBridge) {
+    Write-Host 'skipped (-SkipBridge)'
+} elseif (-not $Bridge -and -not (Test-Path -LiteralPath (Join-Path $InstallDir 'ssh\sshd.exe'))) {
+    # Opt-in: a user-run sshd and a LAN beacon only for whoever asks (-Bridge, or "Activar" in the tray).
+    Write-Host 'off (turn it on in ClaudeMaxxing > Otros PCs > Activar, or run install.ps1 -Bridge)'
+} else {
+    try {
+        Write-Host (Install-BridgeOpenSsh $InstallDir)
+        $bridgeCtx = New-BridgeContext -SshDir (Join-Path $InstallDir 'ssh')
+        Write-Host (Install-SshInclude $bridgeCtx)
+        Write-Host 'firewall rules (Private networks, local subnet; accept the UAC prompt if one appears)...'
+        Write-Host "firewall: $(Set-BridgeFirewall (Join-Path $InstallDir 'ssh\sshd.exe'))"
+    } catch {
+        Add-Warning "Otros PCs is not fully set up: $($_.Exception.Message). Run install.ps1 again to finish it (the firewall rules can also be created from the tray, in Otros PCs...)."
+    }
+}
+
+# ---------------------------------------------------------------- 8. startup, Settings > Apps, start
 Write-Step 'Startup and Settings > Apps'
 $tray = Get-TrayLaunch $InstallDir
 New-Shortcut $TrayLink $tray.File $tray.Arguments $InstallDir "$AppName - Claude usage in the notification area"
@@ -163,4 +267,9 @@ if ($warnings.Count) {
     Write-Host 'Installed.' -ForegroundColor Green
 }
 Write-Host "Everything runs from $InstallDir; this repo is no longer needed (run install.ps1 again from a newer copy to update)."
+if (-not $NoStart) {
+    Write-Host 'Next: find the Claude icon in the notification area (it may be under the ^ arrow with the hidden icons).'
+    Write-Host '  Left-click shows your usage; "Entrar a ClaudeMaxxing" opens the window with every tool.'
+    if ($businessState.Business) { Write-Host '  Business edition: its Empresa section has the seat report, team reports, objectives and the team kit.' }
+}
 Write-Host 'Menu sessions that were already open keep the previous paths until you close and reopen them.'

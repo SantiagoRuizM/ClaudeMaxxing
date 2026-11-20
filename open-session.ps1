@@ -1,17 +1,22 @@
-# Opens Claude Code in $Dir in a new Windows Terminal window placed on the next free half-screen slot.
-# With n monitors there are 2n slots (left and right half of each, monitors left to right); when all are
-# taken it says so and opens nothing. Launched by the "Abrir con Claude Code" Explorer menu entry, which
+# Opens Claude Code in $Dir in a new Windows Terminal window placed on the next free slot of the screens.
+# With n monitors there are n, 2n or 4n slots (Get-SessionsPerScreen: whole screens, halves or quarters); when all are
+# taken it says so and opens nothing, unless the limit is off (Test-SessionLimit): then it opens over them. Launched by the "Abrir con Claude Code" Explorer menu entry, which
 # reads this command from HKCU\Software\ClaudeCodeMenu\Launcher (written by install.ps1).
 # Each session gets its slot's color (tab and Claude Code prompt box) and, from the voice part, a name
 # and a voice picked before Claude Code starts; the voice plugin (voice\plugin) loads for that session
 # only and completes the title with the role on the first prompt.
+# With FreeLLMAPI switched on in the ClaudeMaxxing window (lib\freellm.ps1), the session talks to it instead
+# of the Claude plan; if it cannot be reached, the session opens on the plan and says why.
+# -Prompt is the session's first prompt (the ClaudeMaxxing window's "Nueva skill..."); without it, /color.
 # -Run and -StatePath are for testing: run another command, keep a separate session list.
-param([string]$Dir, [string]$Run = 'claude', [string]$StatePath)
+param([string]$Dir, [string]$Run = 'claude', [string]$StatePath, [string]$Prompt)
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
 . (Join-Path $TrayRoot 'lib\winapi.ps1')
+. (Join-Path $TrayRoot 'lib\freellm.ps1')
+. (Join-Path $TrayRoot 'lib\business.ps1')
 # wt.exe hands its caller's environment to the new window. Started from a Claude Code shell (a test
 # run), that environment turns colors off and changes git prompts; the Explorer menu starts clean.
 if ($env:CLAUDECODE) {
@@ -63,21 +68,23 @@ function Wait-NewWindow([long[]]$Before, [int]$TimeoutMs) {
 $mutex = New-Object System.Threading.Mutex($false, 'Local\ClaudeTraySessions')
 try { $owned = $mutex.WaitOne(60000) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 try {
-    if (-not $Dir -or -not (Test-Path -LiteralPath $Dir -PathType Container)) { throw "folder not found: $Dir" }
+    if (-not $Dir -or -not (Test-Path -LiteralPath $Dir -PathType Container)) { throw "no existe la carpeta $Dir" }
     Import-WinApi
 
     $areas = @(Get-WorkAreas)
-    $slots = Get-HalfSlots $areas
+    $perScreen = Get-SessionsPerScreen
+    $slots = Get-ScreenSlots $areas (Get-ScreenFirst) $perScreen
     $sessions = @(Read-JsonFile $SessionsFile | Where-Object { $_ -and [ClaudeTrayWin]::IsLiveWindow([long]$_.hwnd, $TerminalClasses) })
-    $slot = Get-FreeSlot $slots.Count $sessions
+    $slot = Get-FreeSlot $slots.Count $sessions (-not (Test-SessionLimit))
     if ($slot -lt 0) {
         Write-JsonFile $SessionsFile $sessions
         Write-SessionLog "full: $($sessions.Count) sessions, $($areas.Count) monitors; not opening $Dir"
-        Show-Notice (Format-SessionsFullMessage $sessions.Count $areas.Count)
+        Show-Notice (Format-SessionsFullMessage $sessions.Count $areas.Count $perScreen)
         return
     }
 
-    $rect = $slots[$slot]
+    # Without the limit, sessions past the last slot go over the slots again from the first.
+    $rect = $slots[$slot % $slots.Count]
     $color = Get-SlotColor $slot
     $sessionId = [guid]::NewGuid().ToString()
     $identity = $null
@@ -88,11 +95,26 @@ try {
     }
     $pluginDir = Join-Path $TrayRoot 'voice\plugin'
     if (-not (Test-Path -LiteralPath (Join-Path $pluginDir '.claude-plugin\plugin.json'))) { $pluginDir = '' }
-    $command = Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name
+    $command = Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name '' $Prompt
+    $backend = 'plan'
+    try {
+        # A company policy can turn FreeLLMAPI off (lib\business.ps1): every session then stays on the Claude plan.
+        $free = if (Test-ModuleAllowed (Get-BusinessState) 'freellm') { Get-FreeLlmLaunch } else { [pscustomobject]@{ Prefix = ''; Notice = ''; Settings = '' } }
+        $freeNotice = $free.Notice
+        if ($free.Prefix) { $command = $free.Prefix + (Format-ClaudeCommand $Run $sessionId $pluginDir $color.Name $free.Settings $Prompt); $backend = 'freellm' }
+    } catch {
+        Write-SessionLog "freellm: $($_.Exception.Message)"
+    }
 
     $before = [long[]]@([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses))
+    # With the voice plugin its hooks write the tab's title ("name - role", no spark or spinner before it).
+    if ($pluginDir) { $command = 'set CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1&& ' + $command }
+    # The tab shows the session's egg once install.ps1 has written the terminal profiles.
+    $wtProfile = if (Test-Path -LiteralPath $TerminalFragmentFile) { Get-SessionProfileName $color.Name } else { '' }
+    # That profile's font has the egg glyphs: the statusline draws the egg with them only where this is set.
+    if ($wtProfile) { $command = 'set CLAUDEMAXXING_EGG_FONT=1&& ' + $command }
     try {
-        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $command $rect $color.Hex) -WorkingDirectory $Dir -ErrorAction Stop
+        Start-Process -FilePath 'wt.exe' -ArgumentList (Format-WtArguments $Dir $command $rect $color.Hex $wtProfile) -WorkingDirectory $Dir -ErrorAction Stop
     } catch {
         Write-SessionLog "wt.exe failed ($($_.Exception.Message)); using cmd.exe"
         Start-Process -FilePath 'cmd.exe' -ArgumentList "/k $command" -WorkingDirectory $Dir -ErrorAction Stop
@@ -107,18 +129,20 @@ try {
     # Recorded before placing, so the slot is taken even if placing fails.
     $sessions += [pscustomobject]@{
         slot = $slot; hwnd = [long]$hwnd; dir = $Dir; at = (Get-Date).ToString('o')
-        sessionId = $sessionId; color = $color.Name; name = "$($identity.name)"
+        sessionId = $sessionId; color = $color.Name; name = "$($identity.name)"; backend = $backend
     }
     Write-JsonFile $SessionsFile $sessions
 
     $frame = [ClaudeTrayWin]::Place($hwnd, $rect.X, $rect.Y, $rect.Width, $rect.Height, 12)
     [ClaudeTrayWin]::Activate($hwnd)
-    Write-SessionLog ("slot {0} hwnd {1}: target {2},{3} {4}x{5}, frame {6},{7} {8}x{9}, {10} {11} {12}, {13}" -f $slot, $hwnd,
+    Write-SessionLog ("slot {0} hwnd {1}: target {2},{3} {4}x{5}, frame {6},{7} {8}x{9}, {10} {11} {12}, {13}, {14}" -f $slot, $hwnd,
         $rect.X, $rect.Y, $rect.Width, $rect.Height, $frame[0], $frame[1], ($frame[2] - $frame[0]), ($frame[3] - $frame[1]),
-        $color.Name, $sessionId, $identity.name, $Dir)
+        $color.Name, $sessionId, $identity.name, $Dir, $backend)
 } catch {
     Write-SessionLog "error: $($_.Exception.Message)"
     Show-Notice "No se pudo abrir Claude Code: $($_.Exception.Message)"
 } finally {
     if ($owned) { $mutex.ReleaseMutex() }
 }
+# After releasing the lock: the notice waits for a click.
+if ($freeNotice) { Show-Notice $freeNotice }

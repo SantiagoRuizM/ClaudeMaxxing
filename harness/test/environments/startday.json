@@ -1,0 +1,37 @@
+{
+  "name": "StartDay",
+  "focus": "planear el día: agenda, correo, mensajes y Claude, con Clair de Lune",
+  "chromeProfile": "Profile 7",
+  "graceSeconds": 8,
+  "closeAllFolders": true,
+  "music": { "folder": "C:\\Users\\me\\Music\\3.Clasica\\Claude Debussy", "match": "Clair de Lune" },
+  "docker": {
+    "composeDir": "C:\\Users\\me\\Documents\\Projects\\Trabajo\\Cliente",
+    "action": "stop",
+    "stopTimeout": 30,
+    "quitDesktop": true,
+    "reason": "al planear no se programa: Trabajo en pausa"
+  },
+  "stopPorts": [
+    { "port": 5173, "reason": "Vite de Cliente (Trabajo)" },
+    { "port": 5180, "reason": "Tablero del Modulo (guarda solo; su pestaña se cierra antes)" }
+  ],
+  "tabs": {
+    "open": [
+      { "name": "Calendario", "url": "https://calendar.google.com/calendar/u/0/r/day", "match": "calendar\\.google\\.com", "profile": "Profile 7" },
+      { "name": "Gmail", "url": "https://mail.google.com/mail/u/0/#inbox", "match": "mail\\.google\\.com", "profile": "Profile 7" },
+      { "name": "Gmail", "url": "https://mail.google.com/mail/u/0/#inbox", "match": "mail\\.google\\.com", "profile": "Profile 1" },
+      { "name": "WhatsApp", "url": "https://web.whatsapp.com/", "match": "web\\.whatsapp\\.com", "profile": "Profile 1" },
+      { "name": "Claude", "url": "https://claude.ai/new", "match": "claude\\.ai", "profile": "Profile 7" },
+      { "name": "Claude", "url": "https://claude.ai/new", "match": "claude\\.ai", "profile": "Profile 1" }
+    ]
+  },
+  "closeApps": [
+    { "process": "steam", "reason": "juegos" },
+    { "process": "ollama", "reason": "modelos locales: consume RAM y GPU" },
+    { "process": "ollama app", "reason": "bandeja de Ollama" },
+    { "process": "FreeLLMAPI", "reason": "no se usa al planear" },
+    { "process": "SystemSettings", "reason": "Configuración de Windows abierta" },
+    { "process": "RtkUWP", "reason": "Realtek Audio Console abierta" }
+  ]
+}

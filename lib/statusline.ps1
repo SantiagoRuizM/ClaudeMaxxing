@@ -10,10 +10,32 @@ tray_jq="${JQ_BIN:-$(command -v jq 2>/dev/null)}"
 if [ -n "$tray_jq" ]; then
   tray_dir="$HOME/.claude/usage-tray"
   mkdir -p "$tray_dir" 2>/dev/null
-  if printf '%s' "$input" | "$tray_jq" -c 'select(.rate_limits != null) | {rate_limits: .rate_limits, updated_at: now}' > "$tray_dir/usage.json.tmp" 2>/dev/null && [ -s "$tray_dir/usage.json.tmp" ]; then
-    mv -f "$tray_dir/usage.json.tmp" "$tray_dir/usage.json" 2>/dev/null
-  else
-    rm -f "$tray_dir/usage.json.tmp" 2>/dev/null
+  tray_snap=$(printf '%s' "$input" | "$tray_jq" -c 'select(.rate_limits != null) | {rate_limits: .rate_limits, updated_at: now}' 2>/dev/null)
+  if [ -n "$tray_snap" ]; then
+    # Rewritten only when the limits change or the copy is a minute old: a statusline can run every second in
+    # every session and each write is a Defender scan (a pile of them can hang Defender, and PowerShell with it).
+    tray_old=""; [ -f "$tray_dir/usage.json" ] && IFS= read -r -d '' tray_old < "$tray_dir/usage.json"
+    tray_at="${tray_old##*\"updated_at\":}"; tray_at="${tray_at%%[.\}]*}"
+    [[ "$tray_at" =~ ^[0-9]+$ ]] || tray_at=0
+    printf -v tray_now '%(%s)T' -1
+    # Each session reports the limits of its own last reply, so an idle one keeps sending old numbers. Within a
+    # window usage only grows: a lower percentage for the same reset, or an older reset, is stale and not written.
+    tray_stale=0
+    for tray_w in five_hour seven_day; do
+      tray_ru="\"$tray_w\"[[:space:]]*:[[:space:]]*\{[^}]*\"used_percentage\"[[:space:]]*:[[:space:]]*([0-9]+)"
+      tray_rr="\"$tray_w\"[[:space:]]*:[[:space:]]*\{[^}]*\"resets_at\"[[:space:]]*:[[:space:]]*([0-9]+)"
+      [[ "$tray_snap" =~ $tray_ru ]] || continue; tray_nu=${BASH_REMATCH[1]}
+      [[ "$tray_snap" =~ $tray_rr ]] || continue; tray_nr=${BASH_REMATCH[1]}
+      [[ "$tray_old" =~ $tray_ru ]] || continue; tray_ou=${BASH_REMATCH[1]}
+      [[ "$tray_old" =~ $tray_rr ]] || continue; tray_or=${BASH_REMATCH[1]}
+      # One window's reset can differ by seconds between sources; the next window resets hours later.
+      if (( tray_nr < tray_or - 600 || (tray_nr <= tray_or + 600 && tray_nu < tray_ou) )); then tray_stale=1; fi
+    done
+    if (( tray_stale )); then
+      :
+    elif [ "${tray_old%,\"updated_at\"*}" != "${tray_snap%,\"updated_at\"*}" ] || (( tray_now - tray_at >= 60 )); then
+      printf '%s' "$tray_snap" > "$tray_dir/usage.json.tmp.$$" 2>/dev/null && mv -f "$tray_dir/usage.json.tmp.$$" "$tray_dir/usage.json" 2>/dev/null
+    fi
   fi
 fi
 # <<< ClaudeTray
@@ -67,7 +89,17 @@ function Remove-StatuslineBlockText([string]$Text) {
 
 function Install-StatuslineBlock([string]$Path) {
     $text = Read-TextFile $Path
-    if ($text.Contains($script:BlockStart)) { return 'already installed' }
+    if ($text.Contains($script:BlockStart)) {
+        # An update brings a newer block: swap the old one for it in place (the script may have changed around it
+        # since it was added), so a fix in the block reaches installed PCs.
+        $nl = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+        $block = ($script:StatuslineBlock -replace "`r`n", "`n") -replace "`n", $nl
+        $pattern = [regex]::Escape($script:BlockStart) + '[\s\S]*?' + [regex]::Escape($script:BlockEnd)
+        $updated = [regex]::Replace($text, $pattern, { param($m) $block.TrimEnd("`r", "`n") }, 'None')
+        if ($updated -eq $text) { return 'already installed' }
+        Write-TextFile $Path $updated
+        return 'updated'
+    }
     $backup = "$Path.bak-claudetray"
     if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $Path -Destination $backup }
     Write-TextFile $Path (Add-StatuslineBlock $text)

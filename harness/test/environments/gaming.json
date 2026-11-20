@@ -1,0 +1,22 @@
+{
+  "name": "Gaming",
+  "focus": "jugar: Steam abierto y todo lo demás cerrado para dejarle la RAM, la CPU y la GPU al juego",
+  "graceSeconds": 8,
+  "closeAllFolders": true,
+  "openApps": [{ "name": "Steam", "process": "steam", "path": "C:\\Program Files (x86)\\Steam\\steam.exe" }],
+  "docker": { "all": true, "action": "stop", "stopTimeout": 30, "quitDesktop": true, "reason": "Gaming: Docker le quita RAM al juego" },
+  "wslShutdown": true,
+  "stopServers": {
+    "processes": ["node", "python", "python3", "pythonw", "py", "uvicorn", "deno", "bun", "java", "dotnet", "php", "ruby", "go"],
+    "reason": "Gaming: ningún servidor de desarrollo"
+  },
+  "tabs": { "open": [], "defaultReason": "Gaming: Chrome le quita RAM al juego" },
+  "closeApps": [
+    { "process": "wmplayer", "reason": "música de trabajo" },
+    { "process": "ollama", "reason": "modelos locales: consume RAM y GPU" },
+    { "process": "ollama app", "reason": "bandeja de Ollama" },
+    { "process": "FreeLLMAPI", "reason": "consume RAM" },
+    { "process": "SystemSettings", "reason": "Configuración de Windows abierta" },
+    { "process": "RtkUWP", "reason": "Realtek Audio Console abierta" }
+  ]
+}

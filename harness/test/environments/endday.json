@@ -1,0 +1,32 @@
+{
+  "name": "EndDay",
+  "focus": "terminar el día: se apaga el trabajo (perfil Laboral, servidores, Docker, Claude) y queda solo lo personal",
+  "graceSeconds": 8,
+  "closeAllFolders": true,
+  "closeProfiles": [{ "email": "work@example.com", "reason": "perfil Laboral: el trabajo se acabó por hoy" }],
+  "docker": { "all": true, "action": "stop", "stopTimeout": 30, "quitDesktop": true, "reason": "fin del día: Docker no hace falta hasta mañana" },
+  "wslShutdown": true,
+  "stopServers": {
+    "processes": ["node", "python", "python3", "pythonw", "py", "uvicorn", "deno", "bun", "java", "dotnet", "php", "ruby", "go"],
+    "reason": "fin del día: ningún servidor de desarrollo"
+  },
+  "tabs": {
+    "open": [],
+    "default": "keep",
+    "close": [
+      { "match": "claude\\.ai/", "reason": "chat de Claude: es trabajo" },
+      { "match": "^https?://(localhost|127\\.0\\.0\\.1)[:/]", "reason": "servidor local: es trabajo" },
+      { "match": "^https://github\\.com/", "reason": "GitHub: es trabajo" },
+      { "match": "awsapps\\.com|console\\.aws\\.amazon\\.com|signin\\.aws", "reason": "AWS: es trabajo" },
+      { "match": "calendar\\.google\\.com", "reason": "agenda: se revisa mañana en StartDay" }
+    ]
+  },
+  "closeApps": [
+    { "process": "wmplayer", "reason": "música de trabajo" },
+    { "process": "ollama", "reason": "modelos locales: consume RAM y GPU" },
+    { "process": "ollama app", "reason": "bandeja de Ollama" },
+    { "process": "FreeLLMAPI", "reason": "no se usa fuera del trabajo" },
+    { "process": "SystemSettings", "reason": "Configuración de Windows abierta" },
+    { "process": "RtkUWP", "reason": "Realtek Audio Console abierta" }
+  ]
+}

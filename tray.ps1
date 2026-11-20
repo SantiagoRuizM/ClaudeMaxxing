@@ -3,18 +3,42 @@
 # Launch: powershell -NoProfile -ExecutionPolicy Bypass -STA -File tray.ps1
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
-param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab)
+# -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; <section>-full, that section in full screen on a 1920x1080 screen).
+# -RenderEggsTo <folder> writes each session color's egg as <color>.png (the terminal tab icons; install.ps1) and
+# statusline.json, the egg as 8-bit text (still and thinking frames) for the Claude Code statusline.
+# -RenderSnipTo <png> draws Win+Alt+C and its boxes with a sample screen (lib\snipcapture.ps1; see the block below).
+# -RenderLogoTo <folder> writes the ClaudeMaxxing jellyfish (logo.png) as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
+param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
+    [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home', [string]$RenderLogoTo,
+    [string]$RenderEggsTo, [string]$RenderSnipTo)
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\usage.ps1')
 . (Join-Path $TrayRoot 'lib\schedule.ps1')
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
+. (Join-Path $TrayRoot 'lib\bridge.ps1')
+. (Join-Path $TrayRoot 'lib\bridgenet.ps1')
+. (Join-Path $TrayRoot 'lib\whisper.ps1')
+. (Join-Path $TrayRoot 'lib\autoplan.ps1')
+. (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\freellm.ps1')
+. (Join-Path $TrayRoot 'lib\harness.ps1')
+. (Join-Path $TrayRoot 'lib\voiceengine.ps1')
+. (Join-Path $TrayRoot 'lib\maxx.ps1')
+. (Join-Path $TrayRoot 'lib\forecast.ps1')
+. (Join-Path $TrayRoot 'lib\business.ps1')
+# Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
+# prompts) to everything it starts, including remote sessions on this PC.
+if ($env:CLAUDECODE) {
+    foreach ($name in 'NO_COLOR', 'GIT_EDITOR', 'GIT_TERMINAL_PROMPT', 'GIT_ASKPASS') { Remove-Item "env:$name" -ErrorAction SilentlyContinue }
+}
 Clear-ClaudeSessionEnv
 if ($UsagePath) { $UsageFile = $UsagePath }
 if ($ExtrasPath) { $ExtrasFile = $ExtrasPath }
 
-$Rendering = [bool]($RenderTo -or $RenderDialogTo)
+$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo -or $RenderHubTo -or $RenderLogoTo -or $RenderEggsTo -or $RenderSnipTo)
 if (-not $Rendering) {
     $createdNew = $false
     $script:TrayMutex = New-Object System.Threading.Mutex($true, 'Local\ClaudeTray', [ref]$createdNew)
@@ -25,7 +49,25 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\theme.ps1')
 . (Join-Path $TrayRoot 'lib\dialog.ps1')
+. (Join-Path $TrayRoot 'lib\bridgeui.ps1')
+. (Join-Path $TrayRoot 'lib\whisperui.ps1')
+. (Join-Path $TrayRoot 'lib\hub.ps1')
+. (Join-Path $TrayRoot 'lib\hubstats.ps1')
+. (Join-Path $TrayRoot 'lib\hubauto.ps1')
+. (Join-Path $TrayRoot 'lib\judge.ps1')
+. (Join-Path $TrayRoot 'lib\hubplan.ps1')
+. (Join-Path $TrayRoot 'lib\debate.ps1')
+. (Join-Path $TrayRoot 'lib\debateui.ps1')
+. (Join-Path $TrayRoot 'lib\hubskills.ps1')
+. (Join-Path $TrayRoot 'lib\whip.ps1')
+. (Join-Path $TrayRoot 'lib\hubbusiness.ps1')
+. (Join-Path $TrayRoot 'lib\traysessions.ps1')
+. (Join-Path $TrayRoot 'lib\snip.ps1')
+. (Join-Path $TrayRoot 'lib\snipcapture.ps1')
+. (Join-Path $TrayRoot 'lib\sniprecord.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
+# Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.
+[void][ClaudeTray.Native]::SetCurrentProcessExplicitAppUserModelID('ClaudeMaxxing.Tray')
 
 if (-not (Test-Path -LiteralPath $TrayHome)) { New-Item -ItemType Directory -Force -Path $TrayHome | Out-Null }
 if (-not $Rendering) { [System.IO.File]::WriteAllText($TrayPidFile, [string]$PID) }
@@ -38,6 +80,10 @@ $F = $script:Fonts
 # ---------------------------------------------------------------- state
 
 $script:View = $null
+# Personal or business edition and the company policy (lib\business.ps1); Otros PCs and Whisper follow it from start.
+$script:Business = Get-BusinessState
+# Claude Whip: a policy that turns it off also turns off a switch left on (its plugin only reads whip.json).
+if (-not $Rendering) { try { [void](Sync-WhipPolicy (Test-ModuleAllowed $script:Business 'whip')) } catch { } }
 $script:Extras = [pscustomobject]@{ ExtraUsage = $null; LimitReset = $null }
 $script:Plan = Get-PlanName $CredsFile
 $script:FooterRight = ''
@@ -53,8 +99,30 @@ function Update-UsageState {
     $script:View = Get-UsageView (Read-JsonFile $UsageFile) (Get-Date)
     $script:Extras = Get-ExtrasView (Read-JsonFile $ExtrasFile) (Get-Date)
     Set-PopupSize
-    $script:Notify.Text = Format-TrayTooltip $script:View $script:Plan
+    $tip = Format-TrayTooltip $script:View $script:Plan
+    # Until Windows has placed the tray's icons they keep their first tooltip (lib\traysessions.ps1).
+    if ($Rendering -or (Test-TrayIconsPlaced)) {
+        $script:Notify.Text = $tip
+        # Not the same text as the Claude icon: the bars say only the two windows.
+        foreach ($bar in @($script:UsageBars)) { if ($bar) { $bar.Text = $tip -replace '^[^-]*- ', '' } }
+    }
+    if ($script:UsageBars -and -not $Rendering) { Update-UsageOverlay }
     Update-Footer
+    if (-not $Rendering) { Invoke-UsageAlerts }
+}
+
+# A balloon when the 5-hour or weekly window crosses 80 % or 95 %, once per threshold and window; the keys
+# warned of are kept in alerts.json so a restarted tray does not warn again.
+$script:AlertsFile = Join-Path $TrayHome 'alerts.json'
+function Invoke-UsageAlerts {
+    $saved = Read-JsonFile $script:AlertsFile
+    $sent = @(if ($saved -and $saved.sent) { $saved.sent })
+    $alerts = @(Get-UsageAlerts $script:View $sent)
+    if (-not $alerts.Count) { return }
+    $script:Notify.ShowBalloonTip(10000, (Tx 'Claude: te est\u00e1s acercando al l\u00edmite'), (Format-UsageAlert $alerts (Get-Date)),
+        [System.Windows.Forms.ToolTipIcon]::Warning)
+    $keep = @($sent + @($alerts | ForEach-Object { $_.Keys }) | Select-Object -Unique | Select-Object -Last 40)
+    try { Write-JsonFile $script:AlertsFile ([ordered]@{ sent = $keep }) } catch { }
 }
 
 # Querying Task Scheduler takes ~0.7 s, so the task list is cached and refreshed only
@@ -70,10 +138,10 @@ function Update-Footer {
     if ($rows.Count -eq 0) { return }
     $row = $rows[0]
     if ($row.State -in 'pending', 'requested', 'creating', 'cloud-ok') {
-        $script:FooterRight = 'Next: ' + (Format-ShortDateTime $row.At)
+        $script:FooterRight = (Tx 'Pr\u00f3xima: ') + (Format-DialogDateTime $row.At (Get-Date))
     } else {
-        $status = switch ($row.State) { 'ok' { 'OK' } 'failed' { 'failed' } default { 'cloud' } }
-        $script:FooterRight = 'Last: ' + (Format-ShortDateTime $row.At) + " $status"
+        $status = switch ($row.State) { 'ok' { 'ok' } 'failed' { (Tx 'fall\u00f3') } default { 'en la nube' } }
+        $script:FooterRight = (Tx '\u00daltima: ') + (Format-DialogDateTime $row.At (Get-Date)) + " $status"
     }
 }
 
@@ -85,14 +153,14 @@ function Start-UsageRefresh {
     $script:RefreshError = ''
     $auth = Get-OAuthToken $CredsFile
     if (-not $auth) {
-        $script:RefreshError = 'Not logged in to Claude Code'
+        $script:RefreshError = Tx 'Inicia sesi\u00f3n en Claude Code'
         $script:RefreshErrorAt = Get-Date
     } else {
         try {
             $script:Refresh = Start-UsageRequest $auth.Token
             $script:RefreshTimer.Start()
         } catch {
-            $script:RefreshError = 'No connection'
+            $script:RefreshError = Tx 'Sin conexi\u00f3n'
             $script:RefreshErrorAt = Get-Date
         }
     }
@@ -143,9 +211,9 @@ function Set-PopupSize {
 }
 
 function Move-PopupToCorner {
-    $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
-    $script:Popup.Location = New-Object System.Drawing.Point(
-        ($area.Right - $script:Popup.Width - (Px 12)), ($area.Bottom - $script:Popup.Height - (Px 12)))
+    $screen = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position)
+    $at = Get-PopupLocation $screen.WorkingArea $screen.Bounds $script:Popup.Width $script:Popup.Height (Px 12)
+    $script:Popup.Location = New-Object System.Drawing.Point($at[0], $at[1])
 }
 $script:Popup = New-Object System.Windows.Forms.Form
 $Popup.FormBorderStyle = 'None'
@@ -158,6 +226,7 @@ Enable-DoubleBuffer $Popup
 $Popup.Tag = New-HitMap
 Register-HitMap $Popup
 $script:PopupLogo = New-TintedLogo $P.Accent (Px 20)
+$script:HubButtonMark = New-BrandMark $P.AccentText (Px 22)
 
 function Draw-Window($G, [string]$Label, $Window, [int]$Top, [string]$IdleText) {
     $left = Px 18
@@ -176,7 +245,7 @@ function Draw-Window($G, [string]$Label, $Window, [int]$Top, [string]$IdleText) 
 
     $resetText = if ($Window.Active) { Format-ResetText $Window.ResetsAt (Get-Date) } else { $IdleText }
     $resetColor = if ($Window.Active) { $P.Text } else { $P.Muted }
-    Draw-Text $G 'Resets' $F.Small $P.Muted $left (Px ($Top + 40)) $width (Px 22)
+    Draw-Text $G 'Se renueva' $F.Small $P.Muted $left (Px ($Top + 40)) $width (Px 22)
     Draw-Text $G $resetText $F.Body $resetColor $left (Px ($Top + 40)) $width (Px 22) 'Right'
 }
 
@@ -197,6 +266,8 @@ $Popup.Add_Paint({
     $dotX = $w - (Px 18) - $dotSize
     $dotColor = if ($view -and $view.Fresh) { $P.low } else { $P.Faint }
     $g.FillEllipse((New-Object System.Drawing.SolidBrush($dotColor)), $dotX, (Px 29) - [int]($dotSize / 2), $dotSize, $dotSize)
+    $dotTip = if ($view -and $view.Fresh) { 'Datos al d\u00eda: una sesi\u00f3n respondi\u00f3 hace menos de 10 min' } else { 'Sin respuestas de Claude Code en los \u00faltimos 10 min' }
+    Add-Hit $map 'fresh' (New-Rect ($dotX - (Px 4)) (Px 21) ($dotSize + (Px 8)) ($dotSize + (Px 8))) $null (Tx $dotTip)
     $nextRight = $dotX - (Px 10)
     if ($script:Plan) {
         $pillW = (Measure-TextWidth $script:Plan $F.Badge) + (Px 18)
@@ -210,21 +281,21 @@ $Popup.Add_Paint({
     if ($busy -or $map.Hover -eq 'refresh') { Fill-Round $g $refreshBox (Px 8) $P.SurfaceHover }
     $refreshColor = if ($busy -or $map.Hover -eq 'refresh') { $P.Accent } else { $P.Muted }
     Draw-Text $g (Tx '\u21bb') $F.Refresh $refreshColor $refreshBox.X ($refreshBox.Y - (Px 1)) $refreshBox.Width $refreshBox.Height 'Center'
-    Add-Hit $map 'refresh' $refreshBox { Start-UsageRefresh }
+    Add-Hit $map 'refresh' $refreshBox { Start-UsageRefresh } 'Actualizar el uso ahora'
 
     if (-not $view -or -not $view.HasData) {
-        Draw-Text $g 'No usage data yet' $F.BodyStrong $P.Text (Px 18) (Px 74) (Px ($PopupWidth - 36)) (Px 24)
-        Draw-Text $g 'Send a message in Claude Code to refresh.' $F.Small $P.Muted (Px 18) (Px 98) (Px ($PopupWidth - 36)) (Px 22)
+        Draw-Text $g (Tx 'Sin datos de uso todav\u00eda') $F.BodyStrong $P.Text (Px 18) (Px 74) (Px ($PopupWidth - 36)) (Px 24)
+        Draw-Text $g (Tx 'Env\u00eda un mensaje en Claude Code o pulsa \u21bb.') $F.Small $P.Muted (Px 18) (Px 98) (Px ($PopupWidth - 36)) (Px 22)
     } else {
-        Draw-Window $g 'SESSION' $view.Session 62 'Not started'
-        Draw-Window $g 'WEEKLY' $view.Weekly 134 'Not started'
+        Draw-Window $g (Tx 'SESI\u00d3N (5 H)') $view.Session 62 'Sin empezar'
+        Draw-Window $g 'SEMANAL' $view.Weekly 134 'Sin empezar'
         $top = 206
         $extra = $script:Extras.ExtraUsage
         if ($extra) {
             $left = Px 18
             $width = Px ($PopupWidth - 36)
-            Draw-Text $g 'EXTRA USAGE' $F.Caps $P.Muted $left (Px $top) $width (Px 22)
-            $pctText = if ($null -ne $extra.Percent) { "$($extra.Percent)%" } else { 'On' }
+            Draw-Text $g 'USO EXTRA' $F.Caps $P.Muted $left (Px $top) $width (Px 22)
+            $pctText = if ($null -ne $extra.Percent) { "$($extra.Percent)%" } else { 'Activado' }
             Draw-Text $g $pctText $F.Number $P.Text $left (Px ($top - 3)) $width (Px 28) 'Right'
             $track = New-Rect $left (Px ($top + 28)) $width (Px 6)
             Fill-Round $g $track (Px 3) $P.Track
@@ -233,7 +304,7 @@ $Popup.Add_Paint({
                 Fill-Round $g (New-Rect $left $track.Y $fillWidth $track.Height) (Px 3) $P.Accent
             }
             if ($extra.AmountText) { Draw-Text $g $extra.AmountText $F.Body $P.Text $left (Px ($top + 40)) $width (Px 22) 'Right' }
-            Draw-Text $g 'Credits' $F.Small $P.Muted $left (Px ($top + 40)) $width (Px 22)
+            Draw-Text $g (Tx 'Cr\u00e9ditos') $F.Small $P.Muted $left (Px ($top + 40)) $width (Px 22)
             $top += $script:ExtraBlockHeight
         }
         $reset = $script:Extras.LimitReset
@@ -241,12 +312,14 @@ $Popup.Add_Paint({
             $card = New-Rect (Px 18) (Px $top) (Px ($PopupWidth - 36)) (Px 50)
             Fill-Round $g $card (Px 10) $P.AccentTint
             Draw-Text $g (Tx '\u21ba') $F.Refresh $P.Accent ($card.X + (Px 10)) $card.Y (Px 22) $card.Height 'Center'
-            Draw-Text $g $reset.Title $F.BodyStrong $P.Text ($card.X + (Px 38)) ($card.Y + (Px 6)) (Px 200) (Px 20)
-            Draw-Text $g $reset.Detail $F.Small $P.Muted ($card.X + (Px 38)) ($card.Y + (Px 25)) (Px 210) (Px 18)
-            $useBox = New-Rect ($card.Right - (Px 64)) ($card.Y + (Px 11)) (Px 54) (Px 28)
+            $useW = (Measure-TextWidth 'Reclamar' $F.Button) + (Px 20)
+            $useBox = New-Rect ($card.Right - (Px 10) - $useW) ($card.Y + (Px 11)) $useW (Px 28)
+            $textW = $useBox.X - $card.X - (Px 46)
+            Draw-Text $g $reset.Title $F.BodyStrong $P.Text ($card.X + (Px 38)) ($card.Y + (Px 6)) $textW (Px 20)
+            Draw-Text $g $reset.Detail $F.Small $P.Muted ($card.X + (Px 38)) ($card.Y + (Px 25)) $textW (Px 18)
             $useColor = if ($map.Hover -eq 'use-reset') { $P.AccentHover } else { $P.Accent }
             Fill-Round $g $useBox (Px 8) $useColor
-            Draw-Text $g 'Use' $F.Button $P.AccentText $useBox.X $useBox.Y $useBox.Width $useBox.Height 'Center'
+            Draw-Text $g 'Reclamar' $F.Button $P.AccentText $useBox.X $useBox.Y $useBox.Width $useBox.Height 'Center'
             Add-Hit $map 'use-reset' $useBox { Start-Process 'https://claude.ai/settings/usage' }
         }
     }
@@ -256,29 +329,40 @@ $Popup.Add_Paint({
     $g.DrawLine($pen, (Px 18), (Px ($bottom - 4)), $w - (Px 18), (Px ($bottom - 4)))
     $ageColor = $P.Muted
     if ($script:Refresh) {
-        $age = 'Updating...'
+        $age = Tx 'Actualizando\u2026'
     } elseif ($script:RefreshError -and ((Get-Date) - $script:RefreshErrorAt).TotalSeconds -lt 30) {
         $age = $script:RefreshError; $ageColor = $P.Error
     } else {
-        $age = if ($view) { Format-Age $view.AgeMinutes } else { 'No data yet' }
+        $age = if ($view) { Format-Age $view.AgeMinutes } else { 'Sin datos' }
     }
-    Draw-Text $g $age $F.Small $ageColor (Px 18) (Px ($bottom + 2)) (Px 190) (Px 24)
-    Draw-Text $g $script:FooterRight $F.Small $P.Muted (Px 18) (Px ($bottom + 2)) (Px ($PopupWidth - 36)) (Px 24) 'Right'
+    # The schedule note keeps its width; the age (or an error) gets what is left, so they never overlap.
+    $footW = Px ($PopupWidth - 36)
+    $rightW = if ($script:FooterRight) { [Math]::Min([int]($footW * 0.6), (Measure-TextWidth $script:FooterRight $F.Small)) } else { 0 }
+    Draw-Text $g $age $F.Small $ageColor (Px 18) (Px ($bottom + 2)) ($footW - $rightW - (Px 8)) (Px 24)
+    Draw-Text $g $script:FooterRight $F.Small $P.Muted ((Px 18) + $footW - $rightW) (Px ($bottom + 2)) $rightW (Px 24) 'Right'
 
     $button = New-Rect (Px 18) (Px ($bottom + 32)) (Px ($PopupWidth - 36)) (Px 36)
-    $buttonColor = if ($map.Hover -eq 'schedule') { $P.AccentHover } else { $P.Accent }
+    $buttonColor = if ($map.Hover -eq 'hub') { $P.AccentHover } else { $P.Accent }
     Fill-Round $g $button (Px 8) $buttonColor
-    Draw-Text $g (Tx 'Agendar sesi\u00f3n') $F.Button $P.AccentText $button.X $button.Y $button.Width $button.Height 'Center'
-    Add-Hit $map 'schedule' $button {
+    # The jellyfish and the label centered together as one group.
+    $label = 'Entrar a ClaudeMaxxing'
+    $mark = $script:HubButtonMark
+    $markW = if ($mark) { $mark.Width + (Px 8) } else { 0 }
+    $labelW = Measure-TextWidth $label $F.Button
+    $startX = $button.X + [int](($button.Width - $markW - $labelW) / 2)
+    if ($mark) { $g.DrawImage($mark, $startX, $button.Y + [int](($button.Height - $mark.Height) / 2), $mark.Width, $mark.Height) }
+    Draw-Text $g $label $F.Button $P.AccentText ($startX + $markW) $button.Y ($labelW + (Px 4)) $button.Height
+    Add-Hit $map 'hub' $button {
         $script:Popup.Hide()
-        Show-ScheduleDialog
-        Update-ScheduleState
+        Show-HubDialog
     }
 
     $g.DrawRectangle($pen, 0, 0, $w - 1, $h - 1)
     $pen.Dispose()
 })
 
+# Esc closes the popup like the other windows.
+$Popup.Add_KeyDown({ param($sender, $e) if ($e.KeyCode -eq 'Escape') { $sender.Hide(); $script:LastHidden = Get-Date } })
 $Popup.Add_Deactivate({
     $script:Popup.Hide()
     $script:LastHidden = Get-Date
@@ -305,24 +389,82 @@ function Switch-Popup {
 # ---------------------------------------------------------------- tray icon
 
 $script:Notify = New-Object System.Windows.Forms.NotifyIcon
+Set-NotifyIconId $Notify $script:TrayIconIds.Claude
 $Notify.Icon = Get-TrayIcon
-$Notify.Text = 'Claude'
+# Its first tooltip names its taskbar place (lib\traysessions.ps1, $TrayIconIds); the usage text replaces it.
+$Notify.Text = 'ClaudeMaxxing (Claude)'
 $Notify.Visible = -not $Rendering
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
-[void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
-[void]$menu.Items.Add('Actualizar datos', $null, { Start-UsageRefresh })
-[void]$menu.Items.Add((Tx 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
-[void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
-[void]$menu.Items.Add('Abrir uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
+# Grouped like the ClaudeMaxxing window: the window, usage, scheduling, the other tools. Names match its sections.
+[void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
+# Planear sesion is the automatic agenda's tab now; Claude Judge (the policy's 'judge') is a link inside it.
+[void]$menu.Items.Add((Ux 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' })
 [void]$menu.Items.Add('-')
-[void]$menu.Items.Add('Salir', $null, { [System.Windows.Forms.Application]::Exit() })
+[void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
+[void]$menu.Items.Add('Actualizar uso', $null, { Start-UsageRefresh; Show-Popup })
+[void]$menu.Items.Add('Ver uso en claude.ai', $null, { Start-Process 'https://claude.ai/settings/usage' })
+[void]$menu.Items.Add('-')
+[void]$menu.Items.Add((Ux 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
+[void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
+[void]$menu.Items.Add('-')
+# Claude Whisper: live call copilot in its own process (whisper.ps1).
+if (Test-HubModule 'whisper') { [void]$menu.Items.Add('Claude Whisper...', $null, { Start-WhisperWindow $TrayRoot }) }
+# Otros PCs: terminals on paired PCs and the incoming sessions, rebuilt each time the submenu opens.
+$script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PCs')
+[void]$script:BridgeMenu.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
+$script:BridgeMenu.Add_DropDownOpening({ Update-BridgeMenu $script:BridgeMenu })
+if (Test-HubModule 'bridge') { [void]$menu.Items.Add($script:BridgeMenu) }
+[void]$menu.Items.Add('-')
+[void]$menu.Items.Add('Salir', $null, {
+    # Leaving stops the SSH server, which ends what other PCs have open here.
+    $open = if ($script:Bridge) { @($script:Bridge.Sessions.Values).Count } else { 0 }
+    if ($open -gt 0 -and -not (Confirm-UiAction ((Tx 'Otros PCs tienen {0} sesi\u00f3n(es) abierta(s) en este PC. Al salir se cierran. \u00bfSalir igualmente?') -f $open))) { return }
+    [System.Windows.Forms.Application]::Exit()
+})
+# Translated each time it opens (Tag keeps the Spanish text), so a language change in Configuracion shows here too.
+$menu.Add_Opening({
+    param($sender, $e)
+    foreach ($item in $sender.Items) { if ($null -eq $item.Tag) { $item.Tag = $item.Text }; $item.Text = L $item.Tag }
+})
 $Notify.ContextMenuStrip = $menu
 
 $Notify.Add_MouseClick({
     param($sender, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Switch-Popup }
 })
+# The 5-hour and weekly windows as two long bars between the eggs and the Claude icon, always in sight, drawn across
+# $UsageBarSegments icons (lib\traysessions.ps1). Same click and menu as the Claude icon.
+$script:UsageBars = @(for ($i = 0; $i -lt $script:UsageBarSegments; $i++) {
+    $bar = New-Object System.Windows.Forms.NotifyIcon
+    Set-NotifyIconId $bar ($script:TrayIconIds.Bars + $i)
+    $bar.ContextMenuStrip = $menu
+    $bar.Add_MouseClick({
+        param($sender, $e)
+        if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Switch-Popup }
+    })
+    $bar
+})
+$Notify.Add_BalloonTipClicked({
+    if ($script:BridgeBalloonAction -eq 'dialog') { Show-BridgeDialog }
+    elseif ($script:BridgeBalloonAction -eq 'whisper') { Start-WhisperWindow $TrayRoot }
+})
+
+# Like a meeting assistant: when a call app starts using the microphone, offer Claude Whisper. Only once
+# Claude Whisper has been used on this PC (its settings exist), and not while it is open.
+$script:MeetingAppsSeen = @()
+function Test-MeetingStarted {
+    if (-not (Test-HubModule 'whisper')) { return }
+    if (-not (Test-Path -LiteralPath $WhisperSettingsFile) -or (Test-WhisperRunning)) { $script:MeetingAppsSeen = @(); return }
+    if (-not (Get-WhisperSettings (Read-JsonFile $WhisperSettingsFile)).meetingNotice) { return }
+    try { Import-WhisperNative; $apps = Get-MeetingApps ([ClaudeWhisper.AudioCapture]::MicrophoneUsers()) } catch { return }
+    $new = @($apps | Where-Object { $script:MeetingAppsSeen -notcontains $_ })
+    $script:MeetingAppsSeen = $apps
+    if ($new.Count -eq 0 -or -not $script:Notify.Visible) { return }
+    $script:BridgeBalloonAction = 'whisper'
+    $script:Notify.ShowBalloonTip(6000, 'Claude Whisper', ((Tx '{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir Claude Whisper.') -f $new[0]),
+        [System.Windows.Forms.ToolTipIcon]::Info)
+}
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 15000
@@ -330,12 +472,130 @@ $script:Ticks = 0
 $timer.Add_Tick({
     $script:Ticks++
     if ($script:Ticks % 20 -eq 0) { Update-ScheduleState }
+    # Agenda automatica (lib\hubauto.ps1): a stats scan finished with the window closed, and the hourly sync.
+    if (-not $script:HubDialog) { Complete-HubStatsScan }
+    Invoke-AutoSchedule
+    Test-MeetingStarted
+    # Ambientes (lib\harness.ps1): which environment what is open belongs to, and the offer to switch.
+    if (Test-HubModule 'ambientes') { try { Invoke-HarnessWatch } catch { } }
+    # Business edition (lib\hubbusiness.ps1): calibrate the seat and send the weekly report, every 5 minutes.
+    if ($script:Ticks % 20 -eq 1) { try { Update-PolicyAtRuntime; Invoke-BusinessTick } catch { } }
+    # Claude Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
+    if ($script:Ticks % 20 -eq 2) { try { Update-WhipForecast } catch { } }
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }
 })
 
 Update-ScheduleState
 Update-UsageState
+
+# Otros PCs: the first tick sets it up (keys, firewall check, server), so the icon shows without waiting for it.
+$script:BridgeTimer = New-Object System.Windows.Forms.Timer
+$script:BridgeTimer.Interval = 400
+$script:BridgeTimer.Add_Tick({ Invoke-BridgeTick })
+
+if ($RenderLogoTo) {
+    New-Item -ItemType Directory -Force -Path $RenderLogoTo | Out-Null
+    # The jellyfish of logo.png in its own orange on a transparent square, and the same sizes (plus 256) as
+    # logo.ico, the icon of the entry in Settings > Apps (Register-AppEntry).
+    $logos = @(foreach ($size in 16, 32, 48, 128, 256) { New-AppLogoBitmap $size })
+    foreach ($logo in $logos) {
+        if ($logo.Width -lt 256) { $logo.Save((Join-Path $RenderLogoTo "$($logo.Width).png"), [System.Drawing.Imaging.ImageFormat]::Png) }
+    }
+    Save-PngIcon $logos (Join-Path $RenderLogoTo 'logo.ico')
+    foreach ($logo in $logos) { $logo.Dispose() }
+    $Notify.Dispose()
+    exit 0
+}
+
+if ($RenderEggsTo) {
+    New-Item -ItemType Directory -Force -Path $RenderEggsTo | Out-Null
+    foreach ($slotColor in $SlotColors) {
+        # On a dark rounded chip, as in the notification area: the tab itself is the session's color, and an egg of
+        # that color straight on it would vanish.
+        $icon = New-Object System.Drawing.Bitmap(64, 64)
+        $g = [System.Drawing.Graphics]::FromImage($icon)
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $chip = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
+        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+        foreach ($corner in @(@(0, 0, 180), @(40, 0, 270), @(40, 40, 0), @(0, 40, 90))) { $path.AddArc($corner[0], $corner[1], 24, 24, $corner[2], 90) }
+        $path.CloseFigure()
+        $g.FillPath($chip, $path)
+        $egg = New-SessionIconBitmap $slotColor.Hex 52
+        $g.DrawImage($egg, 6, 6, 52, 52)
+        $g.Dispose(); $chip.Dispose(); $path.Dispose(); $egg.Dispose()
+        $icon.Save((Join-Path $RenderEggsTo "$($slotColor.Name).png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        $icon.Dispose()
+    }
+    # The same egg as 8-bit text for the statusline, 2 cells on one line (4 x 3 dots): still, and a hole going round
+    # it while it thinks (the GIF's waves do not show at this size).
+    $images = Get-EggImages
+    $eggDots = if ($images.Still) { ConvertTo-EggDots $images.Still 4 3 } else { $null }
+    Write-JsonFile (Join-Path $RenderEggsTo 'statusline.json') ([ordered]@{
+        still = $(if ($eggDots) { Format-EggSextants $eggDots } else { @() })
+        thinking = $(if ($eggDots) { New-EggWaveFrames $eggDots } else { @() })
+    })
+    $Notify.Dispose()
+    exit 0
+}
+
+if ($RenderSnipTo) {
+    # A sample screen with an error in it, drawn as Win+Alt+C shows it: a rectangle chosen with a pen mark and its
+    # panel (<png>), the shape menu over a window (-menu), the text extracted (-text), the color picker (-color), the
+    # recording bar (-bar), and the corner boxes after Win+Shift+S (-box) and after a recording (-video).
+    Initialize-SnipNative
+    function New-SnipSample {
+        $screen = New-Object System.Drawing.Bitmap(1600, 900)
+        $g = [System.Drawing.Graphics]::FromImage($screen)
+        $g.Clear((New-Rgb 236 236 236))
+        Fill-Round $g (New-Rect 80 60 1440 760) 8 (New-Rgb 30 30 30)
+        for ($i = 0; $i -lt 14; $i++) { Draw-Text $g ("  {0}  const value = items.map((item) => item.name);" -f (40 + $i)) $script:Fonts.Body (New-Rgb 160 160 160) 100 (90 + 26 * $i) 900 24 }
+        Draw-Text $g 'Error: Cannot read properties of undefined' $script:Fonts.Title (New-Rgb 232 112 92) 120 500 720 60
+        $g.Dispose()
+        $screen
+    }
+    $origin = New-Object System.Drawing.Point(0, 0)
+    $screens = New-Object System.Collections.ArrayList
+    [void]$screens.Add(@((New-Rect 0 0 1600 900), (New-Rect 0 0 1600 860)))
+    $windows = New-Object System.Collections.ArrayList
+    [void]$windows.Add(@(New-Rect 80 60 1440 760))
+    $cursor = New-Object System.Drawing.Point(800, 400)
+    $region = New-Rect 100 470 620 120
+    $stroke = @{ Color = '#E8453C'; Width = 4; Points = (New-Object 'System.Collections.Generic.List[System.Drawing.Point]') }
+    foreach ($pt in @(@(130, 560), @(260, 575), @(400, 565), @(520, 572))) { $stroke.Points.Add((New-Object System.Drawing.Point($pt[0], $pt[1]))) }
+    $strokes = New-Object System.Collections.ArrayList
+    [void]$strokes.Add($stroke)
+    $name = [IO.Path]::GetFileNameWithoutExtension($RenderSnipTo)
+    $dir = Split-Path -Parent $RenderSnipTo
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = $RenderSnipTo; Region = $region; Tool = 'pen'; Strokes = $strokes }
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = (Join-Path $dir "$name-menu.png"); Shape = 'window'; Menu = $true; Hover = (New-Rect 80 60 1440 760) }
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = (Join-Path $dir "$name-text.png"); Tool = 'text'; Region = $region; Ocr = "Error: Cannot read properties of undefined"; HoverId = 'text' }
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = (Join-Path $dir "$name-color.png"); Tool = 'color'; Loupe = (New-Object System.Drawing.Point(160, 520)); HoverId = 'color' }
+    $sample = New-SnipSample
+    Show-SnipBox ($sample.Clone($region, $sample.PixelFormat)) (Join-Path $dir "$name-box.png")
+    Show-SnipBox ($sample.Clone($region, $sample.PixelFormat)) (Join-Path $dir "$name-video.png") @{ Path = 'C:\video.mp4'; Frames = @(); Duration = [TimeSpan]::FromSeconds(42) }
+    $script:SnipRecording = @{ State = 'ready'; Recorder = $null }
+    $bar = New-SnipRecordBar (New-Rect 100 470 620 120)
+    $script:SnipRecording.Bar = $bar
+    Update-SnipRecordBar
+    Save-SnipRender $bar (Join-Path $dir "$name-bar.png")
+    $Notify.Dispose()
+    exit 0
+}
+
+if ($RenderHubTo) {
+    Show-HubDialog $HubSection $RenderHubTo
+    $Notify.Dispose()
+    exit 0
+}
+
+if ($RenderBridgeTo -or $RenderApprovalTo) {
+    Set-BridgePreview
+    if ($RenderBridgeTo) { Show-BridgeDialog $RenderBridgeTo }
+    if ($RenderApprovalTo) { Show-ApprovalForm $RenderApprovalTo }
+    $Notify.Dispose()
+    exit 0
+}
 
 if ($RenderDialogTo) {
     Show-ScheduleDialog $RenderDialogTo $PreviewCloud $DialogTab
@@ -355,13 +615,40 @@ if ($RenderTo) {
 }
 
 $timer.Start()
+# A company policy without Otros PCs: no SSH server and no discovery on this PC.
+if (Test-HubModule 'bridge') { $script:BridgeTimer.Start() }
+Update-UsageBarsIcon $script:UsageBars $script:View
+# Right end first: Windows puts each new icon at the left end, so the bars line up left to right next to Claude,
+# and the eggs (shown next) go to their left.
+for ($i = $script:UsageBars.Count - 1; $i -ge 0; $i--) {
+    $script:UsageBars[$i].Text = Get-UsageBarsName $i
+    $script:UsageBars[$i].Visible = $true
+}
+Start-SessionIcons
+# Captura a Claude Code: the box after a Win+Shift+S snip (lib\snip.ps1).
+Start-SnipWatch
+Start-UsageOverlay
+Start-TrayWatchdog (Join-Path $TrayRoot 'tray.ps1')
 Start-UsageRefresh
+# An error escaping a timer or click handler would open WinForms' modal error dialog (often behind the windows, the
+# tray stuck on it until someone clicks): logged instead, and the tray goes on.
+[System.Windows.Forms.Application]::add_ThreadException({
+    param($sender, $e)
+    Write-SessionIconError $(if ($e.Exception.ErrorRecord) { $e.Exception.ErrorRecord } else { $e.Exception.Message })
+})
 try {
     [System.Windows.Forms.Application]::Run()
 } finally {
     $timer.Stop()
+    $script:BridgeTimer.Stop()
+    Stop-BridgeTray
+    Stop-SessionIcons
+    Stop-SnipWatch
+    Stop-UsageOverlay
+    foreach ($bar in $script:UsageBars) { $bar.Visible = $false; $bar.Dispose() }
     $Notify.Visible = $false
     $Notify.Dispose()
     Remove-Item -LiteralPath $TrayPidFile -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $TrayHome 'eggs.json') -ErrorAction SilentlyContinue
     $script:TrayMutex.ReleaseMutex()
 }

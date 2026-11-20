@@ -1,0 +1,6 @@
+{
+  "name": "maxx-pdf",
+  "version": "0.1.0",
+  "description": "ClaudeMaxxing PDF: Claude reads a PDF as Markdown (PyMuPDF4LLM) instead of loading its pages as images, so a long PDF costs a fraction of the plan.",
+  "license": "MIT"
+}

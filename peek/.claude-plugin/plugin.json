@@ -1,0 +1,26 @@
+{
+  "name": "maxx-peek",
+  "version": "1.0.0",
+  "description": "Every path in Claude's replies, on Windows, Linux or macOS, with or without backticks, becomes a link: hover to preview it (image, video, PDF, audio, folder, code or text), click to show it in the file manager. Each reply ends with its references. Part of ClaudeMaxxing, based on midudev's Quick Peek.",
+  "author": {
+    "name": "ClaudeMaxxing, on Quick Peek by Miguel Ángel Durán (midudev)",
+    "url": "https://github.com/midudev/better-claude"
+  },
+  "license": "MIT",
+  "keywords": ["paths", "files", "explorer", "preview", "hover", "references", "mod"],
+  "userConfig": {
+    "window": {
+      "type": "boolean",
+      "title": "Vista previa en ventana",
+      "description": "En Windows y macOS, al pasar el ratón por una ruta se abre una ventanita junto al puntero con la miniatura (imagen, fotograma de video, primera página de un PDF, icono), el tipo, el tamaño y la duración o las páginas. Apagado, la terminal muestra una tarjeta de una línea sobre la ruta. El código y el texto se ven siempre en la tarjeta, con colores.",
+      "default": true
+    },
+    "references": {
+      "type": "string",
+      "title": "Referencias al final de cada respuesta",
+      "description": "all: todas las rutas que nombra la respuesta, también las de bloques de código y tablas · unlinked: solo las que no quedaron como enlace en el texto · off: ninguna.",
+      "options": ["all", "unlinked", "off"],
+      "default": "all"
+    }
+  }
+}

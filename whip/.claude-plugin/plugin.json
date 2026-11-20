@@ -1,0 +1,6 @@
+{
+  "name": "maxx-whip",
+  "version": "0.1.0",
+  "description": "Claude Whip (ClaudeMaxxing): when the Claude plan runs low, the session only reads, plans and an agent (Codex, Antigravity, OpenCode or Copilot) writes the code while Claude watches git, runs the tests and sends it feedback, so the plan lasts.",
+  "license": "MIT"
+}

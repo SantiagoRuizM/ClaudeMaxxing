@@ -1,5 +1,6 @@
 # Proceso reproductor: lo lanza Start-VoiceJob en segundo plano con una lista de cosas que decir.
-#   1. Prepara el audio de cada item: el mp3 guardado (repeticiones) o uno nuevo con edge-tts.
+#   1. Prepara el audio de cada item: el guardado (repeticiones) o uno nuevo con el motor de voz
+#      configurado (engines.ps1: ElevenLabs, Gemini o edge-tts).
 #      Esto ocurre en paralelo con otras sesiones.
 #   2. Espera su turno en un mutex compartido para no hablar encima de otra sesion.
 #   3. Baja la musica y, por cada item, toca la firma musical de su sesion y la voz (ffplay, o
@@ -8,34 +9,23 @@
 param([Parameter(Mandatory = $true)][string]$JobFile)
 
 . "$PSScriptRoot\common.ps1"
-
-function New-EdgeAudio($Cfg, [string]$Text, [string]$Voice, [string]$Mp3) {
-    $edge = Find-Exe (Get-Opt $Cfg 'edge.exe' '') 'edge-tts'
-    if (-not $edge) { Write-Log 'edge: no encuentro edge-tts, uso SAPI'; return $false }
-    $txt = [IO.Path]::ChangeExtension($Mp3, '.txt')
-    [IO.File]::WriteAllText($txt, $Text, $Utf8)
-    $rate = Get-Opt $Cfg 'edge.rate' '+0%'
-    $null = & $edge --voice $Voice "--rate=$rate" --file $txt --write-media $Mp3 2>&1
-    $ok = $LASTEXITCODE -eq 0 -and (Test-Path $Mp3)
-    Remove-Item $txt -Force -ErrorAction SilentlyContinue
-    if (-not $ok) { Write-Log "edge-tts fallo con $Voice (exit $LASTEXITCODE), uso SAPI" }
-    return $ok
-}
+. "$PSScriptRoot\engines.ps1"
 
 function Invoke-Sapi($Cfg, [string]$Text) {
     Add-Type -AssemblyName System.Speech
     $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
     try {
+        # La voz configurada si habla el idioma del texto; si no, la primera instalada de ese idioma, y si no
+        # hay ninguna, la configurada (o la de por defecto).
         $sapiVoice = Get-Opt $Cfg 'sapi.voice' ''
-        if ($sapiVoice) {
-            try { $synth.SelectVoice($sapiVoice) } catch {
-                # En otro PC puede no estar esa voz: cualquier voz en espanol antes que la de por defecto.
-                $spanish = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.TwoLetterISOLanguageName -eq 'es' }) |
-                    Select-Object -First 1
-                if ($spanish) { $synth.SelectVoice($spanish.VoiceInfo.Name) }
-                Write-Log "sapi: la voz '$sapiVoice' no existe; uso '$($synth.Voice.Name)'"
-            }
-        }
+        $lang = Get-TextLanguage $Text
+        $installed = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
+        $configured = $installed | Where-Object { $_.Name -eq $sapiVoice } | Select-Object -First 1
+        if ($sapiVoice -and -not $configured) { Write-Log "sapi: la voz '$sapiVoice' no existe en este PC" }
+        $pick = if ($configured -and $configured.Culture.TwoLetterISOLanguageName -eq $lang) { $configured }
+                else { $installed | Where-Object { $_.Culture.TwoLetterISOLanguageName -eq $lang } | Select-Object -First 1 }
+        if (-not $pick) { $pick = $configured }
+        if ($pick) { $synth.SelectVoice($pick.Name) }
         $synth.Rate = [int](Get-Opt $Cfg 'sapi.rate' 0)
         $synth.SetOutputToDefaultAudioDevice()
         $synth.Speak($Text)
@@ -52,17 +42,17 @@ $owned  = $false
 $ducked = $false
 try {
     $ffplay  = Find-Exe (Get-Opt $cfg 'ffplay' '') 'ffplay'
-    $useEdge = (Get-Opt $cfg 'engine' 'edge') -eq 'edge' -and $ffplay
 
     # 1. Preparar audio
     $plan = foreach ($item in @($job.items)) {
         $audio = ''
         if ($ffplay -and $item.audio -and (Test-Path $item.audio)) {
             $audio = $item.audio
-        } elseif ($useEdge) {
-            $mp3 = Join-Path $StateDir ('job-{0}-{1}.mp3' -f $job.key, [guid]::NewGuid().ToString('N'))
-            [void]$temps.Add($mp3)
-            if (New-EdgeAudio $cfg $item.text $item.voice $mp3) { $audio = $mp3 }
+        } elseif ($ffplay) {
+            # ElevenLabs, Gemini o edge segun la config (engines.ps1); '' si ninguno pudo: SAPI.
+            $base = Join-Path $StateDir ('job-{0}-{1}' -f $job.key, [guid]::NewGuid().ToString('N'))
+            $audio = New-SpeechAudio $cfg $item.text $item.voice $base
+            if ($audio) { [void]$temps.Add($audio) } else { Write-Log 'voz: ningun motor genero audio, uso SAPI' }
         }
         if ($job.history) { Add-History $item $audio $cfg }
         $chime = $null
@@ -76,6 +66,9 @@ try {
     try { $owned = $mutex.WaitOne([TimeSpan]::FromSeconds($wait)) }
     catch [System.Threading.AbandonedMutexException] { $owned = $true }
     if (-not $owned) { Write-Log "cola: $($job.key) espero mas de $wait s, descartado"; return }
+    # Quien habla ahora, para la bandeja (su huevo se ilumina). Se borra al soltar el turno.
+    $me = Get-Process -Id $PID
+    Write-JsonFile $SpeakingFile ([pscustomobject]@{ key = $job.key; pid = $PID; start = [string]$me.StartTime.Ticks })
 
     # 3. Bajar musica (o heredarla ya baja del anterior en la cola), hablar, subir musica
     #    salvo que otro reproductor espere turno: entonces se queda baja para el siguiente.
@@ -99,7 +92,11 @@ try {
     $waiting = Test-QueueWaiting
     if ($ducked) { if ($waiting) { Send-Duck } else { Restore-Duck $cfg } }
     elseif (-not $waiting) { Restore-StaleDuck $cfg }  # p. ej. se descarto por la cola con musica heredada
-    if ($owned) { $mutex.ReleaseMutex() }
+    if ($owned) {
+        $speaking = Read-JsonFile $SpeakingFile
+        if ($speaking -and [int]$speaking.pid -eq $PID) { Remove-Item $SpeakingFile -Force -ErrorAction SilentlyContinue }
+        $mutex.ReleaseMutex()
+    }
     $mutex.Dispose()
     Remove-Item (@($JobFile) + @($temps)) -Force -ErrorAction SilentlyContinue
     $pidFile = Join-Path $StateDir "player-$($job.key).json"

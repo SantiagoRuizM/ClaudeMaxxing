@@ -5,11 +5,12 @@ $script:SessionTaskPath = '\ClaudeMaxxing\'
 # Folder used before the rename; only cleaned up.
 $script:LegacySessionTaskPath = '\ClaudeTray\'
 
-function Get-SessionTaskName([datetime]$At) {
-    'Session-' + $At.ToString('yyyyMMdd-HHmm')
+# Prefix: Session- for the ones you schedule, Auto- for the automatic agenda (lib\autoplan.ps1).
+function Get-SessionTaskName([datetime]$At, [string]$Prefix = 'Session-') {
+    $Prefix + $At.ToString('yyyyMMdd-HHmm')
 }
 
-function New-SessionTask([datetime]$At, [string]$ScriptPath) {
+function New-SessionTask([datetime]$At, [string]$ScriptPath, [string]$Prefix = 'Session-') {
     $arguments = '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $ScriptPath
     $action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument $arguments
     $trigger = New-ScheduledTaskTrigger -Once -At $At
@@ -19,7 +20,7 @@ function New-SessionTask([datetime]$At, [string]$ScriptPath) {
         -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
         -DeleteExpiredTaskAfter (New-TimeSpan -Hours 1)
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName (Get-SessionTaskName $At) -TaskPath $script:SessionTaskPath `
+    Register-ScheduledTask -TaskName (Get-SessionTaskName $At $Prefix) -TaskPath $script:SessionTaskPath `
         -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
         -Description 'ClaudeMaxxing: start a Claude usage session' -Force | Out-Null
 }
@@ -36,8 +37,9 @@ function Get-SessionTasks {
     @($items | Sort-Object At)
 }
 
+# $true when the task is gone, so callers only report what really happened.
 function Remove-SessionTask([string]$Name) {
-    Unregister-ScheduledTask -TaskName $Name -TaskPath $script:SessionTaskPath -Confirm:$false -ErrorAction SilentlyContinue
+    try { Unregister-ScheduledTask -TaskName $Name -TaskPath $script:SessionTaskPath -Confirm:$false -ErrorAction Stop; $true } catch { $false }
 }
 
 # Returns how many tasks were removed. -LegacyOnly: only the ones in the old folder, whose action points
@@ -81,7 +83,7 @@ function Get-CloudScheduleOutcome([string]$Output) {
     $id = [regex]::Matches($Output, 'ROUTINE_ID=(trig_[A-Za-z0-9]+)') | Select-Object -Last 1
     if ($id) { return @{ Status = 'scheduled'; RoutineId = $id.Groups[1].Value } }
     $fail = [regex]::Matches($Output, 'FAILED=(.+)') | Select-Object -Last 1
-    $reason = if ($fail) { $fail.Groups[1].Value.Trim() } else { 'Claude Code did not return a routine id' }
+    $reason = if ($fail) { $fail.Groups[1].Value.Trim() } else { (Tx 'Claude Code no devolvi\u00f3 el id de la rutina') }
     if ($reason.Length -gt 120) { $reason = $reason.Substring(0, 120) }
     @{ Status = 'failed'; Error = $reason }
 }
@@ -90,12 +92,29 @@ function Get-CloudScheduleOutcome([string]$Output) {
 
 function ConvertTo-LocalTime([string]$Text) { [DateTimeOffset]::Parse($Text).LocalDateTime }
 
+# Runs $Body holding a lock on $Path across processes: history.json and cloud.json are read, changed and written
+# by the tray, the dialog, start-session.ps1 (Task Scheduler) and cloud-schedule.ps1, and two at once lose an entry.
+function Use-JsonFileLock([string]$Path, [scriptblock]$Body) {
+    $name = 'Local\ClaudeTrayFile-' + [Math]::Abs($Path.ToLowerInvariant().GetHashCode())
+    $lock = New-Object System.Threading.Mutex($false, $name)
+    $owned = $false
+    try {
+        try { $owned = $lock.WaitOne(5000) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+        & $Body
+    } finally {
+        if ($owned) { $lock.ReleaseMutex() }
+        $lock.Dispose()
+    }
+}
+
 # Appends to a JSON array file, keeping the newest $Keep entries.
 function Add-JsonArrayEntry([string]$Path, $Entry, [int]$Keep = 20) {
-    $items = @(Read-JsonFile $Path | Where-Object { $_ })
-    $items = @($items) + @($Entry)
-    if ($items.Count -gt $Keep) { $items = $items[($items.Count - $Keep)..($items.Count - 1)] }
-    Write-JsonFile $Path $items
+    Use-JsonFileLock $Path {
+        $items = @(Read-JsonFile $Path | Where-Object { $_ })
+        $items = @($items) + @($Entry)
+        if ($items.Count -gt $Keep) { $items = $items[($items.Count - $Keep)..($items.Count - 1)] }
+        Write-JsonFile $Path $items
+    }
 }
 
 function Add-ScheduleHistory($Entry) { Add-JsonArrayEntry $HistoryFile $Entry }
@@ -107,19 +126,31 @@ function Add-CloudRequest([datetime]$At) {
     $id
 }
 
-function Get-CloudRequest([string]$Id) {
-    @(Read-JsonFile $CloudFile | Where-Object { $_ -and $_.id -eq $Id }) | Select-Object -First 1
+# A request still "creating" after this long has a claude -p that hung or died: it is reported as failed, so the
+# dialog stops waiting and a new one can be made.
+$CloudRequestMaxMinutes = 15
+
+function Get-CloudRequest([string]$Id, [datetime]$Now = (Get-Date)) {
+    $request = @(Read-JsonFile $CloudFile | Where-Object { $_ -and $_.id -eq $Id }) | Select-Object -First 1
+    if ($request -and $request.status -eq 'creating' -and $request.requestedAt -and
+        ($Now - (ConvertTo-LocalTime ([string]$request.requestedAt))).TotalMinutes -gt $CloudRequestMaxMinutes) {
+        $request | Add-Member -NotePropertyName status -NotePropertyValue 'failed' -Force
+        $request | Add-Member -NotePropertyName error -NotePropertyValue ((Tx 'Claude no termin\u00f3 de crear la rutina en ') + "$CloudRequestMaxMinutes min.") -Force
+    }
+    $request
 }
 
 function Set-CloudRequestResult([string]$Id, [string]$Status, [string]$RoutineId, [string]$ErrorText) {
-    $items = @(Read-JsonFile $CloudFile | Where-Object { $_ })
-    foreach ($item in $items) {
-        if ($item.id -ne $Id) { continue }
-        $item | Add-Member -NotePropertyName status -NotePropertyValue $Status -Force
-        if ($RoutineId) { $item | Add-Member -NotePropertyName routineId -NotePropertyValue $RoutineId -Force }
-        if ($ErrorText) { $item | Add-Member -NotePropertyName error -NotePropertyValue $ErrorText -Force }
+    Use-JsonFileLock $CloudFile {
+        $items = @(Read-JsonFile $CloudFile | Where-Object { $_ })
+        foreach ($item in $items) {
+            if ($item.id -ne $Id) { continue }
+            $item | Add-Member -NotePropertyName status -NotePropertyValue $Status -Force
+            if ($RoutineId) { $item | Add-Member -NotePropertyName routineId -NotePropertyValue $RoutineId -Force }
+            if ($ErrorText) { $item | Add-Member -NotePropertyName error -NotePropertyValue $ErrorText -Force }
+        }
+        Write-JsonFile $CloudFile $items
     }
-    Write-JsonFile $CloudFile $items
 }
 
 # Rows for the "scheduled" list: upcoming first (soonest on top), then past runs (newest on top).
@@ -154,17 +185,18 @@ function Get-ScheduleRows($PcTasks, $CloudRequests, $History, [datetime]$Now, [i
 
 function Get-DayLabel([datetime]$Date, [datetime]$Now) {
     $days = ($Date.Date - $Now.Date).Days
-    if ($days -eq 0) { return 'Hoy' }
+    if ($days -eq 0) { return (L 'Hoy') }
     if ($days -eq 1) { return (Tx 'Ma\u00f1ana') }
-    if ($days -eq -1) { return 'Ayer' }
-    $text = $Date.ToString('ddd d MMM', [System.Globalization.CultureInfo]::CurrentCulture).TrimEnd('.')
+    if ($days -eq -1) { return (L 'Ayer') }
+    $text = $Date.ToString('ddd d MMM', $UiCulture).TrimEnd('.')
     $text.Substring(0, 1).ToUpper() + $text.Substring(1)
 }
 
+# "1:05 p. m.", or "13:05" where the culture has no a.m./p.m. (es-ES): "1:05" alone would be ambiguous.
 function Format-Clock([datetime]$Value) {
-    $Value.ToString('h:mm tt', [System.Globalization.CultureInfo]::CurrentCulture)
+    if ($UiCulture.DateTimeFormat.AMDesignator) { $Value.ToString('h:mm tt', $UiCulture) } else { $Value.ToString('H:mm', $UiCulture) }
 }
 
 function Format-DialogDateTime([datetime]$Value, [datetime]$Now) {
-    (Get-DayLabel $Value $Now) + ' ' + (Tx '\u00b7') + ' ' + (Format-Clock $Value)
+    (Get-DayLabel $Value $Now) + (Tx ' \u00b7 ') + (Format-Clock $Value)
 }

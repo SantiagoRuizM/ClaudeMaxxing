@@ -7,6 +7,18 @@ if (-not ('ClaudeTray.Native' -as [type])) {
 [DllImport("user32.dll")] public static extern bool ReleaseCapture();
 [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
+[DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
+[DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
+[DllImport("user32.dll")] public static extern IntPtr GetClipboardOwner();
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint attachTo, bool on);
+[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+[DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
 '@
 }
 
@@ -26,12 +38,13 @@ function Test-AppsLightTheme {
     } catch { return $false }
 }
 
-# Colors follow claude.ai: warm off-white or warm charcoal, with the clay accent.
+# Colors follow claude.ai: warm off-white or warm charcoal, with the clay accent. Muted and Faint text stay at
+# 4.5:1 or more on the window background (WCAG AA), with Muted a step stronger than Faint.
 function Get-ClaudePalette([bool]$Light) {
     if ($Light) {
         return @{
             Back = New-Rgb 250 249 245; Surface = New-Rgb 240 238 230; SurfaceHover = New-Rgb 232 229 218
-            Border = New-Rgb 222 219 207; Text = New-Rgb 20 20 19; Muted = New-Rgb 107 106 100; Faint = New-Rgb 160 158 150
+            Border = New-Rgb 222 219 207; Text = New-Rgb 20 20 19; Muted = New-Rgb 90 89 84; Faint = New-Rgb 117 115 107
             Accent = New-Rgb 217 119 87; AccentHover = New-Rgb 198 97 63; AccentText = New-Rgb 255 255 255
             AccentTint = New-Rgb 247 229 220; Track = New-Rgb 228 225 214
             low = New-Rgb 106 150 90; medium = New-Rgb 201 145 50; high = New-Rgb 196 72 54
@@ -40,7 +53,7 @@ function Get-ClaudePalette([bool]$Light) {
     }
     @{
         Back = New-Rgb 38 38 36; Surface = New-Rgb 48 48 46; SurfaceHover = New-Rgb 58 58 55
-        Border = New-Rgb 66 65 61; Text = New-Rgb 250 249 245; Muted = New-Rgb 166 163 154; Faint = New-Rgb 117 115 108
+        Border = New-Rgb 66 65 61; Text = New-Rgb 250 249 245; Muted = New-Rgb 166 163 154; Faint = New-Rgb 142 140 133
         Accent = New-Rgb 217 119 87; AccentHover = New-Rgb 229 136 105; AccentText = New-Rgb 255 255 255
         AccentTint = New-Rgb 70 52 44; Track = New-Rgb 62 62 58
         low = New-Rgb 132 176 112; medium = New-Rgb 226 171 78; high = New-Rgb 226 101 80
@@ -91,12 +104,21 @@ function Get-TrayIcon {
     [System.Drawing.SystemIcons]::Information
 }
 
-# The Claude spark recolored to a solid color (RGB replaced, alpha kept).
+# The Claude spark recolored to a solid color (RGB replaced, alpha kept); only the usage popup's "Claude" header.
 function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
     $path = Get-ClaudeIconPath 'Tray-Win32.ico'
     if (-not $path) { return $null }
-    $icon = New-Object System.Drawing.Icon($path, 64, 64)
+    # The .ico frame closest to the size asked for (at least 64): a 128 px logo is not scaled up from 64.
+    $frame = [Math]::Max(64, $Size)
+    $icon = New-Object System.Drawing.Icon($path, $frame, $frame)
     $source = $icon.ToBitmap()
+    $bitmap = ConvertTo-TintedBitmap $source $Color $Size
+    $source.Dispose(); $icon.Dispose()
+    $bitmap
+}
+
+# $Source scaled to a $Size square in a solid color (RGB replaced, alpha kept).
+function ConvertTo-TintedBitmap([System.Drawing.Image]$Source, [System.Drawing.Color]$Color, [int]$Size) {
     $bitmap = New-Object System.Drawing.Bitmap($Size, $Size)
     $g = [System.Drawing.Graphics]::FromImage($bitmap)
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
@@ -105,10 +127,42 @@ function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
     $matrix.Matrix40 = $Color.R / 255.0; $matrix.Matrix41 = $Color.G / 255.0; $matrix.Matrix42 = $Color.B / 255.0
     $attributes = New-Object System.Drawing.Imaging.ImageAttributes
     $attributes.SetColorMatrix($matrix)
-    $g.DrawImage($source, (New-Object System.Drawing.Rectangle(0, 0, $Size, $Size)), 0, 0, $source.Width, $source.Height,
+    $g.DrawImage($Source, (New-Object System.Drawing.Rectangle(0, 0, $Size, $Size)), 0, 0, $Source.Width, $Source.Height,
         [System.Drawing.GraphicsUnit]::Pixel, $attributes)
-    $g.Dispose(); $source.Dispose(); $icon.Dispose()
+    $g.Dispose(); $attributes.Dispose()
     $bitmap
+}
+
+# The ClaudeMaxxing logo as an app icon: the jellyfish of logo.png in its own orange on a transparent $Size square.
+function New-AppLogoBitmap([int]$Size) { New-BrandMark (New-Rgb 253 107 77) $Size }
+
+# The bitmaps as one .ico of PNG frames (Windows Vista and later read them); for the entry in Settings > Apps.
+function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) {
+    $frames = @($Bitmaps | ForEach-Object { $ms = New-Object IO.MemoryStream; $_.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); , $ms.ToArray() })
+    $out = New-Object IO.MemoryStream
+    $w = New-Object IO.BinaryWriter($out)
+    $w.Write([uint16]0); $w.Write([uint16]1); $w.Write([uint16]$frames.Count)
+    $offset = 6 + 16 * $frames.Count
+    for ($i = 0; $i -lt $frames.Count; $i++) {
+        # Width and height bytes: 0 means 256.
+        $w.Write([byte]($Bitmaps[$i].Width % 256)); $w.Write([byte]($Bitmaps[$i].Height % 256)); $w.Write([uint16]0)
+        $w.Write([uint16]1); $w.Write([uint16]32); $w.Write([uint32]$frames[$i].Length); $w.Write([uint32]$offset)
+        $offset += $frames[$i].Length
+    }
+    foreach ($frame in $frames) { $w.Write($frame) }
+    [IO.File]::WriteAllBytes($Path, $out.ToArray())
+    $w.Dispose()
+}
+
+# Window and taskbar icon: the logo above at 64 px, built once; falls back to the tray icon.
+function Get-AppIcon {
+    if ($script:AppIcon) { return $script:AppIcon }
+    $bitmap = New-AppLogoBitmap 64
+    if (-not $bitmap) { if ($script:Notify) { return $script:Notify.Icon }; return $null }
+    # shortcut: the HICON from GetHicon is never destroyed; fine for one icon per process.
+    $script:AppIcon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+    $bitmap.Dispose()
+    $script:AppIcon
 }
 
 function New-Rect([int]$X, [int]$Y, [int]$W, [int]$H) { New-Object System.Drawing.Rectangle($X, $Y, $W, $H) }
@@ -139,14 +193,16 @@ function Stroke-Round($G, [System.Drawing.Rectangle]$Rect, [int]$Radius, [System
 }
 
 function Draw-Text($G, [string]$Text, $Font, $Color, [int]$X, [int]$Y, [int]$W, [int]$H, [string]$Align = 'Left') {
-    $flags = [System.Windows.Forms.TextFormatFlags]'VerticalCenter, NoPadding, EndEllipsis, SingleLine'
+    # NoPrefix: an "&" is drawn as itself, not taken as a keyboard-shortcut marker (which would hide it and
+    # underline the next letter, as in "a & b" shown as "a _b").
+    $flags = [System.Windows.Forms.TextFormatFlags]'VerticalCenter, NoPadding, EndEllipsis, SingleLine, NoPrefix'
     if ($Align -eq 'Right') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::Right }
     if ($Align -eq 'Center') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::HorizontalCenter }
-    [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $Font, (New-Rect $X $Y $W $H), $Color, $flags)
+    [System.Windows.Forms.TextRenderer]::DrawText($G, (L $Text), $Font, (New-Rect $X $Y $W $H), $Color, $flags)
 }
 
 function Measure-TextWidth([string]$Text, $Font) {
-    [System.Windows.Forms.TextRenderer]::MeasureText($Text, $Font).Width
+    [System.Windows.Forms.TextRenderer]::MeasureText((L $Text), $Font).Width
 }
 
 function Set-RoundedWindow([System.Windows.Forms.Form]$Form, [System.Drawing.Color]$BorderColor) {
@@ -163,15 +219,45 @@ function Enable-DoubleBuffer($Control) {
 
 # ---------------------------------------------------------------- hit map
 # Owner-drawn forms register clickable rectangles while painting; mouse handlers look them up.
-# The map lives in the form's Tag so handlers need no closures.
+# The map lives in the form's Tag so handlers need no closures. $Tip is shown while the mouse is over it
+# (icon-only buttons such as the refresh arrow or a close cross). An area with no action only has a tip.
+# Keyboard: Tab / Shift+Tab move a focus ring through the areas with an action, in drawing order, and
+# Enter or Space runs it. Forms with a text box keep Tab for it, so this only works on fully drawn forms.
 
-function New-HitMap { @{ Items = New-Object System.Collections.ArrayList; Hover = $null } }
+function New-HitMap { @{ Items = New-Object System.Collections.ArrayList; Hover = $null; Focus = $null; Tip = $null; TipId = $null } }
 
-function Add-Hit($Map, [string]$Id, [System.Drawing.Rectangle]$Rect, [scriptblock]$Action) {
-    [void]$Map.Items.Add(@{ Id = $Id; Rect = $Rect; Action = $Action })
+function Add-Hit($Map, [string]$Id, [System.Drawing.Rectangle]$Rect, [scriptblock]$Action, [string]$Tip) {
+    [void]$Map.Items.Add(@{ Id = $Id; Rect = $Rect; Action = $Action; Tip = (L $Tip) })
+}
+
+function Test-HitAction($Item) { [bool]($Item.Action -and $Item.Action.ToString().Trim()) }
+
+# The ring around the area that has the keyboard focus; Register-HitMap draws it after the form's own Paint.
+function Draw-HitFocus($G, $Map) {
+    if (-not $Map.Focus) { return }
+    $item = @($Map.Items | Where-Object { $_.Id -eq $Map.Focus }) | Select-Object -First 1
+    if (-not $item) { $Map.Focus = $null; return }
+    $r = $item.Rect
+    if ($Map.Zoom -and $Map.Zoom -lt 1) { $z = $Map.Zoom; $r = New-Rect ([int]($r.X * $z)) ([int]($r.Y * $z)) ([int]($r.Width * $z)) ([int]($r.Height * $z)) }
+    $G.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    Stroke-Round $G (New-Rect ($r.X - (Px 2)) ($r.Y - (Px 2)) ($r.Width + (Px 4)) ($r.Height + (Px 4))) (Px 8) $script:Palette.Accent 2
+}
+
+function Move-HitFocus($Form, [int]$Step) {
+    $map = $Form.Tag
+    $items = @($map.Items | Where-Object { Test-HitAction $_ })
+    if (-not $items.Count) { return }
+    $index = -1
+    for ($i = 0; $i -lt $items.Count; $i++) { if ($items[$i].Id -eq $map.Focus) { $index = $i; break } }
+    $index = if ($index -lt 0) { if ($Step -gt 0) { 0 } else { $items.Count - 1 } } else { ($index + $Step + $items.Count) % $items.Count }
+    $map.Focus = $items[$index].Id
+    $map.Hover = $map.Focus
+    $Form.Invalidate()
 }
 
 function Find-Hit($Map, [System.Drawing.Point]$Point) {
+    # A window drawn at full size and shown smaller (the hub on a small screen): back to drawing coordinates.
+    if ($Map.Zoom -and $Map.Zoom -lt 1) { $Point = New-Object System.Drawing.Point([int]($Point.X / $Map.Zoom), [int]($Point.Y / $Map.Zoom)) }
     for ($i = $Map.Items.Count - 1; $i -ge 0; $i--) {
         if ($Map.Items[$i].Rect.Contains($Point)) { return $Map.Items[$i] }
     }
@@ -179,21 +265,81 @@ function Find-Hit($Map, [System.Drawing.Point]$Point) {
 }
 
 function Register-HitMap([System.Windows.Forms.Form]$Form) {
+    $Form.Tag.Tip = New-Object System.Windows.Forms.ToolTip
+    $Form.KeyPreview = $true
     $Form.Add_MouseMove({
         param($sender, $e)
-        $hit = Find-Hit $sender.Tag $e.Location
+        $map = $sender.Tag
+        $hit = Find-Hit $map $e.Location
         $id = if ($hit) { $hit.Id } else { $null }
-        $sender.Cursor = if ($hit) { [System.Windows.Forms.Cursors]::Hand } else { [System.Windows.Forms.Cursors]::Default }
-        if ($sender.Tag.Hover -ne $id) { $sender.Tag.Hover = $id; $sender.Invalidate() }
+        $sender.Cursor = if ($hit -and (Test-HitAction $hit)) { [System.Windows.Forms.Cursors]::Hand } else { [System.Windows.Forms.Cursors]::Default }
+        if ($map.Focus) { $map.Focus = $null; $sender.Invalidate() }
+        if ($map.Hover -ne $id) { $map.Hover = $id; $sender.Invalidate() }
+        $tip = if ($hit) { $hit.Tip } else { $null }
+        if ($map.TipId -ne $id) {
+            $map.TipId = $id
+            if ($tip) { $map.Tip.Show($tip, $sender, $e.X + (Px 12), $e.Y + (Px 18), 4000) } else { $map.Tip.Hide($sender) }
+        }
     })
     $Form.Add_MouseLeave({
         param($sender, $e)
+        $sender.Tag.TipId = $null
+        $sender.Tag.Tip.Hide($sender)
         if ($sender.Tag.Hover) { $sender.Tag.Hover = $null; $sender.Invalidate() }
     })
     $Form.Add_MouseClick({
         param($sender, $e)
         if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
         $hit = Find-Hit $sender.Tag $e.Location
-        if ($hit) { & $hit.Action }
+        if ($hit -and (Test-HitAction $hit)) { & $hit.Action }
     })
+    # Tab only reaches KeyDown on a form without focusable controls (a text box keeps it).
+    $Form.Add_PreviewKeyDown({ param($sender, $e) if ($e.KeyCode -eq 'Tab') { $e.IsInputKey = $true } })
+    $Form.Add_KeyDown({
+        param($sender, $e)
+        if ($sender.ActiveControl -or $sender.Tag.NoKeys) { return }
+        if ($e.KeyCode -eq 'Tab') { Move-HitFocus $sender $(if ($e.Shift) { -1 } else { 1 }); $e.Handled = $true; return }
+        if ($sender.Tag.Focus -and ($e.KeyCode -eq 'Enter' -or $e.KeyCode -eq 'Space')) {
+            $item = @($sender.Tag.Items | Where-Object { $_.Id -eq $sender.Tag.Focus }) | Select-Object -First 1
+            if ($item -and (Test-HitAction $item)) { $e.Handled = $true; $e.SuppressKeyPress = $true; & $item.Action }
+        }
+    })
+    # Added once the window exists, so it runs after the form's own Paint handler and the ring is on top.
+    $Form.Add_HandleCreated({ param($sender, $e) $sender.Add_Paint({ param($s, $pe) try { Draw-HitFocus $pe.Graphics $s.Tag } catch { } }) })
+}
+
+# Yes/No before something that cannot be undone; No is the default button. $Owner keeps it on top of that window.
+function Confirm-UiAction([string]$Text, $Owner = $null) {
+    $buttons = [System.Windows.Forms.MessageBoxButtons]::YesNo
+    $icon = [System.Windows.Forms.MessageBoxIcon]::Warning
+    $default = [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+    $Text = L $Text
+    $answer = if ($Owner) { [System.Windows.Forms.MessageBox]::Show($Owner, $Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
+        else { [System.Windows.Forms.MessageBox]::Show($Text, 'ClaudeMaxxing', $buttons, $icon, $default) }
+    $answer -eq [System.Windows.Forms.DialogResult]::Yes
+}
+
+# logo.png (the ClaudeMaxxing jellyfish, orange on cream, no alpha channel) as a $Color silhouette $Width px square.
+# The cream turns transparent by taking alpha from the blue channel (cream ~248, jellyfish ~77); $Opacity scales it.
+function New-BrandMark([System.Drawing.Color]$Color, [int]$Width, [double]$Opacity = 1) {
+    $path = Join-Path (Split-Path -Parent $PSScriptRoot) 'logo.png'
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    # shortcut: square crop measured on the current logo.png (jellyfish 298-948 x 270-958 of 1254, plus 16 px of air);
+    # re-measure if the art changes.
+    $crop = New-Object System.Drawing.Rectangle(271, 262, 704, 704)
+    $bitmap = New-Object System.Drawing.Bitmap($Width, [int]($Width * $crop.Height / $crop.Width))
+    $g = [System.Drawing.Graphics]::FromImage($bitmap)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $matrix = New-Object System.Drawing.Imaging.ColorMatrix
+    $matrix.Matrix00 = 0; $matrix.Matrix11 = 0; $matrix.Matrix22 = 0; $matrix.Matrix33 = 0
+    $matrix.Matrix40 = $Color.R / 255.0; $matrix.Matrix41 = $Color.G / 255.0; $matrix.Matrix42 = $Color.B / 255.0
+    $matrix.Matrix23 = -1.65 * $Opacity; $matrix.Matrix43 = 1.545 * $Opacity
+    $attributes = New-Object System.Drawing.Imaging.ImageAttributes
+    $attributes.SetColorMatrix($matrix)
+    $source = [System.Drawing.Image]::FromFile($path)
+    try {
+        $g.DrawImage($source, (New-Object System.Drawing.Rectangle(0, 0, $bitmap.Width, $bitmap.Height)), $crop.X, $crop.Y,
+            $crop.Width, $crop.Height, [System.Drawing.GraphicsUnit]::Pixel, $attributes)
+    } finally { $source.Dispose(); $g.Dispose(); $attributes.Dispose() }
+    $bitmap
 }

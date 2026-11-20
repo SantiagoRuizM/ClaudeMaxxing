@@ -61,9 +61,27 @@ Check 'la misma sesion conserva su voz' ((Get-SessionVoice $cfgFile 'aaaa-1111')
 $env:CLAUDEVOICE_VOICE = 'es-UY-MateoNeural'
 Check 'CLAUDEVOICE_VOICE manda' ((Get-SessionVoice $cfgFile 'aaaa-1111') -eq 'es-UY-MateoNeural') ''
 Remove-Item Env:\CLAUDEVOICE_VOICE
+$male = [pscustomobject]@{ voiceGender = 'm'; edge = $cfgFile.edge }
+$vm = Get-SessionVoice $male 'cccc-3333'
+Check 'voiceGender m: la sesion nueva recibe una voz masculina' ((Get-VoiceGender $male $vm) -eq 'm') $vm
+Check 'voiceGender f: solo voces femeninas en el pool' (@(Get-VoicePool ([pscustomobject]@{ voiceGender = 'f'; edge = $cfgFile.edge }) | Where-Object { (Get-VoiceGender $cfgFile $_) -ne 'f' }).Count -eq 0) ''
 Check 'session id raro se sanea' ((Get-SessionKey '../x y;z') -eq 'xyz') (Get-SessionKey '../x y;z')
+# Origen tras /clear: un proceso padre falso con el --session-id con que el menu abrio la ventana.
+$fakeClaude = Start-Process cmd -ArgumentList '/c', 'ping -n 20 127.0.0.1 >nul & rem --session-id 11111111-2222-3333-4444-555555555555' -WindowStyle Hidden -PassThru
+try {
+    Save-SessionOrigin 'nueva-tras-clear' $fakeClaude.Id
+    $got = (Read-JsonFile (Get-SessionFile 'origin' 'nueva-tras-clear')).origin
+    Check 'origen: el --session-id del proceso claude de arriba' ($got -eq '11111111-2222-3333-4444-555555555555') $got
+    # Desde $PID subiria hasta el claude que corre estas pruebas: un proceso que no existe no trae nada.
+    Save-SessionOrigin 'sin-menu' 999999
+    $got = (Read-JsonFile (Get-SessionFile 'origin' 'sin-menu')).origin
+    Check 'origen: vacio si nada de arriba lo trae' ($got -eq '') $got
+} finally { Stop-Process -Id $fakeClaude.Id -Force -ErrorAction SilentlyContinue }
+Import-Native
+Check 'FindAncestor: el propio proceso por su nombre' ([ClaudeVoice.Title]::FindAncestor($PID, 'powershell', 6) -eq $PID) ''
+Check 'FindAncestor: 0 si nadie de arriba se llama asi' ([ClaudeVoice.Title]::FindAncestor($PID, 'no-existe-zz', 6) -eq 0) ''
 
-$ctl = "$PSScriptRoot\..\ctl.ps1"
+$ctl ="$PSScriptRoot\..\ctl.ps1"
 & $ctl session aaaa-1111 off | Out-Null
 Check '/voz off silencia solo esa sesion' ((Test-Muted 'aaaa-1111') -and -not (Test-Muted 'bbbb-2222')) ''
 & $ctl session aaaa-1111 on | Out-Null
@@ -79,6 +97,10 @@ Check '/voz todo-on quita el silencio global' (-not (Test-Muted 'bbbb-2222')) ''
 $env:CLAUDEVOICE = 'off'
 Check 'CLAUDEVOICE=off silencia la sesion' (Test-Muted 'bbbb-2222') ''
 Remove-Item Env:\CLAUDEVOICE
+$listening = New-Object System.Threading.Mutex($false, 'Local\ClaudeWhisperListening')
+Check 'Claude Whisper escuchando silencia todas' ((Test-Muted 'bbbb-2222') -and (Test-WhisperListening)) ''
+$listening.Dispose()
+Check 'al dejar de escuchar vuelve la voz' (-not (Test-Muted 'bbbb-2222')) ''
 
 Remove-Item $out -ErrorAction SilentlyContinue
 $env:CLAUDEVOICE_DRYRUN = $out
@@ -231,6 +253,109 @@ $j = [IO.File]::ReadAllText($s, $Utf8) | ConvertFrom-Json
 Check 'uninstall deja solo el hook ajeno' (@($j.hooks.Stop).Count -eq 1 -and -not $j.hooks.PSObject.Properties['UserPromptSubmit']) ''
 $md = [IO.File]::ReadAllText($c, $Utf8)
 Check 'uninstall quita la regla' ($md.Trim() -eq '# Mis reglas') $md
+
+'Motores de voz (engines.ps1)'
+. "$PSScriptRoot\..\hooks\engines.ps1"
+$ecfg = [pscustomobject]@{
+    engine = 'elevenlabs'
+    edge = [pscustomobject]@{ voicePool = @('es-CO-SalomeNeural', 'es-CO-GonzaloNeural', 'es-MX-DaliaNeural', 'es-MX-JorgeNeural')
+        voiceGenders = [pscustomobject]@{ 'es-CO-SalomeNeural' = 'f'; 'es-CO-GonzaloNeural' = 'm'; 'es-MX-DaliaNeural' = 'f'; 'es-MX-JorgeNeural' = 'm' } }
+    elevenlabs = [pscustomobject]@{ apiKey = ''; voices = @([pscustomobject]@{ id = 'F1'; gender = 'f' }, [pscustomobject]@{ id = 'F2'; gender = 'f' }, [pscustomobject]@{ id = 'M1'; gender = 'm' }) }
+    gemini = [pscustomobject]@{ voices = [pscustomobject]@{ f = @('Kore', 'Aoede'); m = @('Puck') } }
+}
+Check 'idioma: espanol' ((Get-TextLanguage 'Hice el commit y falta que pruebes la bandeja') -eq 'es') ''
+Check 'idioma: espanol con tildes y palabras tecnicas' ((Get-TextLanguage ([char]0xBF + 'Lo subo al build de main?')) -eq 'es') ''
+Check 'idioma: ingles' ((Get-TextLanguage 'I fixed the tray and you can test it now') -eq 'en') ''
+Check 'idioma: vacio cuenta como espanol' ((Get-TextLanguage '') -eq 'es') ''
+$order = @(Get-EngineOrder $ecfg)
+Check 'orden: el elegido y luego edge' (($order -join ',') -eq 'elevenlabs,edge') ($order -join ',')
+$ecfg.engine = 'sapi'
+Check 'sapi: ningun motor con audio' (@(Get-EngineOrder $ecfg).Count -eq 0) ''
+$ecfg.engine = 'raro'
+Check 'motor desconocido: edge' ((@(Get-EngineOrder $ecfg) -join ',') -eq 'edge') ''
+Check 'ElevenLabs: voz del mismo genero (mujer)' ((Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural') -eq 'F1') (Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural')
+Check 'ElevenLabs: otra mujer, otra voz' ((Get-ElevenVoiceId $ecfg 'es-MX-DaliaNeural') -eq 'F2') (Get-ElevenVoiceId $ecfg 'es-MX-DaliaNeural')
+Check 'ElevenLabs: hombre' ((Get-ElevenVoiceId $ecfg 'es-MX-JorgeNeural') -eq 'M1') (Get-ElevenVoiceId $ecfg 'es-MX-JorgeNeural')
+$ecfg.elevenlabs.voices = @([pscustomobject]@{ id = 'F1'; gender = 'f'; accents = @('en/american', 'es/standard') },
+    [pscustomobject]@{ id = 'CO'; gender = 'f'; accents = @('es/colombian') }, [pscustomobject]@{ id = 'M1'; gender = 'm'; accents = @('en/british') })
+$ecfg.elevenlabs | Add-Member accents ([pscustomobject]@{ es = @('Colombian'); en = @('canadian') })
+Check 'ElevenLabs: acento preferido en espanol' ((Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'es') -eq 'CO') (Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'es')
+Check 'ElevenLabs: sin voz con el acento, todas' ((Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en') -eq 'M1') (Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en')
+$ecfg.elevenlabs.voices[2] | Add-Member name 'Brit - Calm'
+$ecfg.elevenlabs | Add-Member languageVoices ([pscustomobject]@{ en = @('Brit', 'F1') })
+Check 'ElevenLabs: voces elegidas por nombre ganan al acento' ((Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en') -eq 'M1') (Get-ElevenVoiceId $ecfg 'es-CO-GonzaloNeural' 'en')
+Check 'ElevenLabs: voces elegidas por id' ((Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'en') -eq 'F1') (Get-ElevenVoiceId $ecfg 'es-CO-SalomeNeural' 'en')
+Check 'Gemini: voz por genero' ((Get-GeminiVoiceName $ecfg 'es-CO-GonzaloNeural') -eq 'Puck') (Get-GeminiVoiceName $ecfg 'es-CO-GonzaloNeural')
+$resp = [pscustomobject]@{ steps = @([pscustomobject]@{ type = 'model_output'; content = @([pscustomobject]@{ type = 'text'; text = 'x' }, [pscustomobject]@{ type = 'audio'; data = 'QUJD' }) }) }
+Check 'Gemini: audio de la respuesta' ((Get-GeminiAudioData $resp) -eq 'QUJD') ''
+Check 'ElevenLabs sin clave: no genera nada' (-not (New-ElevenAudio $ecfg 'hola' 'es-CO-SalomeNeural' (Join-Path $env:TEMP 'x.mp3'))) ''
+Check 'motor sin apartar' (-not (Test-EngineSnoozed 'elevenlabs')) ''
+Set-EngineSnooze 'elevenlabs' 10 'prueba'
+Check 'motor apartado tras quedarse sin creditos' (Test-EngineSnoozed 'elevenlabs') ''
+
+'Remove-StaleState'
+foreach ($n in 'origin-viejo', 'turn-viejo', 'engine-off-viejo.json', 'name-viejo', 'origin-nuevo', 'Native-AAAA.dll', 'Native-BBBB.dll') {
+    [IO.File]::WriteAllText((Join-Path $StateDir $n), 'x')
+}
+foreach ($n in 'origin-viejo', 'turn-viejo', 'engine-off-viejo.json', 'name-viejo', 'Native-AAAA.dll') { (Get-Item (Join-Path $StateDir $n)).LastWriteTime = (Get-Date).AddDays(-30) }
+(Get-Item (Join-Path $StateDir 'Native-BBBB.dll')).LastWriteTime = (Get-Date).AddDays(-20)
+Remove-StaleState
+$left = @(Get-ChildItem $StateDir -File | Where-Object { $_.Name -match 'viejo|nuevo|Native-(AAAA|BBBB)' } | ForEach-Object { $_.Name } | Sort-Object)
+Check 'estado viejo: borra origin, turn, engine-off, name y DLLs de hace una semana; deja lo reciente' (($left -join ',') -eq 'origin-nuevo') ($left -join ',')
+Check 'estado viejo: la DLL en uso se queda' (@(Get-ChildItem $StateDir -Filter 'Native-*.dll').Count -ge 1) ''
+Remove-Item (Join-Path $StateDir 'origin-nuevo'), (Join-Path $StateDir 'Native-BBBB.dll') -ErrorAction SilentlyContinue
+
+'Get-PlanLimitNotice'
+$lt = Join-Path $env:TEMP 'tray-limit'
+New-Item -ItemType Directory -Force -Path $lt | Out-Null
+$ln = Get-Date -Year 2026 -Month 11 -Day 18 -Hour 12 -Minute 0 -Second 0
+$lsec = ([DateTimeOffset]$ln).ToUnixTimeSeconds()
+Write-JsonFile (Join-Path $lt 'usage.json') ([pscustomobject]@{ rate_limits = [pscustomobject]@{ five_hour = [pscustomobject]@{ used_percentage = 40; resets_at = $lsec + 3600 } } })
+Check 'limite: nada si ninguna ventana esta llena (un rate limit pasajero)' ((Get-PlanLimitNotice $ln $lt) -eq '') ''
+Write-JsonFile (Join-Path $lt 'usage.json') ([pscustomobject]@{ rate_limits = [pscustomobject]@{ five_hour = [pscustomobject]@{ used_percentage = 100; resets_at = $lsec + 5400 } } })
+$said = Get-PlanLimitNotice $ln $lt
+Check 'limite: dice que se acabo y a que hora vuelve' ($said -match 'plan de Claude\. Vuelve a las 13:30\.$') $said
+Check 'limite: una vez cada 10 minutos para todas las sesiones' ((Get-PlanLimitNotice $ln $lt) -eq '') ''
+$hooksJson = Get-Content "$PSScriptRoot\..\plugin\hooks\hooks.json" -Raw
+$named = @([regex]::Matches($hooksJson, 'hooks/([\w-]+\.ps1)') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+$missing = @($named | Where-Object { -not (Test-Path "$PSScriptRoot\..\hooks\$_") })
+Check 'hooks.json: cada script que nombra existe' ($named.Count -gt 0 -and $missing.Count -eq 0) ($missing -join ',')
+
+'Write-JsonFile'
+$jf = Join-Path $env:TEMP 'uno.json'
+Write-JsonFile $jf @([pscustomobject]@{ a = 1 })
+Write-JsonFile $jf @([pscustomobject]@{ a = 2 })
+Check 'un arreglo de un elemento sigue siendo arreglo, y reescribe' ([IO.File]::ReadAllText($jf).TrimStart().StartsWith('[') -and (Read-JsonFile $jf).a -eq 2) ([IO.File]::ReadAllText($jf))
+Check 'sin archivos temporales' (@(Get-ChildItem $env:TEMP -Filter '*.tmp').Count -eq 0) ''
+
+'Get-OtherSessionsNote'
+$tray = Join-Path $env:TEMP 'tray-fake'
+New-Item -ItemType Directory -Force -Path $tray | Out-Null
+Write-JsonFile (Join-Path $tray 'sessions.json') @(
+    [pscustomobject]@{ sessionId = 'aaaa-1'; dir = 'C:\p\Uno'; name = 'Ana' },
+    [pscustomobject]@{ sessionId = 'bbbb-2'; dir = 'C:\p\Dos'; name = 'Beto' },
+    [pscustomobject]@{ sessionId = 'cccc-3'; dir = 'C:\p\Tres'; name = 'Caro' })
+Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ 'aaaa-1' = 'idle'; 'bbbb-2' = 'thinking' })
+Write-JsonFile (Get-SessionFile 'name' 'bbbb-2') ([pscustomobject]@{ title = 'Beto - backend' })
+Check 'otras sesiones: nada sin bandeja (eggs.json de una bandeja muerta)' ((Get-OtherSessionsNote 'aaaa-1' 'C:\p\Dos\' $tray 999999) -eq '') ''
+[IO.File]::WriteAllText((Join-Path $tray 'tray.pid'), [string]$PID)
+$note = Get-OtherSessionsNote 'aaaa-1' 'C:\p\Dos\' $tray 999999
+Check 'otras sesiones: la viva con su titulo y misma carpeta' ($note -match '- Beto - backend: C:\\p\\Dos, tu misma carpeta') $note
+Check 'otras sesiones: sin la propia ni las cerradas' ($note -notmatch 'Ana|Caro') $note
+Check 'otras sesiones: nada si es la unica' ((Get-OtherSessionsNote 'bbbb-2' 'C:\x' (Join-Path $env:TEMP 'no-tray') 999999) -eq '') ''
+# Tras /clear: id nuevo sin origin todavia; la ventana es la sesion 1111... que abrio el menu, y no se lista a si misma.
+$menuId = '11111111-2222-3333-4444-555555555555'
+Write-JsonFile (Join-Path $tray 'sessions.json') @(
+    [pscustomobject]@{ sessionId = $menuId; dir = 'C:\p\Uno'; name = 'Ana' },
+    [pscustomobject]@{ sessionId = 'bbbb-2'; dir = 'C:\p\Dos'; name = 'Beto' })
+Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ $menuId = 'idle'; 'bbbb-2' = 'idle' })
+$fakeClaude = Start-Process cmd -ArgumentList '/c', "ping -n 20 127.0.0.1 >nul & rem --session-id $menuId" -WindowStyle Hidden -PassThru
+try { $note = Get-OtherSessionsNote 'tras-clear-1' 'C:\p\Uno' $tray $fakeClaude.Id }
+finally { Stop-Process -Id $fakeClaude.Id -Force -ErrorAction SilentlyContinue }
+Check 'otras sesiones: tras /clear no se lista a si misma' ($note -match 'Beto' -and $note -notmatch 'Ana') $note
+Write-JsonFile (Join-Path $tray 'eggs.json') ([pscustomobject]@{ 'aaaa-1' = 'idle' })
+Check 'otras sesiones: vacio sin otras vivas' ((Get-OtherSessionsNote 'aaaa-1' 'C:\x' $tray 999999) -eq '') ''
+
 Remove-Item $tmp -Recurse -Force
 Remove-Item $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue
 $env:TEMP = $realTemp

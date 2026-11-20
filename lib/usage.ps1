@@ -1,6 +1,5 @@
 # Pure helpers: turn the statusline snapshot into what the popup shows. No UI here, so tests can cover it.
 
-$script:EnUs = [System.Globalization.CultureInfo]::GetCultureInfo('en-US')
 
 # Snapshot older than this means no Claude Code session is reporting right now.
 $script:FreshMinutes = 10
@@ -50,25 +49,28 @@ function Format-Remaining([timespan]$Span) {
     return ('{0}m' -f $Span.Minutes)
 }
 
-# "1:59 PM (2h 11m)" when the reset is today, "Oct 11, 2026 7:59 AM (1d 20h)" otherwise.
+# "Hoy \u00b7 1:59 p. m. (en 2h 11m)"; day and clock come from Format-DialogDateTime (lib\schedule.ps1).
 function Format-ResetText([datetime]$ResetsAt, [datetime]$Now) {
-    $remaining = Format-Remaining ($ResetsAt - $Now)
-    if ($ResetsAt.Date -eq $Now.Date) {
-        $when = $ResetsAt.ToString('h:mm tt', $script:EnUs)
-    } else {
-        $when = $ResetsAt.ToString('MMM d, yyyy h:mm tt', $script:EnUs)
-    }
-    "$when ($remaining)"
+    (Format-DialogDateTime $ResetsAt $Now) + (L ' (en ') + (Format-Remaining ($ResetsAt - $Now)) + ')'
 }
 
+# How old the usage data is.
 function Format-Age($AgeMinutes) {
-    if ($null -eq $AgeMinutes) { return 'No data yet' }
-    if ($AgeMinutes -lt 1) { return 'Updated just now' }
-    'Updated ' + (Format-Remaining ([timespan]::FromMinutes($AgeMinutes))) + ' ago'
+    if ($null -eq $AgeMinutes) { return 'Sin datos' }
+    $minutes = [int][Math]::Floor($AgeMinutes)
+    if ($minutes -lt 1) { return 'Actualizado ahora' }
+    if ($minutes -lt 60) { return ((L 'Actualizado hace {0} min') -f $minutes) }
+    (L 'Actualizado hace {0} h') -f [int][Math]::Floor($minutes / 60)
 }
 
-function Format-ShortDateTime([datetime]$Value) {
-    $Value.ToString('MMM d h:mm tt', $script:EnUs)
+# Where the popup goes: in the corner next to the taskbar's clock, wherever the taskbar is (bottom, top or left;
+# right is like bottom). $Work is the screen's working area and $Bounds the whole screen.
+function Get-PopupLocation($Work, $Bounds, [int]$Width, [int]$Height, [int]$Margin) {
+    $x = $Work.Right - $Width - $Margin
+    $y = $Work.Bottom - $Height - $Margin
+    if ($Work.Top -gt $Bounds.Top) { $y = $Work.Top + $Margin }
+    if ($Work.Left -gt $Bounds.Left) { $x = $Work.Left + $Margin }
+    @($x, $y)
 }
 
 function Get-UsageLevel([double]$Percent) {
@@ -77,14 +79,43 @@ function Get-UsageLevel([double]$Percent) {
     'low'
 }
 
+# Warnings before a limit: the windows that crossed a threshold not yet warned of in this window (one key per
+# window, its reset and the threshold, so a new window warns again). Only the highest new threshold of each
+# window is returned. $Sent holds the keys already warned of.
+$script:UsageAlertThresholds = @(80, 95)
+
+function Get-UsageAlerts($View, [string[]]$Sent, [int[]]$Thresholds = $script:UsageAlertThresholds) {
+    $alerts = @()
+    if (-not $View -or -not $View.HasData) { return $alerts }
+    foreach ($name in 'Session', 'Weekly') {
+        $window = $View.$name
+        if (-not $window.Active) { continue }
+        $crossed = @($Thresholds | Where-Object { $window.Percent -ge $_ } | Sort-Object -Descending)
+        if (-not $crossed.Count) { continue }
+        $key = '{0}|{1}|{2}' -f $name, $window.ResetsAt.ToString('o'), $crossed[0]
+        if ($Sent -contains $key) { continue }
+        $alerts += [pscustomobject]@{ Key = $key; Window = $name; Percent = $window.Percent; Threshold = $crossed[0]; ResetsAt = $window.ResetsAt
+            Keys = @($crossed | ForEach-Object { '{0}|{1}|{2}' -f $name, $window.ResetsAt.ToString('o'), $_ }) }
+    }
+    $alerts
+}
+
+# The balloon's text: one line per window, "Sesion al 82 %: se reinicia hoy 1:59 p. m. (en 2h 11m)".
+function Format-UsageAlert($Alerts, [datetime]$Now) {
+    @($Alerts | ForEach-Object {
+        $label = if ($_.Window -eq 'Session') { Tx 'Sesi\u00f3n de 5 horas' } else { 'Semana' }
+        (L '{0} al {1} %: se reinicia {2}') -f $label, $_.Percent, (Format-ResetText $_.ResetsAt $Now)
+    }) -join "`n"
+}
+
 # Tooltip text; NotifyIcon.Text throws above 63 characters on .NET Framework.
 function Format-TrayTooltip($View, [string]$Plan) {
     $head = 'Claude'
     if ($Plan) { $head = "Claude $Plan" }
-    if (-not $View.HasData) { return "$head - no usage data yet" }
-    $s = if ($View.Session.Active) { "$($View.Session.Percent)%" } else { 'idle' }
+    if (-not $View.HasData) { return ($head + ' - ' + (L 'sin datos de uso')) }
+    $s = if ($View.Session.Active) { "$($View.Session.Percent)%" } else { L 'sin empezar' }
     $w = if ($View.Weekly.Active) { "$($View.Weekly.Percent)%" } else { '-' }
-    $text = "$head - Session $s - Weekly $w"
+    $text = (Tx '{0} - Sesi\u00f3n {1} - Semanal {2}') -f $head, $s, $w
     if ($text.Length -gt 63) { $text = $text.Substring(0, 63) }
     $text
 }
@@ -243,8 +274,8 @@ $script:ExtrasMaxAgeHours = 12
 
 function Format-Money($Minor, [string]$Currency) {
     $amount = [double]$Minor / 100
-    if (-not $Currency -or $Currency -eq 'USD') { return $amount.ToString('C2', $script:EnUs) }
-    $amount.ToString('N2', $script:EnUs) + ' ' + $Currency
+    if (-not $Currency -or $Currency -eq 'USD') { return '$' + $amount.ToString('N2', $UiCulture) }
+    $amount.ToString('N2', $UiCulture) + ' ' + $Currency
 }
 
 function Get-ExtrasView($Extras, [datetime]$Now) {
@@ -258,18 +289,18 @@ function Get-ExtrasView($Extras, [datetime]$Now) {
         if ($null -ne $extra.utilization) { $pct = [int][Math]::Max(0, [Math]::Min(100, [Math]::Round([double]$extra.utilization))) }
         $amount = ''
         if ($null -ne $extra.used_minor -and $null -ne $extra.limit_minor) {
-            $amount = (Format-Money $extra.used_minor $extra.currency) + ' of ' + (Format-Money $extra.limit_minor $extra.currency) + ' this month'
+            $amount = (Format-Money $extra.used_minor $extra.currency) + (L ' de ') + (Format-Money $extra.limit_minor $extra.currency) + (L ' este mes')
         } elseif ($null -ne $extra.used_minor) {
-            $amount = (Format-Money $extra.used_minor $extra.currency) + ' used this month'
+            $amount = (Format-Money $extra.used_minor $extra.currency) + (L ' usados este mes')
         }
         $view.ExtraUsage = [pscustomobject]@{ Percent = $pct; AmountText = $amount }
     }
 
     $reset = $Extras.limit_reset
     if ($reset) {
-        $detail = 'Restores a limit to full; claim it on claude.ai'
-        if ($reset.resets_per_week) { $detail = "$($reset.resets_per_week) per week; claim it on claude.ai" }
-        $view.LimitReset = [pscustomobject]@{ Title = 'Limit reset available'; Detail = $detail }
+        $detail = Tx 'Deja un l\u00edmite a cero; recl\u00e1malo en claude.ai'
+        if ($reset.resets_per_week) { $detail = "$($reset.resets_per_week) " + (Tx 'por semana; recl\u00e1malo en claude.ai') }
+        $view.LimitReset = [pscustomobject]@{ Title = (Tx 'Reinicio de l\u00edmite disponible'); Detail = $detail }
     }
     $view
 }

@@ -6,6 +6,7 @@
   "maxChars": 300,
   "stopOnPrompt": true,
   "perSessionVoice": true,
+  "voiceGender": "mix",
   "sessionActiveHours": 12,
   "announceFormat": "Soy {name}, {role}. {text}",
   "queueTimeoutSeconds": 90,
@@ -97,6 +98,23 @@
     },
     "rate": "+5%",
     "exe": ""
+  },
+  "elevenlabs": {
+    "apiKey": "",
+    "model": "eleven_flash_v2_5",
+    "voices": [],
+    "accents": { "es": [], "en": [] },
+    "languageVoices": { "es": [], "en": [] },
+    "voiceSettings": { "stability": 0.45, "similarity_boost": 0.8, "speed": 1.05 }
+  },
+  "gemini": {
+    "apiKey": "",
+    "model": "gemini-3.8-flash-tts",
+    "style": "natural, cálida y conversacional, en español latinoamericano, a ritmo ágil",
+    "voices": {
+      "f": ["Kore", "Aoede", "Leda", "Zephyr", "Despina", "Sulafat", "Callirrhoe", "Autonoe"],
+      "m": ["Puck", "Charon", "Orus", "Fenrir", "Achird", "Algieba", "Iapetus", "Umbriel"]
+    }
   },
   "sapi": {
     "voice": "Microsoft Helena Desktop",

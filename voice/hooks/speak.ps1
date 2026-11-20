@@ -5,6 +5,8 @@
 
 try {
     $evt = Read-HookInput
+    # The turn is over: the tab's title loses its working mark (on-prompt.ps1 set it), voice or not.
+    try { Set-SessionTerminalTitle (Get-SessionName $evt.session_id) } catch { Write-Log "title: $_" }
     $cfg = Get-VoiceConfig
     if (-not (Get-Opt $cfg 'enabled' $true) -or (Test-Muted $evt.session_id)) { exit 0 }
 
@@ -25,6 +27,8 @@ try {
         if (-not $role) { $role = "$((Get-Opt $cfg 'naming.defaultRole' ([pscustomobject]@{ f = 'asistente'; m = 'asistente' })).("$($info.gender)"))" }
         $text = $format.Replace('{name}', "$($info.name)").Replace('{role}', $role).Replace('{project}', $project).Replace('{text}', $text)
     }
+    # Antes de hablar: la bandeja busca el huevo de esta ventana por su id de origen (cambia con /clear).
+    try { Save-SessionOrigin $evt.session_id } catch { Write-Log "origin: $_" }
     Start-Utterance $text $evt.session_id
 } catch {
     Write-Log "speak: $_"

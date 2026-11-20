@@ -2,9 +2,16 @@
 
 Tools for working with several Claude Code sessions at once on Windows 11:
 
-- **Usage tray**: your Claude plan usage (5-hour window and weekly limit) in the notification area, when each one resets, and **Agendar sesión** to start the 5-hour window ahead of time.
+- **Usage tray**: your Claude plan usage (5-hour window and weekly limit) in the notification area, and when each one resets. Its **Entrar a ClaudeMaxxing** button opens the ClaudeMaxxing window, where every tool below has its status and settings (see [The ClaudeMaxxing window](#the-claudemaxxing-window)), including **Agendar sesión** to start the 5-hour window ahead of time. A notification warns when either window crosses 80 % and 95 %.
+- **Skills y MCP**: a section of the window that lists every skill and MCP server Claude Code loads (yours, your projects', your plugins', claude.ai's), and installs Anthropic's official packages to create them (skill-creator, mcp-server-dev, plugin-dev), each with a button that opens a Claude Code session that starts using it.
 - **"Abrir con Claude Code"** in the Explorer right-click menu: every session opens in its own half of a screen (two per monitor), with its own color and a name such as "Martín · codificador".
 - **Voice**: each session opened from the menu reads a one-line summary of every answer aloud, with its own voice and a short musical signature. Details in [`voice/README.md`](voice/README.md) (Spanish).
+- **Otros PCs** (off until you turn it on): PCs on the same Wi-Fi that both run ClaudeMaxxing find each other. After you pair them once, either one can open a terminal or Claude Code on the other, or run commands there from Claude Code with `ssh cmx-<pc>`. The other PC asks before letting anyone in. See [Otros PCs](#otros-pcs-terminals-between-your-pcs).
+- **Claude Whip**: when the plan runs low, or is on pace to run out before it resets, Claude Code stops writing code itself and directs another agent (Codex, Antigravity, OpenCode or Copilot) that does. See [Claude Whip](#claude-whip-when-the-plan-runs-low).
+- **Peek**: in every Claude Code session, each path Claude writes (Windows or Linux, with or without backticks, spaces included) becomes a link. Hover it to preview it: an image, a video's frame, a PDF's first page, an audio file's length, a folder, or the first lines of code or text. Click it to show it in Explorer. Each reply ends with its **Referencias**, every path it named, code blocks and tables included. See [`peek/README.md`](peek/README.md) (Spanish).
+- **Claude Whisper**: a live copilot for calls (job interviews, meetings, sales calls). It transcribes the call as it happens, spots the questions the other side asks, and shows an answer from Claude written for you to say, using your profile and notes. It can also read your screen (for example a coding exercise). Everything runs on your Claude subscription through Claude Code. See [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
+
+There are two editions, picked at install: **personal** (the default, everything above) and **business** (`-Business`): the same tools under a company policy, plus the **Empresa** section with the seat report, team reports, the company's objectives and the team kit. See [Business edition](#business-edition).
 
 The user interface is in Spanish, and so are the voices (Latin American neural voices).
 
@@ -13,24 +20,41 @@ The user interface is in Spanish, and so are the voices (Latin American neural v
 ## Requirements
 
 - Windows 11, x64. Windows 10 is untested. On ARM64 the menu is skipped, because its DLL is x64 only.
-- An account that can approve a UAC prompt (once, for the menu entry). Without it, everything except the menu entry still installs.
+- An account that can approve UAC prompts: one for the menu entry the first time, and one for the Otros PCs firewall rules when you turn it on. Without them, everything else still installs.
 - Claude Code installed, with `claude` on PATH.
 - Windows Terminal (included with Windows 11).
 - Optional: `winget`, so the installer can add what the voice needs (Python for edge-tts, and FFmpeg for ffplay). Without them, the voice uses the built-in Windows voice.
 - Optional: a bash statusline script plus `jq`, so the tray updates on every Claude Code response. Without them, the tray refreshes from the usage endpoint instead (see [How the tray gets its data](#how-the-tray-gets-its-data)).
+- Optional: Node.js, for Ambientes (its Chrome extension and `env.js`), and Python 3 (`python3` on PATH), for Claude Judge. Everything else works without them.
+- Peek needs Claude Code 2.1.319 or later (it is a plugin mod, early access in Claude Code) and its fullscreen interface (`"tui": "fullscreen"` in `~/.claude/settings.json`, or `/config`).
+
+Nothing personal ships in the repo: your environments, voices, keys, paired PCs and usage data are written on your PC by the installer and the tray (see [What it changes on your PC](#what-it-changes-on-your-pc)).
 
 ## Install
 
-Clone the repo or download it as a ZIP, then run:
+One command, in any PowerShell window (nothing to install first):
+
+```powershell
+irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
+```
+
+It downloads the [latest release](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest), checks it against the release's SHA-256, and runs its `install.ps1`. If GitHub can't be asked (its API allows 60 requests an hour per address) or the release has no SHA-256, it stops without installing anything; the unreleased `main` branch is installed only while the repo has no release at all, or with `-Ref main`. With options: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1))) -SkipBridge`. Run the same command to update.
+
+Other ways:
+
+- With Node.js: `npx github:SantiagoRuizM/ClaudeMaxxing` (options pass through, for example `-- -SkipBridge`).
+- By hand: download and unzip the release ZIP (or clone the repo), then run in that folder:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
 
 - Everything is copied to `%LOCALAPPDATA%\ClaudeMaxxing`, and everything runs from there. After installing you can move or delete the repo.
-- The first time, Windows shows **one UAC prompt**. It trusts a code-signing certificate that the installer creates on your PC, which signs the package for the Explorer menu entry. The certificate's private key never leaves your PC. You don't need Visual Studio or the Windows SDK: the menu DLL and its package come prebuilt in `menu/bin`.
+- The first time, Windows shows **a UAC prompt** that trusts a code-signing certificate the installer creates on your PC, which signs the package for the Explorer menu entry. The certificate's private key never leaves your PC. You don't need Visual Studio or the Windows SDK: the menu DLL and its package come prebuilt in `menu/bin`.
+- **Otros PCs is off until you turn it on** (**Activar** in its window, or `install.ps1 -Bridge`). Turning it on downloads the portable [Win32-OpenSSH](https://github.com/PowerShell/Win32-OpenSSH) release from GitHub (about 5 MB) and asks for a second UAC prompt for its firewall rules. The download is pinned: the zip must match a fixed SHA-256, and every program in it must be signed by Microsoft. An install where it was already set up keeps it.
 - The menu entry appears after you restart Explorer or sign out and back in.
-- To update, run `install.ps1` again from a newer copy of the repo. It is idempotent, and it keeps your per-PC settings (`voice\config.local.json`).
+- To update, download a newer release (or `git pull`) and run `install.ps1` again. It is idempotent, and it keeps your per-PC settings (`voice\config.local.json`) and all your data.
+- Versions follow [Semantic Versioning](https://semver.org); what each one changed is in [CHANGELOG.md](CHANGELOG.md), and what counts as a major, minor or patch version (and how to release) is in [VERSIONING.md](VERSIONING.md). The installed version shows in Settings > Apps > ClaudeMaxxing.
 
 | Option | Effect |
 |---|---|
@@ -40,19 +64,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 | `-NoHotkeys` | Don't enable the global voice hotkeys (Ctrl+Alt+Shift+O repeats, Ctrl+Alt+Shift+P stops) |
 | `-NoStart` | Don't start the tray now (it still starts when you sign in) |
 | `-BuildMenu` | Rebuild the menu DLL from source first (needs Visual Studio with C++) |
+| `-Bridge` | Set up Otros PCs now (it is off by default; **Activar** in its window does the same later) |
+| `-SkipBridge` | Never set up Otros PCs, not even when an earlier install did (no OpenSSH download, no firewall rules, no `~/.ssh/config` change) |
+| `-Business` / `-Personal` | The edition (also `--business` / `--personal`). Personal is the default; the choice is kept for the next update. See [Business edition](#business-edition) |
+| `-PolicyFile <json>` | Copies a company policy for this user (implies `-Business`) |
 
 ### What it changes on your PC
 
 | Where | What |
 |---|---|
-| `%LOCALAPPDATA%\ClaudeMaxxing` | The runtime: tray, menu launcher, voice. Voice settings for this PC go in `voice\config.local.json`, and edge-tts in `voice\venv` when it has to be installed |
+| `%LOCALAPPDATA%\ClaudeMaxxing` | The runtime: tray, menu launcher, voice. Voice settings for this PC go in `voice\config.local.json`, and edge-tts in `voice\venv` when it has to be installed. PyMuPDF (PDF to Markdown, about 250 MB) in `pdf\venv` |
 | `%LOCALAPPDATA%\ClaudeCodeMenu` | The Explorer extension (DLL, stub, icons) |
 | Packages | `ClaudeCode.ContextMenu`, a sparse package signed with this PC's `CN=ClaudeCodeMenu` certificate (CurrentUser\My, trusted in LocalMachine\TrustedPeople) |
 | `HKCU\Software\ClaudeCodeMenu\Launcher` | The command the menu entry runs |
 | Startup folder | `ClaudeMaxxing.lnk` (tray) and `ClaudeMaxxing atajos.lnk` (voice hotkeys) |
 | Settings > Apps | A "ClaudeMaxxing" entry; uninstalling it there runs `uninstall.ps1` |
-| `~/.claude/statusline-command.sh` | A block that saves `rate_limits` to `~/.claude/usage-tray/usage.json` (a backup is kept). Nothing else in `~/.claude` changes |
-| `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, and voice history |
+| `~/.claude/statusline-command.sh` | A block that saves `rate_limits` to `~/.claude/usage-tray/usage.json` (a backup is kept) |
+| `~/.claude/settings.json` (`env`) | Peek: `CLAUDE_CODE_PLUGIN_DIRS` lists `%LOCALAPPDATA%\ClaudeMaxxing\peek`, so every Claude Code session loads it, and `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` turns on plugin mods (early access in Claude Code). The rest of the file is left as it was; a backup is kept the first time (`settings.json.bak-claudemaxxing`). Uninstalling removes the folder from the list and leaves the switch, which other plugins' mods may need. Nothing else in `~/.claude` changes unless you turn on context-mode (below) |
+| `%LOCALAPPDATA%\ClaudeMaxxing\ssh` | Otros PCs, once turned on: the portable OpenSSH (`sshd`, `ssh`, `sftp`...) |
+| `~/.claude/settings.json`, `~/.claude/plugins` | Only if you turn on **Ahorro de contexto (context-mode)**: Claude Code installs and enables that plugin for your user (`enabledPlugins`, `extraKnownMarketplaces`), so it applies to every Claude Code session, not only the ones ClaudeMaxxing opens. Turning the switch off disables it; uninstalling ClaudeMaxxing leaves it installed (`claude plugin uninstall context-mode@context-mode`) |
+| `%LOCALAPPDATA%\Programs\freellmapi-desktop`, `%APPDATA%\FreeLLMAPI` | Only if you press **Instalar** in the FreeLLMAPI card: that app and its data. It has its own entry in Settings > Apps, and uninstalling ClaudeMaxxing leaves it in place |
+| Windows Defender Firewall | Otros PCs, once turned on: two inbound rules in the `ClaudeMaxxing` group, TCP 41022 for that `sshd.exe` and UDP 41021 for PowerShell, **Private networks only, from the local subnet only** |
+| `~/.ssh/config` | Otros PCs, once turned on: a marked block at the top that includes `~/.claude/usage-tray/bridge/ssh_config` (a backup of the file is kept the first time) |
+| `%LOCALAPPDATA%\ClaudeJudge` | Claude Judge (Planear sesión): every trial in `.court`, the logs in `logs`, the last status in `status.json`. Removed with `-RemoveData` |
+| `~/.claude/usage-tray\edition.json`, `~/.claude/usage-tray\business` | The edition, and in the business edition the user's policy, objectives and seat calibration. `%ProgramData%\ClaudeMaxxing` (IT's policy and objectives) is only read, never written |
+| `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, voice history, Otros PCs keys and paired PCs (`bridge\`), Claude Whisper's settings and call history (`whisper\`), and the Estadísticas result and its per-transcript cache (`stats.json`, `stats-cache.json`) |
 
 ## Uninstall
 
@@ -62,7 +98,7 @@ Use Settings > Apps > ClaudeMaxxing, or run:
 powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\ClaudeMaxxing\uninstall.ps1"
 ```
 
-This removes everything listed above, including the menu entry and its certificate (one UAC prompt). Data in `~/.claude/usage-tray` and `%TEMP%\claude-voice` is kept unless you pass `-RemoveData`. `-KeepMenu` keeps the menu entry, which then opens a plain Windows Terminal.
+This removes everything listed above, including the menu entry, its certificate and the Otros PCs firewall rules (one UAC prompt for both). Data in `~/.claude/usage-tray`, `%TEMP%\claude-voice` and `%LOCALAPPDATA%\ClaudeJudge` is kept unless you pass `-RemoveData`, which also removes the backups the installer made of your `settings.json` and statusline script, and the local report folder. Background workers (a trial, a debate) are stopped first. `-KeepMenu` keeps the menu entry, which then opens a plain Windows Terminal.
 
 ## How it works
 
@@ -71,6 +107,48 @@ This removes everything listed above, including the menu entry and its certifica
 - Claude Code's statusline receives `rate_limits` on every response. The block added to your statusline script saves them to `~/.claude/usage-tray/usage.json`; what the statusline shows doesn't change. The tray reads that file every 15 s. Left-click opens or closes the popup; right-click opens the menu.
 - The **↻** button asks for live usage from the endpoint that `/usage` uses (`api.anthropic.com/api/oauth/usage`, with Claude Code's local token). The tray also asks it on start, and when you open the popup if the data is more than 10 minutes old. That endpoint is **undocumented**: if it changes, the popup shows the error and keeps the statusline data. Extra usage and an available limit reset show up as extra sections when the account has them.
 - The green dot means some Claude Code session answered in the last 10 minutes.
+
+### The ClaudeMaxxing window
+
+**Entrar a ClaudeMaxxing**, the button at the bottom of the popup (also first in the tray menu), opens one window with every tool. A side menu switches between these sections:
+
+- **Inicio**: an overview. It shows session and weekly usage and the next scheduled session. It also has a diagram of the PCs on your network: this PC in the middle and each other PC around it. The line to each PC shows its state: an orange line when it has a session open on this PC, green when it is online, dashed grey when it hasn't been seen lately, and dotted for PCs with ClaudeMaxxing that aren't paired yet. Last come Claude Whisper's latest calls, the open Claude Code sessions and the voice switches.
+- **Planear sesión** (title *Planear sesión del día*, also **Planear sesión...** in the tray menu): before the day's sessions, put what you plan to do on trial before **Claude Judge**, the [court skill](https://github.com/alexyc9381/court-skill) (MIT, by Alex Chen) in `claudeJudge/.claude/skills/court`. **Nueva idea** opens a box to write the idea (6 jurors, or 12 with *Juicio completo*). A hidden `claude -p` (Sonnet, your plan) then runs the trial: a prosecutor, a defense, their rebuttals, the jury voting alone and a judge. With Sonnet it takes about 6 minutes for 3 jurors (measured), so roughly 10 for 6 and 15 for 12, and keeps going if you close the window; the section shows the phase. **Flujo previo** lists the ideas already judged with their verdict. Click one to read the feedback (every juror's vote and what would flip it, and the judge's charges, strengths and conditions for acquittal) and **Rejuzgar con cambios...** to try again with the idea edited. Trials are kept in `%LOCALAPPDATA%\ClaudeJudge\.court`, not under `~/.claude`: Claude Code refuses to write in a `.claude` folder even with accept-edits. Each trial leaves a log in `%LOCALAPPDATA%\ClaudeJudge\logs` (checks, the exact command, Claude's answer and every refused permission, stderr, the files made); when a trial fails, the section says why in one line and **Ver registro** opens that log. Before calling Claude it checks the folder, `python3`, `claude` and the skill, and it stops a trial after 60 minutes. Needs `python3` on PATH. Two local changes to the skill: `python3 -X utf8` (Windows reads files as cp1252) and sub-agents write in the language of the idea.
+- **Ambientes**: a graph of the [work environments](#ambientes-work-environments) (StartDay, Trabajo, Atlas, EndDay, Gaming, Vacío...). Click a dot to turn it on or off. Green is on, accent while it changes (with the current step), grey is off, and a red ring means the last change failed (with the reason). Each arrow is a direction you have switched, with how many times; next to each dot, the time spent there today and in total. A dashed ring marks the environment the detection thinks you are in.
+- **SelfHarness**: the watcher on yourself, next to Ambientes. **Desvíos de foco** lists the open tabs the environment that is on would close, each with its reason; close one with its ✕ or all with **Cerrar todas** (they come back with Ctrl+Shift+T), and see the apps that do not fit. **Servidores** lists the dev servers listening (port, what it is, process) with **Apagar**, which stops that process tree only if it still listens on that port. **Aviso de cambio** sets the detection: on or off, every how many minutes, the minimum confidence for the question, and the environments where it stays quiet (Gaming by default). **Stats** shows the time per environment today and in the last 7 days, the average focus span and the most common switch. The drift and the servers come from each detection (`run\focus.json`); **Revisar ahora** runs one. The settings are this PC's, in `~/.claude/usage-tray/selfharness.json`.
+- **Uso y agenda**: both limits, a refresh, the **automatic agenda** (below), the scheduled sessions (automatic ones marked AUTO), and buttons for **Agendar sesión...** and **Plan semanal...** (the dialog described below).
+- **Estadísticas**: when and how much you work with Claude Code, for the last 30 days or for all time. The data comes from Claude Code's own transcripts in `~/.claude/projects`; nothing leaves your PC. It has five tabs:
+  - **Resumen**: hours with Claude, active days, the streak, prompts, replies, sessions and subagents, the average per active day, this week compared with the last one, how many sessions you run at once, and tool uses. It also shows when you work most (peak hour, peak weekday, part of the day, record day) and hours per day (per week for all time).
+  - **Consumo**: how much each 5-hour window of the plan spends, and a forecast for the one that is open. Consumption is the API-equivalent cost of the tokens of every reply (subagents included), priced with the table of the installed [Ponytail](https://github.com/DietrichGebert/ponytail) plugin, so it stays up to date with Ponytail, or with the same table built in when Ponytail isn't there. A reply that has no token counts adds the cost Claude Code recorded for it (`costUSD`, or the session's `cost-state` total). Cost is used rather than raw tokens because it follows the plan's limits better: a cache read costs a tenth of an input token, and Opus costs several times Haiku. Tokens are shown too.
+    - **Esta ventana** and **Previsión al cierre**: what the open window has spent and what it will have spent at its end. The forecast adds the pace of the last hour and what you usually spend at those clock hours. With the plan's percentage from the tray, it is calibrated against your real limit: what 1 % of your window is worth, the percent the window will close at, and the time you would hit the limit.
+    - **Ventana media** and **¿Gastan lo mismo?**: the average and median window, and how much windows differ from one another (the coefficient of variation, in words). The last 20 windows are drawn as bars, with the maximum, the minimum and the value 9 out of 10 stay under.
+    - **Consumo por hora**: the average cost of each hour of the day on the days you use Claude, with the peak hour. Windows are rebuilt the way Claude starts them, on the hour of the first activity after the previous one ended; the one still open stays out of the averages. Per Claude Code conversation: average, median and spread.
+  - **Horarios**: a weekday × hour heatmap, hours by hour of the day, and the share of early morning, morning, afternoon and night.
+  - **Proyectos**: time, prompts and sessions per folder, plus the average, median and longest session.
+  - **Modelos y herramientas**: replies and output tokens per model, total tokens and the cache share, the tools Claude used most, and counts from the other tools (Whisper calls, scheduled sessions that ran, sessions opened from the menu, paired PCs).
+
+  Hover over a bar or a cell to read its value. Time is active time: the gaps between events of a session that are under 15 minutes, with a lone event counted as one minute. Parallel sessions are counted once in "hours with Claude"; "en paralelo" compares that with the sum of all sessions. The first scan reads every transcript on a background thread, which takes several seconds for hundreds of MB. After that only changed files are read again (`stats-cache.json`), and the window recomputes when the result is more than 10 minutes old. Claude Code deletes transcripts older than 30 days (`cleanupPeriodDays`), but the cache keeps their summaries, so all-time statistics keep growing from the first scan on.
+- **Claude Code**: the sessions opened from the Explorer menu, with color, name, role, voice and screen half. **Mostrar** brings a session's window to the front, and **Nueva sesión...** opens one in a folder you pick. It also tells you whether the menu entry is installed.
+- **Otros PCs**: the same diagram, larger. The section also has this PC's status, the **Acepta conexiones** switch and the paired PCs, with **Terminal**, **Claude Code** and **Desconectar**. Pairing still happens in the Otros PCs window (**Emparejar o buscar un PC...**), because pairing is only accepted while that window is open.
+- **Claude Whisper**: open or show it, **Contexto...**, language, model, the answer, microphone and call-notice options, and the hotkeys. Also its call history: date, length, number of answers and the first question. Click a call to open its Markdown file. While Whisper is open, its settings are changed in its own window, so here they are read-only.
+- **Voz**: voice on or off for every session, the global hotkeys, **Probar voz**, **Repetir lo último** and **Detener audio**. It also lists the sessions that spoke in the last 12 hours, each with its own on/off switch.
+- **Configuración** (last in the side menu): the **language** of the window, the tray and its notifications, Spanish or English. The change shows at once; Claude Whisper and the other windows take it the next time they open. It starts in English. Numbers and dates follow that language. The choice is saved in `~/.claude/usage-tray/language.json`.
+
+### The automatic agenda
+
+The usage limit is per 5-hour window, and a window starts with the first message. When your busiest hours fall in the middle of one window, that single window carries all of that load, and it is the one that runs out. The **Agenda automática** card in Uso y agenda places the windows so this doesn't happen:
+
+- From Estadísticas (the last 30 days) it computes your average time with Claude for each hour of the day. It then finds the **2-hour stretch with the most average use**, for example 14:00–16:00.
+- The middle of that stretch becomes a **change between windows**: one window ends there and the next one starts (15:05 in the example). The busiest part of the day is then split between two windows' limits.
+- From that change it chains windows 5 hours apart across your active day, back to back with no gap. Your active day runs from the end of the longest quiet stretch (usually the night) to the start of it. In the example the sessions are 05:05, 10:05, 15:05 and 20:05. Each start is at :05 so the previous window has reset.
+- When it is on, the tray keeps one-off Task Scheduler tasks named `Auto-…` for the next 2 days. It checks every hour and recomputes from fresh statistics at least once a day. If the plan changes, the tray moves the tasks. Turning it off removes them.
+- The card shows:
+  - the hourly profile, with the peak in the accent, and the planned windows under it;
+  - the session times;
+  - the change hour, which you can move with ‹ › (**auto** goes back to the computed one);
+  - whether today's window follows the plan.
+- Tasks scheduled by hand (Agendar sesión, Plan semanal) over the next 2 weeks that would open a window off the plan, and so interrupt the chain, are listed. **Limpiar** removes exactly those, whether the agenda is on or not, and only when you click it and confirm. Hand-made tasks within 30 minutes of a planned start fit the chain and are kept.
+- A window only starts when none is running. If you start one at another time, the chain picks up again at the next planned start after it ends.
 
 ### Scheduling a session
 
@@ -94,18 +172,214 @@ The **Semana** tab of the same dialog (also **Plan semanal...** in the tray menu
 - Before Claude Code starts, the launcher reserves a name and a voice for the session. It then starts Claude Code with that `--session-id` and the voice plugin (`--plugin-dir`, for that session only). On the first real prompt the name gets a role: "Martín" becomes "Martín · codificador".
 - Only sessions opened from the menu take a slot.
 
+### Snip to Claude Code (Win+Alt+C)
+
+**Win+Alt+C** is a snipping tool like the one in Windows, built to hand what you snip to Claude Code. The screen freezes under a 60 % black veil and a toolbar shows at the top of the screen with the mouse:
+
+| Button | What it does |
+|---|---|
+| Snip / Record video | A picture, or a video of the area you choose. |
+| Shape | **Rectangle** (drag), **Window** (the window under the pointer lights up; a click takes the window itself, whole even where others cover it, like Windows does), **Full screen** (the screen with the pointer) or **Freeform** (draw the outline; outside it the PNG is transparent). Video: rectangle, window or full screen. |
+| Draw | A pen on the frozen screen, in five colors and three widths, with a **highlighter**, **undo** (Ctrl+Z) and **clear**. What you draw goes into the snip, also after choosing it. |
+| Color picker | A magnifier under the pointer with the color's code; a click copies it as `#RRGGBB`. |
+| Extract text | Drag over text: the Windows OCR (`Windows.Media.Ocr`, the engine of the Windows text actions, in your profile's languages) reads it and copies it to the clipboard. |
+
+A picture is copied to the clipboard and saved in `Pictures\Screenshots`, and a recording in `Videos\Screen Recordings`, with the names Windows gives them, like Windows does. A panel opens next to the picture: the prompt, **Enviar**, the folder list, **Copiar** and **Guardar como…** (a PNG named like Windows names screenshots). **Enter** (or **Enviar**) opens a session in that folder on the next free half screen with the prompt and the image's path; extracted text goes as a `.txt` next to it. Drag again to start over; **Esc** leaves (it works even if Windows kept the keyboard on another window).
+
+A video area shows a frame around it and a bar with the **microphone** and **system audio** switches (the speakers on and the microphone off by default; the choice is remembered), **Iniciar** (a 3, 2, 1 countdown), **Pausa**, **Detener** and **Descartar**. The frame and the bar stay out of the video. It records with Media Foundation (H.264 at 24 fps with the pointer, and an AAC track from the speakers and the microphone, mixed) into an MP4, and keeps a frame every 2 seconds (up to 8) as PNG: Claude reads images, not video, so the prompt carries the video's path and those frames. **Detener** (or the hotkey again) opens a box with the video for the prompt.
+
+Everything works in real pixels, so a screen at another scale snips and records right too.
+
+- After a **Win+Shift+S** snip, the same panel shows up in a box in the bottom right corner, with the snip. Win+Shift+S belongs to Windows and is not changed (nor does it say where the snip was taken): the tray watches the clipboard and only reacts to images from the Snipping Tool (it owns the clipboard, or it has just saved the snip in `Pictures\Screenshots`). An image copied in another app does nothing.
+- The folder starts on the one of the environment on in **Ambientes** (its Claude Code folder, `claude.dir`, else its `folder`). The list also has the folders of the open sessions, the last 5 you used from the panel, Desktop, Documents and Downloads, and **Another folder…**.
+- Snips and recordings are saved in `%LOCALAPPDATA%\ClaudeMaxxing\snips` and deleted after 7 days. Turn it all off in **Configuración > Capturas** (that frees the hotkey for other apps). Windows only hands out hotkeys no other app holds, so on a PC where something already uses Win+Alt+C the tray takes **Win+Shift+X**, else **Ctrl+Alt+C**; Configuración shows which one it got.
+
+### Free models with FreeLLMAPI (when the quota runs out)
+
+[FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) is a third-party local server (MIT). It pools the free tiers of many providers (Groq, Google, Mistral, OpenRouter, Cerebras…) behind one endpoint that also speaks Anthropic's Messages API. The **Modelos gratis con FreeLLMAPI** card in ClaudeMaxxing > Claude Code handles it:
+
+1. **Instalar** asks first, then downloads the official Windows desktop app, a pinned version (`$FreeLlmVersion` in `lib/freellm.ps1`). It checks a fixed SHA-512 and installs per user, with no admin rights. The installer is not code-signed. `install.ps1` never downloads it: only the button does.
+2. In FreeLLMAPI's own window, create the dashboard account and add provider keys on **Keys** (you sign up with each provider yourself). Then copy the unified key (`freellmapi-…`) and press **Pegar clave**. ClaudeMaxxing reads it from the clipboard and checks it against `/v1/models`.
+3. The switch makes **new** sessions from the Explorer menu or **Nueva sesión** talk to FreeLLMAPI. `open-session.ps1` sets `ANTHROPIC_BASE_URL` (`http://127.0.0.1:<port>`, read from `%APPDATA%\FreeLLMAPI\config.json`), `ANTHROPIC_AUTH_TOKEN` (the unified key) and an empty `ANTHROPIC_API_KEY` for that window only. If FreeLLMAPI is closed, it starts it first. If it cannot be reached, the session opens on your plan and says so.
+
+Nothing global changes. `~/.claude/settings.json`, the scheduled warm-up, sessions already open and sessions on Otros PCs keep using your plan. Quality and speed vary with whatever free model the router picks, and some providers' free tiers may use your prompts for training. Their conversations are saved like any other, so they count in Estadísticas. The key is kept in `~/.claude/usage-tray/freellm.json`.
+
+### Ambientes: work environments
+
+**Ambientes** shows the work environments of `harness\` (a Chrome extension plus `env.js`; it used to be a separate tool, YourHarness). See [harness/README.md](harness/README.md). An environment says what to close and what to open to work on one thing. For example, *Trabajo* closes unrelated tabs and apps, starts Docker and the dev servers, and opens the project's tabs and music.
+- **Turning one on** closes what does not belong to it. Each close shows its reason, and everything gets time to close before anything is forced.
+- **Turning it off** closes only what is its own.
+- **Only one change at a time.**
+
+- **The ClaudeMaxxing extension** (Chrome, with the ClaudeMaxxing logo): a badge with how many of the profile's tabs the environment on would close, a small bar in the page when you load something off focus (**Cerrar pestaña** / **Mantener**), and a popup with the plan's usage, the environment on, the off-focus tabs, switching environment and a switch for the nudges. See [harness/README.md](harness/README.md#la-extensión-en-chrome).
+- Setup: `install.ps1` copies `harness\`, draws the extension's icons and registers its native messaging host for Chrome (needs Node.js). Then, once per Chrome profile: `chrome://extensions` > Developer mode > **Load unpacked** > `%LOCALAPPDATA%\ClaudeMaxxing\harness\extension`.
+- Your environments are this PC's, never in the repo: `~/.claude/usage-tray/harness/environments/*.json` (**Abrir carpeta** in the section opens it), with the state in `run\` and the Jev key in `.env` next to them.
+- A click asks for confirmation, then runs `node harness\env.js <id> on|off --yes --job` hidden. The window reads `run\active.json` (which environment is on) and `run\job.json` (the current step, or how the last change ended) every 2 seconds.
+- If a change's process dies half-way, the dot shows it as failed instead of busy forever.
+- **The graph** comes from `run\history.json`: every switch between two environments (also through an "off") and the seconds spent in each. The one on keeps counting until now, at most 12 hours per stint (the PC may have slept with it on).
+- **Which environment am I in?** Off until you turn it on (SelfHarness > **Aviso de cambio**), and never while no environment is set up. Then every 3 minutes the tray runs `node env.js detect` hidden (not while Gaming is on, nor during a change). It compares what is open with each environment deterministically and, only when that changed, asks `claude -p` (Haiku, your plan, no API key). **Juez: Jev** in the same card asks Jev first (TypeSafe's decision model, needs `TYPESAFE_API_KEY` in `.env`) and Haiku when Jev is missing or unsure. When the answer is another environment (60 % or more), a message box pops up in front of everything: *¿Quieres pasarte a ...?*. **Sí** turns it on; **No** is remembered until what is open changes. **Detectar ahora** in the section asks right away. Tab titles are sent to TypeSafe or Anthropic for that question.
+
+### Ahorro de tokens: context-mode
+
+The **Ahorro de contexto (context-mode)** switch in ClaudeMaxxing > Claude Code installs or turns on [context-mode](https://github.com/mksglu/context-mode) (Elastic License 2.0) as a Claude Code plugin, from its own marketplace through `claude plugin`. It keeps big tool outputs (logs, web pages, JSON) out of the context window and keeps the session's memory across compactions, so the plan's quota lasts longer. It applies to new sessions; turning the switch off disables the plugin. Its optional statusline is not installed, because the statusline is what feeds the usage tray. Its code is never copied into this repo.
+
+### PDF: reading a PDF for less of the plan
+
+Every Claude Code session loads the `pdf` plugin (through `CLAUDE_CODE_PLUGIN_DIRS`, like Peek). Its `pdf-markdown` skill has Claude turn a PDF into Markdown (text, headings, tables, with page markers) with [PyMuPDF4LLM](https://github.com/pymupdf/pymupdf4llm) instead of loading its pages as images, which costs many times more tokens: a 10-page manual is about 2,000 tokens. Pages with no text (a scan) and figures are still read with Read. The installer puts PyMuPDF in a Python environment of its own (`pdf\venv`, Python 3.11+, about 250 MB); PyMuPDF is AGPL-3.0, downloaded from PyPI on your PC, and never copied into this repo.
+
+### Otros PCs: terminals between your PCs
+
+For two (or more) PCs on the same network that both run ClaudeMaxxing. Typical use: Claude Code on this PC needs a file or a command result from the other one, or you want a second Claude Code working there.
+
+**Pairing (once per pair of PCs).** Open **Otros PCs...** from the tray menu on both PCs. Each one lists the other under *En tu red* (a ClaudeMaxxing PC that appears on the network for the first time also shows a notification). Click **Emparejar** on one of them. Both windows then show the same 6-digit code: check that it matches and confirm on both. If a PC doesn't show up (some routers isolate Wi-Fi clients or drop broadcasts), type its IP address in the box at the bottom.
+
+**Using it.**
+- In the tray menu, **Otros PCs > Terminal en <PC>** opens a PowerShell on the other PC in Windows Terminal, and **Claude Code en <PC>** opens Claude Code there. From any terminal, or from Claude Code itself, `ssh cmx-<pc> "<command>"`, `scp` and `sftp` work too. The window shows each PC's `ssh cmx-...` name; click it to copy it.
+- The other PC shows **Conexión entrante** with the PC, the user and what it wants to do: open a terminal, run a command, open Claude Code, or copy files. Its options are **Permitir**, **Permitir 1 hora** (no more questions from that PC for an hour; Claude Code runs one connection per command) or **Rechazar**. With no answer within 60 seconds, the connection is refused.
+- That PC also gets a notification when a terminal opens and closes there, and **Otros PCs > Desconectar** ends a session. **Acepta conexiones** in the window turns incoming connections off.
+
+**How it is kept safe.** What a connection gets, once allowed, is a shell as that PC's Windows user. So the design is about who can ask, what the person at the other PC sees before saying yes, and what keeps working when something fails.
+
+- **Who can log in.** Each PC runs its own `sshd` as the signed-in user, started by the tray, with no Windows service and no admin rights. Only that same user can log in: a paired key asking for Administrator, SYSTEM or any other account is refused (checked in testing). There are no passwords (`AuthenticationMethods publickey`), and only keys exchanged by pairing are accepted.
+- **Pairing.** It swaps ed25519 keys, and both screens show a 6-digit code computed from both PCs' keys and two random values. One PC commits to its value before it sees the other's, so a machine in the middle can't make both screens show the same code. The window says to confirm only when the other PC shows exactly that code, and it shows the IP the request comes from. A PC only answers pairing requests while its Otros PCs window is open, and only during the first 10 minutes. Host keys are pinned, so a PC that changes address is still recognised and an impostor is refused.
+- **Every connection is approved.**
+  - Every paired key is forced through a gate program (`restrict`, `command=`, no port, agent or X11 forwarding, LAN source addresses only).
+  - The gate asks the tray before running anything, and lets nobody in when the tray is not running, not even a PC allowed for an hour.
+  - The dialog shows one request at a time; **Permitir** and **Rechazar** apply only to that request.
+  - Commands are shown in full: line breaks and invisible characters are made visible, and space padding that could push the dangerous part out of view is collapsed. Only the exact command `claude` is labelled "Claude Code".
+  - The buttons stay off for 1.5 seconds after a request appears, so a click meant for another window can't allow it. Keys can't allow it either: Tab and Enter do nothing in that dialog, and Esc rejects. With no answer, the connection is refused after 60 seconds.
+  - **Permitir 1 hora** is capped at an hour, and the gate refuses longer grants.
+- **Tampering.** `authorized_keys` and the gate's settings are compared every 5 seconds with what the tray writes. A key or setting added from outside (for example by a session that was allowed) is put back and reported.
+- **Network.**
+  - The firewall rules open the two ports only on networks Windows marks **Private**, and only to the local subnet.
+  - The server and the discovery socket listen only on this PC's address in a Private network. On public Wi-Fi nothing listens and nothing is announced.
+  - Discovery messages (UDP 41021) are unauthenticated and carry only the PC name, user name and port. They are size-limited and rate-limited, so a flood or a forged message can't freeze the tray, fill it with fake PCs, or do more than make a connection fail.
+- **Your own `~/.ssh/config`.** The `cmx-*` hosts turn off agent and X11 forwarding, proxies, local commands and host-key updates, so a `Host *` entry of yours can't hand anything of this PC to the other one.
+- **OpenSSH.** It is the official Win32-OpenSSH release, pinned by SHA-256, with every program checked for Microsoft's signature.
+
+**What it can't protect against.**
+- **An allowed connection has your rights.** It can read your files, including Claude Code's login in `~/.claude`, install programs, or change ClaudeMaxxing itself. Allow only your own PCs, and only connections you expect. Use **Permitir 1 hora** only while you are working with that PC.
+- **The other PC.** If a paired PC is compromised, whoever controls it can ask for connections. Each request still needs your approval, unless an hour grant is active. **Olvidar** removes that PC's key at once.
+- **Programs already running as you.** Anything running as your user on this PC can change the files in `%LOCALAPPDATA%\ClaudeMaxxing` and `~/.claude/usage-tray`. That includes `sshd.exe`, which the firewall rule trusts. That is true of every program you run.
+- **Who is on your network.** Your PC name and user name are announced to the local network every 30 seconds, on Private networks only. Mark a network Private only if you trust who is on it.
+
+**Limits.** Both PCs need ClaudeMaxxing, with the tray running and the user signed in. Logins are only as that PC's own Windows user. **Olvidar** removes the PC only on the PC where you click it. Each PC uses its own Claude plan.
+
+#### Debates: your Claude and theirs reach one answer
+
+When you and the person at a paired PC are deciding something (an implementation, a fix, a design), **Otros PCs > Debatir con <PC>...** puts the question to both Claudes. Each one argues from its own person's project, which the other side can't see, and you both get one recommendation.
+
+- **Starting.** Write the question with what matters (options, limits, deadlines), then pick the project folder your Claude may read. The other PC shows **Conexión entrante** with the topic. There is no **Permitir 1 hora** for a debate, and an hour grant doesn't open one. **Permitir** asks that person for their folder; cancelling it declines the debate, and your side says so.
+- **Rounds.** Round 1 is written blind: each Claude states its position before seeing the other's, so neither anchors on it. Rounds 2 and 3 are replies, and a point may only be conceded by naming the evidence that changed it. Then a moderator on your PC, which has only the transcript and no files, writes Acuerdos, Desacuerdos, Recomendación, Preguntas para ustedes and Calidad del debate. The Claudes recommend; you decide.
+- **Live.** A terminal on each PC shows the debate as it goes. The transcript stays in `~/.claude/usage-tray/bridge/debates/<id>/transcript.md`, next to each call's prompt and answer and a `debate.log`.
+- **Cost.** It runs on Sonnet: four calls on your plan (three turns and the moderator) and three on theirs.
+
+**What crosses, and what can't.**
+- **Only text.** Each message is a JSON of at most 16 KB, sent through the other PC's gate as `cmx-debate <id> <message> <base64>`. The gate runs nothing: it drops the message in that debate's folder. It takes messages only for a debate it holds with that same PC, each message once, and none after the debate ends. A malformed debate command is refused, never run.
+- **Your Claude only reads.** Every turn is `claude -p --restricted` with only Read, Glob and Grep, confined to the folder you picked: no shell, no web, no MCP servers, no settings or hooks of yours. `.env*`, `*.pem`, `*.key` and SSH keys can't be read. A drive root or your whole user folder is refused as the folder.
+- **Nothing secret leaves by accident.** Before sending, each turn is scanned for API keys (Anthropic, OpenAI, GitHub, AWS, Slack, Google), JWTs, private keys, passwords in connection strings and `password=`/`token:`-style values, which become `[oculto]`. The transcript says how many were hidden. A secret in an unknown format still depends on the prompt's rule and on those files being unreadable.
+- **The other side's words are data.** They reach your Claude between tags it is told not to obey, and they can't close those tags. The worst a hostile message can do is make your Claude quote something from the folder you picked, which is why you pick a project folder and not more.
+
+### Claude Whisper: a live copilot for calls
+
+Open **Claude Whisper** from the tray menu and press **Escuchar** when the call starts. The window stays on top of the call app.
+
+- **Transcript.** Everything the PC plays shows as **Ellos**: the other side of the call in any app (Teams, Zoom, Meet in a browser...), but also videos and music, lyrics included. Your microphone shows as **Tú**. Words appear as they are spoken, in whatever language is being spoken; you don't have to pick it.
+- **Answers.** When a question is heard, Claude writes what you could say: one or two sentences, then a few short points. The question can be in any language, have no question mark ("dis-moi pourquoi…") or sit in the middle of a song: a question that is finished while the other side keeps talking or singing is answered without waiting for them to stop. The answer is in the language of the question, so you can say it as is, with a `↳` translation into your **Idioma** (in Contexto) when that is different. It uses what you put in **Contexto**: your CV or experience, the conversation (job, company, goal) and your instructions (tone, length). It doesn't make up experience you didn't list; where a detail is missing it leaves a gap like `[años]`. The same question is answered once; questions that arrive while an answer is being written wait their turn. Earlier answers stay one click away (‹ ›).
+- **Live translation.** With **Traducir en vivo** on, every line in another language gets its translation into your **Idioma** right under it (`↳`), also in the saved call. **Responder automáticamente** and **Traducir en vivo** are the two switches under the buttons.
+- **Responder** (Ctrl+Alt+Shift+R) asks for an answer now, **Pantalla** (Ctrl+Alt+Shift+C) sends the monitor under the mouse to Claude (it solves an exercise on screen, or tells you what matters there), and the box at the bottom asks Claude anything without saying it in the call. **Limpiar** asks first, then clears the transcript and answers and starts a fresh conversation with Claude; it keeps listening if it was. The answer keys also work with the window hidden: it shows again without taking the focus from the call. A new answer only replaces the one on screen when that was the latest, so an older one you are reading stays put, and the transcript only follows new lines while you are at its end with nothing selected. Ctrl+Alt+Shift+W hides or shows the window. The keys can be changed in `~/.claude/usage-tray/whisper/settings.json`.
+- **History.** Every call is saved as Markdown (transcript and answers) in `~/.claude/usage-tray/whisper/sessions`; **⋯ > Historial de llamadas** opens the folder.
+- **Calls starting.** Once you have used Claude Whisper, the tray shows a notice when a call app (Teams, Zoom, Webex, Slack, Discord...) starts using the microphone; click it to open Claude Whisper.
+- **Voices stay quiet.** While Claude Whisper listens, the Claude Code sessions don't read their summaries aloud (so nothing turns the call down or gets transcribed as the other side); they speak again when you pause or close it.
+- **Without headphones** the microphone also hears the speakers. While someone on the PC is talking, your mic is muted for the transcript, and lines that repeat what they just said are dropped. Music doesn't keep it muted: after a few seconds of nonstop lyrics the mic opens again. Headphones work best.
+
+**How it works.**
+- Audio is captured with WASAPI (the speakers in loopback, and the microphone), converted to 16 kHz mono and streamed to the speech-to-text service that Claude Code's own voice dictation uses (`wss://api.anthropic.com/api/ws/speech_to_text/voice_stream`), signed in with Claude Code's login from `~/.claude/.credentials.json`. That service is built for hold-to-talk: it keeps one growing transcript per connection. Claude Whisper cuts it into lines itself: a line ends after a pause, or when the text stops changing, and the connection is replaced by a fresh one every minute or so, at a pause.
+- Answers come from a single `claude -p` that stays open for the whole call (stream-json in and out), so Claude keeps the conversation and every answer skips the start-up time. It runs with no tools, no CLAUDE.md, hooks, plugins or MCP servers, and none of your Claude Code settings, from its own folder. API key variables are removed from its environment, so it always uses your subscription. Your context goes in its system prompt.
+- Translation and question detection come from a second, light `claude -p` on Haiku, set up the same way. It gets every finished line from the PC (several at once when they arrive together) and returns its translation and whether it asks something. A line with a question mark is answered right away without waiting for it. It is replaced every 25 batches so a long call doesn't make it slower.
+- Everything is plain PowerShell and C# compiled on the first run (`lib/whisper.cs`); nothing else is installed.
+
+**Things to know.**
+- **The speech-to-text service is not a public API.** It is what Claude Code's `/voice` dictation calls, used here outside Claude Code and for longer stretches than dictation. It is undocumented: it could change, be limited, or stop working, and continuous use like this may not be what the subscription intends. If it fails, the window says so and keeps retrying; the answers part keeps working with what you type.
+- **Before the first listen** Whisper says, and asks you to accept, that the transcription is Claude Code's dictation service (not a public API: it can stop working, and it runs with your Claude account), that the call's audio goes to Anthropic, and that in many countries the other side has to know and agree. Saved calls older than 30 days are deleted (`keepDays` in `whisper\settings.json`; `0` keeps them all).
+- **Every answer uses your plan.** Each answer is a Claude turn and counts against the 5-hour and weekly limits like any other, and so does each Haiku batch for translation and detection (small, but one every few lines while someone talks or a song plays). Turn off **Traducir en vivo** and **Responder automáticamente** to spend nothing until you press **Responder**. Haiku is faster and lighter on the limits for answers too; Sonnet is the default.
+- **It doesn't hide.** Some copilots are made to be invisible in screen sharing. This one isn't, on purpose: the window shows in screen sharing and in the taskbar like any other.
+- **The call is sent to Anthropic.** Audio goes to the speech service and the transcript to Claude, under your Claude account. Tell the people in the call when that matters, and follow the rules that apply to recording or transcribing calls where you are.
+
+### Claude Whip: when the plan runs low
+
+In the window, **Claude Whip** has a switch, the threshold (from 70 % to 95 %, or always) and the agents you have installed: Codex, Antigravity CLI (`agy`), OpenCode and Copilot CLI. Each spends its own quota, not your Claude plan.
+
+- **When it acts.** At the threshold, or before it when the open 5-hour window is past half and on pace to run out before it resets: the tray recomputes that forecast every 5 minutes (the same one as Estadísticas > Consumo), and the session says when the limit would come ("on pace to hit the limit at 15:40").
+- **What it does.** In every Claude Code session, including the open ones, Claude can no longer edit, write, start subagents or run shell commands other than git, reading ones, the agents and the check. It plans and writes the task, an agent writes the code (`whip\bin\whip-run.sh`), Claude reviews git and runs the tests (`whip-check.sh`) and sends back what failed, at most 3 rounds.
+- **What it is not.** The shell rule is a guard on your plan, not a sandbox: `whip-check.sh` runs the test command it is given. And the agents are not sandboxed either (see [Risks and permissions](#risks-and-permissions)).
+
+### Risks and permissions
+
+What each module lets in or sends out, in one place:
+
+| Module | What to know |
+|---|---|
+| Claude Whip | Antigravity runs with `--dangerously-skip-permissions`, Copilot with `--allow-all-tools` and OpenCode with `--auto`: they can run any command as you, so a prompt injection in the repo reaches your PC. Only Codex runs in a sandbox (`workspace-write`). Enable only the agents you trust with the repo |
+| Otros PCs | An allowed connection is a shell as your Windows user. **Permitir 1 hora** lets that PC run commands with no question for an hour, including ones a Claude Code on that PC decides to run; what was already waiting is still asked one by one. A command too long to show whole can only be refused |
+| Ambientes | The Chrome extension reads every tab of the profiles where you load it. Detection, off by default, sends tab titles to TypeSafe (Jev) or Anthropic (Haiku, your plan) |
+| Claude Whisper | The call's audio, both sides, goes to Anthropic through an undocumented service; asked once before the first listen |
+| Voice | The Edge voice (the default) sends each spoken summary to Microsoft; ElevenLabs and Gemini send it to them. The Windows voice stays on the PC |
+| FreeLLMAPI | Prompts of the sessions it serves go to free third-party providers, some of which train on them |
+| Keys | The ElevenLabs, Gemini and FreeLLMAPI keys are stored encrypted for your Windows user (DPAPI). The Jev key in `harness\.env` is plain text (Node reads it) |
+
+### Business edition
+
+For a company whose people use Claude Code on their seats (Team or Enterprise plans). Install it with:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1))) -Business -PolicyFile \\files\claude\policy.json
+```
+
+(`npx github:SantiagoRuizM/ClaudeMaxxing --business` and `install.ps1 -Business` work too.) Updates keep the edition; `-Personal` switches back.
+
+**The policy.** A JSON file; [`business/policy.example.json`](business/policy.example.json) has every field:
+
+| Field | Meaning |
+|---|---|
+| `company` | The name shown in Empresa |
+| `disabled` | Modules turned off: `freellm`, `bridge` (Otros PCs), `whisper`, `whip`, `ambientes` (Ambientes and its Foco y ajustes tab), `judge` (Claude Judge, the link in Planear sesión). Default: all but `judge`, because FreeLLMAPI sends prompts to free third-party providers, Otros PCs gives a shell over SSH, Claude Whisper sends calls to an undocumented service, Claude Whip hands the code to other companies' agents and Ambientes reads every Chrome tab and sends their titles to TypeSafe or Anthropic. `[]` allows all. A change applies within 5 minutes with the tray running (a module turned off stops; one turned back on waits for the next start), and the Whip plugin reads IT's policy itself |
+| `seatName`, `seatMonthlyUsd` | The seat and what it costs per month, for the return on it |
+| `reportDir` | A folder the team shares (`\\server\share\...`, environment variables allowed) for the reports. Empty: `Documents\ClaudeMaxxing\informes` |
+| `autoReport` | `true` sends the report there every 7 days, without asking |
+| `reportPresence` | `true` leaves a small file per person in `reportDir\presence` every 5 minutes (sessions open and the current window's use), so Empresa shows who is connected now. Default `false` |
+| `reportProjects` | `false` leaves project names out of the report |
+| `marketplaces`, `plugins` | The team kit: plugin marketplaces (`owner/repo` or an `https` URL) and plugins (`name@marketplace`) |
+
+Where it is read from: `%ProgramData%\ClaudeMaxxing\policy.json` when IT puts one there (it then wins, makes the PC business whatever the flag says, and only an administrator can change it), else the user's `~/.claude/usage-tray/business/policy.json` (what `-PolicyFile` copies, or **Política** in Empresa creates from the defaults). A damaged file falls back to the defaults. A module that is off disappears from the tray menu and the window, and does not start: no SSH server or discovery for Otros PCs (the install also removes its firewall rules and `~/.ssh/config` block, with one UAC prompt), no FreeLLMAPI for new sessions, and `whisper.ps1` refuses to open.
+
+**Empresa** (second in the window's side menu; in Inicio its tiles and the objectives take the place of Otros PCs and Claude Whisper):
+- **The seat**: hours in the last 30 days, the API-equivalent cost (the same figure as Estadísticas > Consumo), the return on the seat (that cost over `seatMonthlyUsd`), and whether the seat **falls short**, **fits** or **has room**. It falls short when a quarter or more of the last 30 windows reach 90 % of the plan, or the weekly limit reaches 95 %, and it has room when 9 of 10 windows use under 35 %. A full window's cost is calibrated from the open window once it is at 10 % or more; until then it says *Sin calibrar*.
+- **Informes**: **Exportar mi informe** writes `<date>_<PC>_<user>.json` (hours, active days, prompts, sessions, cost, seat, return, the recommendation, and the top 10 projects with their hours unless `reportProjects` is false; never prompts or paths) to `reportDir`, after asking when that is a shared folder. **Informe del equipo** reads everyone's newest report there and opens a CSV in Excel (`Documents\ClaudeMaxxing\equipo-<date>.csv`), one row per person; the window says the team's total cost and return.
+- **Objetivos de la empresa**: a Markdown file, IT's `%ProgramData%\ClaudeMaxxing\objetivos.md` or the user's `business\objetivos.md` (**Editar** creates it from a template). Claude Judge (Planear sesión) gets them after every idea and also weighs whether the idea moves one; one that moves none counts against it.
+- **Kit del equipo**: the policy's plugins, each marked installed or not; **Instalar lo que falta** adds the marketplaces and installs the plugins with `claude plugin` for the user, for new sessions.
+
+What it does not do: it is not a security boundary against the user, who can still edit their own files (enforce Claude Code itself with its managed settings), and it has no server: team data only travels as the JSON files in the folder you choose.
+
 ## Development
 
 The repo is only the installer. After editing anything, run `install.ps1` again to deploy it.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1         # tray, slots, installer, menu package; every .ps1 is ASCII and parses
+powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1         # tray, slots, installer, menu package, Otros PCs helpers and gate; every .ps1 is ASCII and parses
 powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1   # voice, no audio
-powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draws the popup to an image
+powershell -NoProfile -ExecutionPolicy Bypass -File test\bridge-e2e.ps1        # Otros PCs on loopback: two fake PCs pair over UDP and log in with every ssh client found, then hold a whole debate with a fake claude
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File test\bridge-tray-e2e.ps1   # the same through the tray functions (approval, grant, sessions)
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draws the popup to an image (-RenderBridgeTo / -RenderApprovalTo: Otros PCs windows; -RenderHubTo with -HubSection home|usage|stats|stats-hours|stats-projects|stats-models|code|pcs|whisper|voice, add -all to a stats tab for all time: the ClaudeMaxxing window)
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Claude Whisper with sample data (shows the window for a moment)
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -SimulateWav call.wav -ExitAfter 30 -ReportTo report.json   # end to end: a 16 kHz mono WAV as the other side, real transcription and answers
 ```
+
+The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and are not part of CI.
 
 - `.ps1` files must stay ASCII: Windows PowerShell 5.1 reads BOM-less scripts as ANSI. Accented UI text goes in as `\uXXXX` and is decoded with `Tx`, or comes from UTF-8 JSON.
 - `lib/installer.ps1` lists exactly which files make up the installed runtime.
+- **Languages** (`lib/lang/<code>.json`): the text in the code is Spanish, and each file maps that text to its translation (`"strings"`), with the name shown in Configuración (`"name"`) and the culture for numbers and dates (`"culture"`). To add a language, copy `en.json` to `<code>.json` (the two-letter code, like `fr`), change `name` and `culture` and translate the values; a text left out shows in Spanish. `Tx` translates what it decodes, and `Draw-Text`, `Measure-TextWidth`, tooltips, the dialogs' helpers and `Confirm-UiAction` translate whatever they are given, so a literal passed to them needs nothing else. Text built from pieces goes in as a template, `(L 'Actualizado hace {0} min') -f $n`, so a language can reorder it. `$env:CLAUDEMAXXING_LANG='en'` draws the previews (`-RenderHubTo`) in that language; `test\run-tests.ps1` checks every catalog (same `{0}` placeholders, no translation that is itself another text to translate).
 - **Menu** (`menu/`): an `IExplorerCommand` in C++ (`menu/src`), registered through a sparse MSIX (`menu/package`).
   - `menu\build.cmd` rebuilds `menu\bin\*.dll|exe`. It needs Visual Studio with C++.
   - `menu\package.ps1` rebuilds the unsigned `menu\bin\ClaudeCodeMenu.msix` after the manifest or the logos change. It needs the Windows SDK. Raise `Version` in `AppxManifest.xml` too, so existing installs re-register.
@@ -113,25 +387,37 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popu
 
 ## Español
 
-ClaudeMaxxing reúne tres herramientas para trabajar con varias sesiones de Claude Code en Windows 11:
+ClaudeMaxxing reúne estas herramientas para trabajar con Claude Code en Windows 11:
 
-- una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal), la opción de **agendar sesión** y un **plan semanal** que reparte el límite semanal en sesiones hasta el corte;
-- la entrada **Abrir con Claude Code** en el menú del Explorador, que abre cada sesión en una mitad de pantalla, con su color y su nombre;
-- la **voz**: cada sesión lee en voz alta un resumen de cada respuesta ([`voice/README.md`](voice/README.md)).
+- una **bandeja** con el uso del plan (la ventana de 5 horas y el límite semanal), la opción de **agendar sesión** y un **plan semanal** que reparte el límite semanal en sesiones hasta el corte. El botón **Entrar a ClaudeMaxxing** de la bandeja abre una ventana con todas las herramientas, cada una con su estado y su configuración. Está dividida en las secciones Inicio, Planear sesión (pon tu idea del día a juicio ante Claude Judge: **Nueva idea** o **Flujo previo**, y recibe su veredicto), SelfHarness (lo abierto que no encaja con el ambiente encendido, los servidores que escuchan, los ajustes del aviso y las stats de los ambientes), Ambientes (un grafo de tus ambientes de trabajo, con cuántas veces pasas de uno a otro y el tiempo en cada uno; con un clic se enciende o se apaga, y si lo abierto es de otro ambiente te pregunta si quieres pasarte), Uso y agenda, Estadísticas, Claude Code, Otros PCs, Claude Whisper y Voz. Incluye un diagrama de los PCs cercanos que muestra si hay conexión con cada uno y el historial de llamadas de Claude Whisper. **Estadísticas** muestra cuándo trabajas más (un mapa de día × hora, la hora y el día pico, por franjas) y todas las métricas que se pueden sacar de las conversaciones de Claude Code de tu PC: horas, racha, prompts, sesiones, proyectos, modelos, tokens y herramientas. Esos datos se leen en local y no salen de tu PC. La **agenda automática** (en Uso y agenda) usa esas estadísticas para calcular tu franja de 2 horas con más uso medio, pone el cambio entre dos ventanas de 5 horas en su centro y encadena ventanas seguidas, sin huecos, durante tu día activo. La bandeja mantiene esas sesiones agendadas para los próximos 2 días y las recalcula sola; si hay agendadas a mano que interrumpen la cadena, el botón **Limpiar** las quita (solo esas, y solo cuando lo pulsas). Claude Code borra las conversaciones de más de 30 días, pero ClaudeMaxxing guarda su resumen, así que el histórico sigue creciendo desde el primer cálculo;
+- la entrada **Abrir con Claude Code** en el menú del Explorador, que abre cada sesión en la pantalla entera, una mitad o un cuarto (Claude Code > Por pantalla, con una recomendación según cuánto trabajan tus agentes), con su color y su nombre;
+- **captura a Claude Code**: **Win+Alt+C** (o Win+Shift+X o Ctrl+Alt+C si otra app lo usa) es un recortador como el de Windows (rectángulo, ventana, pantalla completa o forma libre; vídeo con el sonido del sistema y el micrófono; dibujo y resaltador; selector de color; extraer texto con el OCR de Windows). Al lado del recorte salen el prompt, **Enviar** y la carpeta (por defecto, la del ambiente encendido); tras **Win+Shift+S**, un cuadro en la esquina. Se apaga en Configuración > Capturas;
+- la **voz**: cada sesión lee en voz alta un resumen de cada respuesta ([`voice/README.md`](voice/README.md));
+- **modelos gratis con FreeLLMAPI**, para cuando se acaba la cuota. Es opcional y de terceros. Desde ClaudeMaxxing > Claude Code, **Instalar** descarga su app oficial (una versión fija, comprobada con SHA-512). Después creas tu cuenta y añades claves de proveedores en su ventana, copias tu clave unificada y pulsas **Pegar clave**. Con el interruptor activado, las sesiones **nuevas** van a FreeLLMAPI en vez de a tu plan; las abiertas, la agenda y `settings.json` no cambian. La calidad depende del modelo gratuito que toque. Detalles en [Free models with FreeLLMAPI](#free-models-with-freellmapi-when-the-quota-runs-out);
+- **Claude Whip**: cuando el plan llega al umbral, o va a agotarse antes de reiniciarse, Claude Code deja de programar y dirige a otro agente (Codex, Antigravity, OpenCode o Copilot) que programa por él. Detalles y riesgos en [Claude Whip](#claude-whip-when-the-plan-runs-low);
+- **Otros PCs** (apagado hasta que lo actives con **Activar** en su ventana o con `install.ps1 -Bridge`): los PCs de la misma red con ClaudeMaxxing se encuentran solos. Una vez emparejados (los dos muestran el mismo código de 6 dígitos y confirmas en ambos), desde la bandeja abres una terminal o Claude Code en el otro PC, y desde Claude Code puedes usar `ssh cmx-<pc> "comando"`. El otro PC siempre pregunta antes de dejar entrar (**Permitir**, **Permitir 1 hora** o **Rechazar**) y avisa cuando se abre y se cierra una sesión. Va por SSH, con un `sshd` que corre como tu usuario mientras la bandeja está abierta, solo en redes privadas y solo desde la red local. Con **Debatir con <PC>...**, tu Claude y el de esa persona debaten una decisión, cada uno desde su propio proyecto: la primera ronda se escribe a ciegas, siguen dos réplicas y un moderador sin archivos les da acuerdos, desacuerdos y una recomendación. Cada Claude solo lee la carpeta que elige su persona (sin terminal, sin internet, sin `.env`), al otro PC solo le llega texto y las claves se ocultan antes de enviarlo;
+- **Claude Whisper**: un copiloto para llamadas (entrevistas, reuniones, ventas). Se abre desde el menú de la bandeja; al pulsar **Escuchar** transcribe en vivo lo que suena en el PC (**Ellos**) y tu micrófono (**Tú**), detecta cuándo te hacen una pregunta y Claude te propone qué decir, con tu perfil y tus notas de **Contexto**. **Responder** (Ctrl+Alt+Shift+R) pide una respuesta ya, **Pantalla** (Ctrl+Alt+Shift+C) le manda a Claude el monitor donde está el ratón (por ejemplo un ejercicio de programación) y Ctrl+Alt+Shift+W oculta o muestra la ventana. Cada llamada queda guardada en Markdown en `~/.claude/usage-tray/whisper/sessions`. Todo va con tu suscripción de Claude a través de Claude Code: la transcripción usa el mismo servicio que el dictado por voz de Claude Code (no es una API pública: puede cambiar o dejar de funcionar) y las respuestas, un `claude -p` que queda abierto durante la llamada. Cada respuesta cuenta para tus límites de uso. La llamada se envía a Anthropic: antes de escuchar la primera vez, Whisper te lo explica y te pide aceptarlo, y en muchos países debes avisar a la otra parte. Las llamadas guardadas de más de 30 días se borran. Detalles en [Claude Whisper](#claude-whisper-a-live-copilot-for-calls).
 
-**Instalar:** clona el repo o descárgalo en ZIP, y ejecuta:
+**Edición Empresa:** instala con `-Business` (o `--business`; `-Personal` es la de siempre y vuelve a ella). Una política en JSON (`-PolicyFile`, o la que TI deja en `%ProgramData%\ClaudeMaxxing\policy.json`, que manda) apaga módulos (por defecto FreeLLMAPI, Otros PCs, Claude Whisper, Claude Whip y Ambientes; también puede apagar Claude Judge, y un cambio se aplica en 5 minutos sin reiniciar la bandeja) y define el asiento, la carpeta de informes del equipo y el kit de plugins. La sección **Empresa** muestra el retorno del asiento (consumo equivalente en API frente a su precio) y si se queda corto, encaja o sobra; exporta tu informe a la carpeta del equipo y junta los de todos en un CSV; guarda los objetivos de la empresa, que Claude Judge usa en cada juicio; e instala el kit del equipo con un clic. Detalles en [Business edition](#business-edition).
+
+**Instalar:** un solo comando en cualquier ventana de PowerShell. Baja la [última versión](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest), comprueba su SHA-256 y la instala; el mismo comando la actualiza. Con Node.js también vale `npx github:SantiagoRuizM/ClaudeMaxxing`, y a mano, descomprimir el ZIP y ejecutar `install.ps1`. En el repo no viene nada personal: tus ambientes, voces, claves, PCs emparejados y datos de uso los crean el instalador y la bandeja en tu PC, y se conservan al actualizar. Qué cambió en cada versión: [CHANGELOG.md](CHANGELOG.md).
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
 ```
 
 - Todo se copia a `%LOCALAPPDATA%\ClaudeMaxxing` y se ejecuta desde ahí, así que después puedes mover o borrar el repo. Para actualizar, vuelve a ejecutar `install.ps1` desde una copia nueva.
-- La primera vez Windows pide **un permiso de administrador (UAC)**. Sirve para confiar en un certificado que se crea en tu PC y firma la entrada del menú. No necesitas Visual Studio ni el Windows SDK.
+- La primera vez Windows pide **un permiso de administrador (UAC)** para confiar en un certificado que se crea en tu PC y firma la entrada del menú. No necesitas Visual Studio ni el Windows SDK.
+- **Otros PCs viene apagado.** Al activarlo (**Activar** en su ventana, o `install.ps1 -Bridge`) se descarga el OpenSSH portable de Microsoft (unos 5 MB), comprobando un SHA-256 fijo y la firma de Microsoft, se añade un bloque marcado al principio de `~/.ssh/config` y Windows pide un segundo permiso para las reglas del firewall. `-SkipBridge` lo impide siempre.
+- Si GitHub no responde (su API admite 60 consultas por hora y dirección) o la versión no trae su SHA-256, el comando se detiene sin instalar nada.
+- **Riesgos y permisos** de cada módulo (agentes de Whip sin sandbox, qué permite "Permitir 1 hora", qué sale del PC): tabla en [Risks and permissions](#risks-and-permissions). Las claves de voz y de FreeLLMAPI se guardan cifradas para tu usuario de Windows.
 - La entrada del menú aparece después de reiniciar el Explorador o de cerrar sesión.
 - Si tienes `winget`, el instalador añade lo que necesita la voz: Python con edge-tts en un entorno propio, y FFmpeg para ffplay. Si no, la voz usa la de Windows.
 - Lo propio de tu PC (rutas, cambios a la configuración de voz) va en `voice\config.local.json` y se conserva al actualizar.
 
-**Requisitos:** Windows 11 x64 (Windows 10 sin probar), Claude Code (`claude` en el PATH), Windows Terminal y poder aprobar un aviso de UAC (solo para el menú). Para que la bandeja se actualice con cada respuesta, además, una barra de estado (statusline) en bash y `jq`.
+**Idioma:** la ventana, la bandeja y sus avisos están en español y en inglés; se elige en ClaudeMaxxing > **Configuración** (el engranaje junto a pantalla completa). Viene en inglés. Cada idioma es un archivo de `lib/lang`: para añadir otro, traduce una copia de `en.json` (detalles en [Development](#development)).
+
+**Requisitos:** Windows 11 x64 (Windows 10 sin probar), Claude Code (`claude` en el PATH), Windows Terminal y poder aprobar los avisos de UAC (para el menú y el firewall). Para que la bandeja se actualice con cada respuesta, además, una barra de estado (statusline) en bash y `jq`.
 
 **Desinstalar:** desde Configuración > Aplicaciones > ClaudeMaxxing, o con `uninstall.ps1` en la carpeta de instalación. Tus datos (`~/.claude/usage-tray`, `%TEMP%\claude-voice`) se conservan, salvo que uses `-RemoveData`.
 

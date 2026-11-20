@@ -3,14 +3,31 @@
 
 # Everything the installed tray, menu launcher and voice need; nothing else from the repo is copied.
 $script:RuntimeFiles = @(
-    'tray.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1',
-    'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1'
+    'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1', 'logo.png',
+    # The egg of each session in the notification area (lib\traysessions.ps1): still, and the thinking animation.
+    'egg_logo.png', 'egg_logo_gift_thinking.gif',
+    'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js',
+    # Ambientes' format and one example (invented data), for the agent that writes the user's environments.
+    'harness\README.md', 'harness\test\environments\trabajo.json',
+    # Peek: the plugin Claude Code loads (its tests, README and the sample paths in them stay in the repo).
+    'peek\LICENSE', 'peek\.claude-plugin\plugin.json', 'peek\hooks\hooks.json', 'peek\hooks\register.tsx', 'peek\hooks\paths.ts',
+    'peek\hooks\code.ts', 'peek\hooks\markdown.ts', 'peek\hooks\link.tsx', 'peek\hooks\window.ts', 'peek\windows\preview.ps1',
+    'peek\windows\reveal.ps1',
+    # Claude Whip: the plugin that holds a session to reading and planning when the plan runs low (lib\whip.ps1).
+    'whip\.claude-plugin\plugin.json', 'whip\hooks\hooks.json', 'whip\hooks\register.ts', 'whip\hooks\rules.ts',
+    'whip\skills\claude-whip\SKILL.md', 'whip\bin\whip-run.sh', 'whip\bin\whip-check.sh',
+    # PDF: the plugin whose skill has Claude read PDFs as Markdown (PyMuPDF goes in pdf\venv, Install-PdfDependencies).
+    'pdf\.claude-plugin\plugin.json', 'pdf\skills\pdf-markdown\SKILL.md', 'pdf\bin\pdf2md.sh', 'pdf\bin\pdf2md.py'
 )
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
-$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates')
+# claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
+# (env.js, the Chrome extension loaded unpacked from the install folder and its native messaging host).
+$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension', 'theme')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
-# the Python environment for edge-tts and the icons copied from the Claude app.
-$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets')
+# the Python environment for edge-tts, the icons copied from the Claude app and the native host files that
+# Register-HarnessHost writes (Chrome may be running that launcher) and the extension's icons (install.ps1 draws them).
+$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets',
+    'harness\host\yourharness-host.bat', 'harness\host\com.yourharness.bridge.json', 'harness\extension\icons')
 
 # Relative paths of every runtime file in $Root.
 function Get-RuntimeManifest([string]$Root) {
@@ -19,7 +36,8 @@ function Get-RuntimeManifest([string]$Root) {
     foreach ($dir in $script:RuntimeDirs) {
         $full = Join-Path $Root $dir
         if (-not (Test-Path -LiteralPath $full)) { continue }
-        foreach ($item in Get-ChildItem -LiteralPath $full -Recurse -File) {
+        # Git Bash leaves *.stackdump crash dumps in whatever folder it ran in: never part of the runtime.
+        foreach ($item in Get-ChildItem -LiteralPath $full -Recurse -File | Where-Object { $_.Extension -ne '.stackdump' }) {
             $relative = $item.FullName.Substring($Root.TrimEnd('\').Length + 1)
             if (-not (Test-PreservedPath $relative)) { $files.Add($relative) }
         }
@@ -65,8 +83,13 @@ function Sync-Runtime([string]$Source, [string]$Target) {
     $manifest.Count
 }
 
-# Stops the tray recorded in tray.pid (wherever it was started from), after checking it really is tray.ps1.
+# Stops the tray recorded in tray.pid (wherever it was started from), after checking it really is tray.ps1,
+# and the "Otros PCs" SSH server it started (killing the tray skips its own cleanup).
 function Stop-RecordedTray {
+    if (Get-Command Stop-BridgeServer -ErrorAction SilentlyContinue) {
+        $serverPid = Stop-BridgeServer (New-BridgeContext)
+        if ($serverPid) { Write-Host "Otros PCs SSH server stopped (PID $serverPid)" }
+    }
     if (-not (Test-Path -LiteralPath $TrayPidFile)) { return $null }
     $trayPid = 0
     [void][int]::TryParse(([IO.File]::ReadAllText($TrayPidFile)).Trim(), [ref]$trayPid)
@@ -80,6 +103,25 @@ function Stop-RecordedTray {
         Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue
     }
     $trayPid
+}
+
+# Stops the Claude Whisper window recorded in whisper.pid, after checking it really is whisper.ps1, with its
+# claude process (the tree of that one PID).
+function Stop-RecordedWhisper {
+    $pidFile = Join-Path $TrayHome 'whisper\whisper.pid'
+    if (-not (Test-Path -LiteralPath $pidFile)) { return $null }
+    $whisperPid = 0
+    [void][int]::TryParse(([IO.File]::ReadAllText($pidFile)).Trim(), [ref]$whisperPid)
+    Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $whisperPid" -ErrorAction SilentlyContinue
+    if (-not $proc -or $proc.CommandLine -notlike '*whisper.ps1*') { return $null }
+    # The conhost --headless host that started it goes too.
+    $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ParentProcessId)" -ErrorAction SilentlyContinue
+    & taskkill.exe /PID $whisperPid /T /F 2>$null | Out-Null
+    if ($parent -and $parent.Name -eq 'conhost.exe' -and $parent.CommandLine -like '*whisper.ps1*') {
+        Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    $whisperPid
 }
 
 function Get-TrayLaunch([string]$InstallDir) {
@@ -110,9 +152,9 @@ function Invoke-Winget([string]$Id) {
         Out-Null
 }
 
-# A Python 3.8+ that really runs. On a clean Windows, the python.exe on PATH is a Store alias that only opens
+# A Python 3.$Minor+ that really runs. On a clean Windows, the python.exe on PATH is a Store alias that only opens
 # the Store, so each candidate is run.
-function Find-Python {
+function Find-Python([int]$Minor = 8) {
     $candidates = New-Object System.Collections.Generic.List[object]
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($py) { $candidates.Add(@($py.Source, '-3')) }
@@ -129,11 +171,42 @@ function Find-Python {
         $pyArgs = @($candidate | Select-Object -Skip 1)
         if (-not (Test-Path -LiteralPath $exe)) { continue }
         try {
-            $ok = & $exe @pyArgs -c 'import sys; print(sys.version_info >= (3, 8))' 2>$null
+            $ok = & $exe @pyArgs -c "import sys; print(sys.version_info >= (3, $Minor))" 2>$null
             if ($LASTEXITCODE -eq 0 -and "$ok".Trim() -eq 'True') { return , $candidate }
         } catch { }
     }
     $null
+}
+
+# The python.exe of a Python environment of our own at $VenvDir, made when missing (Python itself with winget when
+# there is none); $null when it cannot be made.
+function New-PythonVenv([string]$VenvDir, [string]$Label, [int]$Minor = 8) {
+    $venvPython = Join-Path $VenvDir 'Scripts\python.exe'
+    if (Test-Path -LiteralPath $venvPython) { return $venvPython }
+    $python = Find-Python $Minor
+    if (-not $python -and (Test-Winget)) {
+        Write-Host 'installing Python with winget...'
+        Invoke-Winget 'Python.Python.3.12'
+        $python = Find-Python $Minor
+    }
+    if (-not $python) { return $null }
+    Write-Host "creating the $Label Python environment..."
+    $pyArgs = @($python | Select-Object -Skip 1)
+    & $python[0] @pyArgs -m venv $VenvDir 2>&1 | Out-Null
+    if (Test-Path -LiteralPath $venvPython) { $venvPython } else { $null }
+}
+
+# PDF (pdf\): PyMuPDF, which brings PyMuPDF4LLM (AGPL-3.0, about 250 MB with its layout model), in a Python
+# environment of its own. pip fetches it on this PC; the repo never ships it. Returns a note for the installer.
+function Install-PdfDependencies([string]$PdfDir) {
+    $python = New-PythonVenv (Join-Path $PdfDir 'venv') 'PDF' 11
+    if ($python) {
+        Write-Host 'installing or updating PyMuPDF (PDF to Markdown)...'
+        & $python -m pip install --disable-pip-version-check --quiet --upgrade pymupdf 2>&1 | Out-Null
+        & $python -I -c 'import pymupdf4llm' 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { return New-Note "PyMuPDF4LLM: $python" }
+    }
+    New-Note -Warn 'PyMuPDF could not be installed (needs Python 3.11+ and internet): Claude reads PDFs as page images, which costs more of the plan, until you run install.ps1 again.'
 }
 
 function Find-Ffplay {
@@ -175,37 +248,19 @@ function Get-LocalVoiceSetting([string]$VoiceDir, [string]$Section, [string]$Key
 function Install-VoiceDependencies([string]$VoiceDir) {
     $notes = New-Object System.Collections.Generic.List[object]
 
-    # edge-tts
-    $edge = Get-LocalVoiceSetting $VoiceDir 'edge' 'exe'
+    # edge-tts, always in our own Python environment and always the latest release: Microsoft changes the
+    # service's token every few months and older versions get 403 (another app's copy on PATH may be stale).
     $venvEdge = Join-Path $VoiceDir 'venv\Scripts\edge-tts.exe'
-    if ($edge -and (Test-Path -LiteralPath $edge)) {
-        $notes.Add((New-Note "edge-tts: $edge"))
-    } elseif ($onPath = Get-Command edge-tts.exe -ErrorAction SilentlyContinue) {
-        $notes.Add((New-Note "edge-tts: $($onPath.Source) (on PATH)"))
+    $venvPython = New-PythonVenv (Join-Path $VoiceDir 'venv') 'voice'
+    if ($venvPython) {
+        Write-Host 'installing or updating edge-tts...'
+        & $venvPython -m pip install --disable-pip-version-check --quiet --upgrade edge-tts 2>&1 | Out-Null
+    }
+    if (Test-Path -LiteralPath $venvEdge) {
+        Set-LocalVoiceSetting $VoiceDir 'edge' 'exe' $venvEdge
+        $notes.Add((New-Note "edge-tts: $venvEdge"))
     } else {
-        if (-not (Test-Path -LiteralPath $venvEdge)) {
-            $python = Find-Python
-            if (-not $python -and (Test-Winget)) {
-                Write-Host 'installing Python with winget...'
-                Invoke-Winget 'Python.Python.3.12'
-                $python = Find-Python
-            }
-            if ($python) {
-                Write-Host 'installing edge-tts in its own Python environment...'
-                $pyArgs = @($python | Select-Object -Skip 1)
-                & $python[0] @pyArgs -m venv (Join-Path $VoiceDir 'venv') 2>&1 | Out-Null
-                $venvPython = Join-Path $VoiceDir 'venv\Scripts\python.exe'
-                if (Test-Path -LiteralPath $venvPython) {
-                    & $venvPython -m pip install --disable-pip-version-check --quiet edge-tts 2>&1 | Out-Null
-                }
-            }
-        }
-        if (Test-Path -LiteralPath $venvEdge) {
-            Set-LocalVoiceSetting $VoiceDir 'edge' 'exe' $venvEdge
-            $notes.Add((New-Note "edge-tts: $venvEdge"))
-        } else {
-            $notes.Add((New-Note -Warn 'edge-tts could not be installed (needs Python 3.8+ and internet): the voice uses the Windows voice (SAPI) until you run install.ps1 again.'))
-        }
+        $notes.Add((New-Note -Warn 'edge-tts could not be installed (needs Python 3.8+ and internet): the voice uses the Windows voice (SAPI) until you run install.ps1 again.'))
     }
 
     # ffplay
@@ -249,10 +304,264 @@ function Register-AppEntry([string]$InstallDir) {
         DisplayVersion  = $AppVersion
         Publisher       = $AppName
         InstallLocation = $InstallDir
-        DisplayIcon     = Join-Path $env:LOCALAPPDATA 'ClaudeCodeMenu\Assets\claude.ico'
-        UninstallString = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $powershell, (Join-Path $InstallDir 'uninstall.ps1')
+        # The jellyfish, drawn by tray.ps1 -RenderLogoTo with the extension's icons.
+        DisplayIcon     = Join-Path $InstallDir 'harness\extension\icons\logo.ico'
+        # -Pause: the console Settings opens stays until Enter, so its messages can be read.
+        UninstallString = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -Pause' -f $powershell, (Join-Path $InstallDir 'uninstall.ps1')
     }
     foreach ($name in $values.Keys) { Set-ItemProperty -LiteralPath $UninstallKey -Name $name -Value $values[$name] }
     foreach ($name in 'NoModify', 'NoRepair') { New-ItemProperty -LiteralPath $UninstallKey -Name $name -Value 1 -PropertyType DWord -Force | Out-Null }
     New-ItemProperty -LiteralPath $UninstallKey -Name EstimatedSize -Value $size -PropertyType DWord -Force | Out-Null
 }
+
+# Ambientes: Chrome starts harness\host\host.js through a native messaging host. Its launcher and manifest hold
+# this PC's node path, so they are written into the install folder here and registered for the current user.
+# The host name and the extension id (from "key" in harness\extension\manifest.json) are the ones YourHarness used.
+$HarnessHostName = 'com.yourharness.bridge'
+$HarnessHostKey = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$HarnessHostName"
+$HarnessExtensionId = 'fmmpaipmfhkkghcljocefmmbhimeonkm'
+
+function Register-HarnessHost([string]$InstallDir) {
+    $node = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $node) { return 'skipped: Node.js is not installed (Ambientes needs it)' }
+    $hostDir = Join-Path $InstallDir 'harness\host'
+    $launcher = Join-Path $hostDir 'yourharness-host.bat'
+    [IO.File]::WriteAllText($launcher, ("@echo off`r`n`"{0}`" `"%~dp0host.js`" %*`r`n" -f $node.Source), [Text.Encoding]::ASCII)
+    $manifest = Join-Path $hostDir "$HarnessHostName.json"
+    $json = [ordered]@{ name = $HarnessHostName; description = 'ClaudeMaxxing Ambientes: Chrome tabs for env.js'; path = $launcher
+        type = 'stdio'; allowed_origins = @("chrome-extension://$HarnessExtensionId/") } | ConvertTo-Json
+    [IO.File]::WriteAllText($manifest, $json, (New-Object Text.UTF8Encoding $false))  # Chrome rejects a BOM
+    New-Item -Path $HarnessHostKey -Force | Out-Null
+    Set-ItemProperty -Path $HarnessHostKey -Name '(default)' -Value $manifest
+    "native host: $manifest"
+}
+
+function Unregister-HarnessHost { Remove-Item -Path $HarnessHostKey -Force -ErrorAction SilentlyContinue }
+
+# The extension's icons are drawn into the install (from logo.png, not kept as PNGs in the repo), so only the
+# installed manifest names them: the repo copy stays loadable in Chrome, with its default icon.
+function Add-HarnessManifestIcons([string]$InstallDir) {
+    $extension = Join-Path $InstallDir 'harness\extension'
+    $icons = [ordered]@{}
+    foreach ($size in 16, 32, 48, 128) {
+        if (Test-Path -LiteralPath (Join-Path $extension "icons\$size.png")) { $icons["$size"] = "icons/$size.png" }
+    }
+    if (-not $icons.Count) { return 'extension icons: none drawn (Chrome shows its default icon)' }
+    $file = Join-Path $extension 'manifest.json'
+    $manifest = [IO.File]::ReadAllText($file) | ConvertFrom-Json
+    $manifest | Add-Member -NotePropertyName icons -NotePropertyValue $icons -Force
+    $manifest.action | Add-Member -NotePropertyName default_icon -NotePropertyValue $icons -Force
+    [IO.File]::WriteAllText($file, ($manifest | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding $false))  # Chrome rejects a BOM
+    "extension icons: $(Join-Path $extension 'icons')"
+}
+
+# Windows Terminal profiles for the menu sessions: one per egg drawn in $EggDir (<color>.png, tray.ps1 -RenderEggsTo),
+# hidden from the new-tab menu, with that egg as the tab icon. Named like Get-SessionProfileName (lib\sessions.ps1).
+# A fragment: Windows Terminal reads it beside the user's settings.json, which stays untouched.
+function Install-TerminalProfiles([string]$EggDir) {
+    $eggs = @(Get-ChildItem -LiteralPath $EggDir -Filter '*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
+    if (-not $eggs.Count) { return 'terminal profiles: no eggs drawn (tabs keep the cmd icon)' }
+    $profiles = @($eggs | ForEach-Object {
+        # The eggs font after the main one: the statusline's egg glyphs (U+E100...) come from it (Install-EggFont).
+        # shortcut: assumes Windows Terminal's default face; a user who changed theirs gets Cascadia Mono in these tabs.
+        [ordered]@{ name = 'ClaudeMaxxing ' + $_.BaseName; commandline = '%SystemRoot%\System32\cmd.exe'; icon = $_.FullName; hidden = $true
+            font = [ordered]@{ face = 'Cascadia Mono, ' + $EggFontFamily } }
+    })
+    Write-JsonFile $TerminalFragmentFile ([ordered]@{ profiles = $profiles })
+    # A running Windows Terminal reads fragments only when it reloads its settings: a new timestamp (content
+    # untouched) makes it reload now, so the next menu session already finds its profile.
+    foreach ($settings in @(Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal*\LocalState\settings.json') -ErrorAction SilentlyContinue)) {
+        try { $settings.LastWriteTime = Get-Date } catch { }
+    }
+    "terminal profiles: $TerminalFragmentFile"
+}
+
+# The eggs font (font\ClaudeMaxxingEggs.ttf, built by font\build_eggs_font.py): the session egg and its animation
+# frames as glyphs, for the statusline. Installed for this user only (no admin): copied under a name with its hash
+# (a running terminal may hold the previous file), registered in HKCU and announced to running programs.
+$script:EggFontFamily = 'ClaudeMaxxing Eggs'
+$script:EggFontValue = 'ClaudeMaxxing Eggs (TrueType)'
+$script:UserFontsKey = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
+function Install-EggFont([string]$Source) {
+    if (-not (Test-Path -LiteralPath $Source)) { return 'eggs font: not found' }
+    $fonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+    if (-not (Test-Path -LiteralPath $fonts)) { New-Item -ItemType Directory -Force -Path $fonts | Out-Null }
+    $hash = (Get-FileHash -LiteralPath $Source -Algorithm SHA1).Hash.Substring(0, 8)
+    $target = Join-Path $fonts "ClaudeMaxxingEggs-$hash.ttf"
+    if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $Source -Destination $target }
+    if (-not (Test-Path -LiteralPath $script:UserFontsKey)) { New-Item -Path $script:UserFontsKey -Force | Out-Null }
+    New-ItemProperty -Path $script:UserFontsKey -Name $script:EggFontValue -Value $target -PropertyType String -Force | Out-Null
+    foreach ($old in @(Get-ChildItem -LiteralPath $fonts -Filter 'ClaudeMaxxingEggs-*.ttf' | Where-Object { $_.FullName -ne $target })) {
+        try { Remove-Item -LiteralPath $old.FullName -Force -ErrorAction Stop } catch { }
+    }
+    Send-FontChange $target
+    "eggs font: $target"
+}
+
+function Uninstall-EggFont {
+    Remove-ItemProperty -Path $script:UserFontsKey -Name $script:EggFontValue -ErrorAction SilentlyContinue
+    $fonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+    foreach ($file in @(Get-ChildItem -LiteralPath $fonts -Filter 'ClaudeMaxxingEggs-*.ttf' -ErrorAction SilentlyContinue)) {
+        try { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop } catch { }
+    }
+    'eggs font removed'
+}
+
+# Loads the font in this session and tells running programs (WM_FONTCHANGE), so a new terminal finds it at once.
+function Send-FontChange([string]$Path) {
+    if (-not ('ClaudeMaxxing.FontChange' -as [type])) {
+        Add-Type -Namespace ClaudeMaxxing -Name FontChange -MemberDefinition @'
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern int AddFontResource(string file);
+[DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+'@
+    }
+    [void][ClaudeMaxxing.FontChange]::AddFontResource($Path)
+    $result = [IntPtr]::Zero
+    # HWND_BROADCAST, WM_FONTCHANGE, SMTO_ABORTIFHUNG, 1 s per window.
+    [void][ClaudeMaxxing.FontChange]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$result)
+}
+
+function Uninstall-TerminalProfiles {
+    $dir = Split-Path -Parent $TerminalFragmentFile
+    if (-not (Test-Path -LiteralPath $dir)) { return 'terminal profiles: none' }
+    Remove-Item -LiteralPath $dir -Recurse -Force
+    'terminal profiles removed (open session tabs keep theirs until closed)'
+}
+
+# Peek (peek\): Claude Code loads the installed folder in every session through CLAUDE_CODE_PLUGIN_DIRS in the "env"
+# block of ~/.claude/settings.json, and runs its hooks module only with CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 (mods
+# are early access). The file is edited as text, so the rest keeps its formatting, and written only if the result
+# parses. Uninstalling removes the folder from the list and leaves the switch: other plugins' mods may need it.
+$PeekDirsVar = 'CLAUDE_CODE_PLUGIN_DIRS'
+$PeekHooksVar = 'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS'
+
+function ConvertTo-JsonText([string]$Value) { '"' + $Value.Replace('\', '\\').Replace('"', '\"') + '"' }
+
+function Test-JsonText([string]$Text) { try { $null = $Text | ConvertFrom-Json; $true } catch { $false } }
+
+function Get-SettingsEnvValue([string]$Text, [string]$Name) {
+    $settings = $Text | ConvertFrom-Json
+    if ($settings -and $settings.env -and $settings.env.PSObject.Properties[$Name]) { return [string]$settings.env.$Name }
+    $null
+}
+
+# The settings text with env.$Name set to $Value; the "env" block is made when there is none.
+function Set-SettingsEnvText([string]$Text, [string]$Name, [string]$Value) {
+    $entry = (ConvertTo-JsonText $Name) + ': ' + (ConvertTo-JsonText $Value)
+    $existing = [regex]('("' + [regex]::Escape($Name) + '"\s*:\s*)"(?:[^"\\]|\\.)*"')
+    $found = $existing.Match($Text)
+    if ($found.Success) { return $Text.Substring(0, $found.Index) + $found.Groups[1].Value + (ConvertTo-JsonText $Value) + $Text.Substring($found.Index + $found.Length) }
+    $block = ([regex]'"env"\s*:\s*\{').Match($Text)
+    if ($block.Success) {
+        $at = $block.Index + $block.Length
+        $rest = $Text.Substring($at)
+        return $Text.Substring(0, $at) + "`n    " + $entry + $(if ($rest -match '^\s*\}') { "`n  " } else { ',' }) + $rest
+    }
+    $open = $Text.IndexOf('{')
+    if ($open -lt 0) { return "{`n  `"env`": {`n    $entry`n  }`n}`n" }
+    $rest = $Text.Substring($open + 1)
+    $Text.Substring(0, $open + 1) + "`n  `"env`": {`n    $entry`n  }" + $(if ($rest -match '^\s*\}') { "`n" } else { ',' }) + $rest
+}
+
+# The settings text without env.$Name; a comma it leaves before the closing brace goes too.
+function Remove-SettingsEnvText([string]$Text, [string]$Name) {
+    $found = ([regex]('\s*"' + [regex]::Escape($Name) + '"\s*:\s*"(?:[^"\\]|\\.)*"\s*,?')).Match($Text)
+    if (-not $found.Success) { return $Text }
+    $before = $Text.Substring(0, $found.Index)
+    $after = $Text.Substring($found.Index + $found.Length)
+    if ($after -match '^\s*\}') { $before = $before -replace ',(\s*)$', '$1' }
+    $before + $after
+}
+
+function Format-PeekDir([string]$Path) { ($Path -replace '\\', '/').TrimEnd('/').ToLowerInvariant() }
+
+function Install-PeekSettings([string]$SettingsPath, [string]$PeekDir) {
+    $text = if (Test-Path -LiteralPath $SettingsPath) { [IO.File]::ReadAllText($SettingsPath) } else { '{}' }
+    if (-not (Test-JsonText $text)) { return "skipped: $SettingsPath is not valid JSON" }
+    $dir = $PeekDir -replace '\\', '/'
+    $dirs = @(([string](Get-SettingsEnvValue $text $PeekDirsVar)) -split ';' | Where-Object { $_.Trim() })
+    $new = $text
+    if (-not ($dirs | Where-Object { (Format-PeekDir $_) -eq (Format-PeekDir $dir) })) { $new = Set-SettingsEnvText $new $PeekDirsVar ((@($dirs) + $dir) -join ';') }
+    if ((Get-SettingsEnvValue $new $PeekHooksVar) -ne '1') { $new = Set-SettingsEnvText $new $PeekHooksVar '1' }
+    if ($new -eq $text) { return 'already on' }
+    if (-not (Test-JsonText $new)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    $backup = "$SettingsPath.bak-claudemaxxing"
+    if ((Test-Path -LiteralPath $SettingsPath) -and -not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $SettingsPath -Destination $backup }
+    [IO.File]::WriteAllText($SettingsPath, $new, (New-Object Text.UTF8Encoding $false))
+    "on in every session ($PeekDirsVar, $PeekHooksVar)"
+}
+
+function Uninstall-PeekSettings([string]$SettingsPath, [string]$PeekDir) {
+    if (-not (Test-Path -LiteralPath $SettingsPath)) { return 'not installed' }
+    $text = [IO.File]::ReadAllText($SettingsPath)
+    if (-not (Test-JsonText $text)) { return "skipped: $SettingsPath is not valid JSON" }
+    $current = Get-SettingsEnvValue $text $PeekDirsVar
+    if (-not $current) { return 'not installed' }
+    $dirs = @($current -split ';' | Where-Object { $_.Trim() -and (Format-PeekDir $_) -ne (Format-PeekDir $PeekDir) })
+    $new = if ($dirs.Count) { Set-SettingsEnvText $text $PeekDirsVar ($dirs -join ';') } else { Remove-SettingsEnvText $text $PeekDirsVar }
+    if ($new -eq $text) { return 'not installed' }
+    if (-not (Test-JsonText $new)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    [IO.File]::WriteAllText($SettingsPath, $new, (New-Object Text.UTF8Encoding $false))
+    'removed'
+}
+
+# Theme (theme\): a plugin with two custom themes, loaded like Peek through CLAUDE_CODE_PLUGIN_DIRS. They repaint
+# userMessageBackground, the bar Claude Code pins at the top of the transcript with the prompt being answered
+# (and each prompt in it). Themes are a documented setting, so a Claude Code update keeps them. Picked with the
+# top-level "theme" setting as custom:maxx-theme:light|dark after the built-in theme it replaces; a custom theme
+# the user picked is left alone.
+$ThemePrefix = 'custom:maxx-theme:'
+
+function Get-SettingsTheme([string]$Text) {
+    $settings = $Text | ConvertFrom-Json
+    if ($settings -and $settings.PSObject.Properties['theme']) { return [string]$settings.theme }
+    ''
+}
+
+# The settings text with the top-level "theme" set to $Value (made when there is none).
+function Set-SettingsThemeText([string]$Text, [string]$Value) {
+    $found = ([regex]'("theme"\s*:\s*)"(?:[^"\\]|\\.)*"').Match($Text)
+    if ($found.Success) { return $Text.Substring(0, $found.Index) + $found.Groups[1].Value + (ConvertTo-JsonText $Value) + $Text.Substring($found.Index + $found.Length) }
+    $open = $Text.IndexOf('{')
+    $rest = $Text.Substring($open + 1)
+    $Text.Substring(0, $open + 1) + "`n  `"theme`": " + (ConvertTo-JsonText $Value) + $(if ($rest -match '^\s*\}') { "`n" } else { ',' }) + $rest
+}
+
+function Write-SettingsTheme([string]$SettingsPath, [string]$Text, [string]$Value) {
+    $new = Set-SettingsThemeText $Text $Value
+    # The regex could hit a nested "theme": written only when the top-level one is the one that changed.
+    if (-not (Test-JsonText $new) -or (Get-SettingsTheme $new) -ne $Value) { return $false }
+    [IO.File]::WriteAllText($SettingsPath, $new, (New-Object Text.UTF8Encoding $false))
+    $true
+}
+
+function Install-ThemeSettings([string]$SettingsPath, [string]$ThemeDir) {
+    $dirs = Install-PeekSettings $SettingsPath $ThemeDir
+    if ($dirs -like 'skipped*') { return $dirs }
+    $text = [IO.File]::ReadAllText($SettingsPath)
+    $current = Get-SettingsTheme $text
+    if ($current.StartsWith($ThemePrefix)) { return "on ($current)" }
+    if ($current.StartsWith('custom:')) { return "kept your theme $current (pick ClaudeMaxxing in /theme)" }
+    $want = $ThemePrefix + $(if ($current -like 'light*') { 'light' } else { 'dark' })
+    if (-not (Write-SettingsTheme $SettingsPath $text $want)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    # The exact theme it had (light-daltonized, dark-ansi...), for the uninstall to give it back.
+    [IO.File]::WriteAllText("$SettingsPath$ThemeBeforeSuffix", $current)
+    "on ($want)"
+}
+
+function Uninstall-ThemeSettings([string]$SettingsPath, [string]$ThemeDir) {
+    $dirs = Uninstall-PeekSettings $SettingsPath $ThemeDir
+    if ($dirs -like 'skipped*' -or -not (Test-Path -LiteralPath $SettingsPath)) { return $dirs }
+    $text = [IO.File]::ReadAllText($SettingsPath)
+    $current = Get-SettingsTheme $text
+    if (-not $current.StartsWith($ThemePrefix)) { return $dirs }
+    $back = $current.Substring($ThemePrefix.Length)
+    $saved = "$SettingsPath$ThemeBeforeSuffix"
+    if (Test-Path -LiteralPath $saved) { $before = ([IO.File]::ReadAllText($saved)).Trim(); if ($before) { $back = $before } }
+    if (-not (Write-SettingsTheme $SettingsPath $text $back)) { return "skipped: could not edit $SettingsPath (left as it was)" }
+    Remove-Item -LiteralPath $saved -ErrorAction SilentlyContinue
+    "removed (theme back to $back)"
+}
+
+# Next to settings.json: the theme it had before ClaudeMaxxing's (Install-ThemeSettings / Uninstall-ThemeSettings).
+$ThemeBeforeSuffix = '.theme-before-claudemaxxing'

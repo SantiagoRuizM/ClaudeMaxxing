@@ -10,14 +10,14 @@ $startedAt = Get-Date
 $result = [ordered]@{ at = $startedAt.ToString('o'); ok = $false; exitCode = $null; output = '' }
 
 try {
-    $config = Read-JsonFile $ConfigFile
-    if (-not $config -or -not $config.claudePath -or -not (Test-Path -LiteralPath $config.claudePath)) {
-        throw 'claude not found; run install.ps1 again'
+    $claude = Resolve-ClaudePath
+    if (-not $claude) {
+        throw 'no se encuentra claude: instala Claude Code y reinstala ClaudeMaxxing (install.ps1 desde el repo)'
     }
     if (-not (Test-Path -LiteralPath $RunsDir)) { New-Item -ItemType Directory -Force -Path $RunsDir | Out-Null }
     Push-Location $RunsDir
     try {
-        $output = & $config.claudePath -p 'Reply with only the word: ok' --model haiku `
+        $output = & $claude -p 'Reply with only the word: ok' --model haiku `
             --setting-sources user --no-session-persistence --strict-mcp-config 2>&1 | Out-String
         $result.exitCode = $LASTEXITCODE
         $result.ok = ($LASTEXITCODE -eq 0)

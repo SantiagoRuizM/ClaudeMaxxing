@@ -3,3 +3,5 @@
 *.msix binary
 *.ico binary
 *.png binary
+# bash reads a CR as part of the command: shell scripts stay LF on every checkout.
+*.sh text eol=lf
