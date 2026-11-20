@@ -5,7 +5,8 @@
 # lib\common.ps1). Keep this file ASCII.
 
 $script:VoiceEngines = [ordered]@{ edge = 'Edge (gratis)'; elevenlabs = 'ElevenLabs'; gemini = 'Gemini'; sapi = 'Windows' }
-$VoiceCreditsFile = Join-Path $TrayHome 'voice-credits.json'
+$script:VoiceGenders = @('mix', 'f', 'm')
+$VoiceCreditsFile =Join-Path $TrayHome 'voice-credits.json'
 
 function Get-VoiceLocalConfigPath([string]$Root = $TrayRoot) { Join-Path $Root 'voice\config.local.json' }
 
@@ -36,10 +37,15 @@ function Get-VoiceEngineState([string]$Root = $TrayRoot) {
     if ($base -and $base.engine) { $engine = [string]$base.engine }
     if ($local.engine) { $engine = [string]$local.engine }
     if (-not $script:VoiceEngines.Contains($engine)) { $engine = 'edge' }
+    $gender = 'mix'
+    if ($base -and $base.voiceGender) { $gender = [string]$base.voiceGender }
+    if ($local.voiceGender) { $gender = [string]$local.voiceGender }
+    if ($gender -notin $script:VoiceGenders) { $gender = 'mix' }
     $eleven = $local.PSObject.Properties['elevenlabs']
     $gemini = $local.PSObject.Properties['gemini']
     [pscustomobject]@{
         Engine = $engine
+        Gender = $gender
         ElevenKey = [bool]($eleven -and $eleven.Value.apiKey)
         ElevenVoices = $(if ($eleven -and $eleven.Value.voices) { @($eleven.Value.voices).Count } else { 0 })
         GeminiKey = [bool]($gemini -and $gemini.Value.apiKey)
@@ -63,6 +69,15 @@ function Set-VoiceEngine([string]$Engine, [string]$Root = $TrayRoot) {
     $path = Get-VoiceLocalConfigPath $Root
     $config = Read-VoiceLocalConfig $path
     Set-VoiceLocalValue $config '' 'engine' $Engine
+    Write-JsonFile $path $config
+}
+
+# Which voices new sessions get (voice\hooks\common.ps1, Get-VoicePool): f, m or mix.
+function Set-VoiceGender([string]$Gender, [string]$Root = $TrayRoot) {
+    if ($Gender -notin $script:VoiceGenders) { throw "unknown gender $Gender" }
+    $path = Get-VoiceLocalConfigPath $Root
+    $config = Read-VoiceLocalConfig $path
+    Set-VoiceLocalValue $config '' 'voiceGender' $Gender
     Write-JsonFile $path $config
 }
 

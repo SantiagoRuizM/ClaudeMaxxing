@@ -61,6 +61,10 @@ Check 'la misma sesion conserva su voz' ((Get-SessionVoice $cfgFile 'aaaa-1111')
 $env:CLAUDEVOICE_VOICE = 'es-UY-MateoNeural'
 Check 'CLAUDEVOICE_VOICE manda' ((Get-SessionVoice $cfgFile 'aaaa-1111') -eq 'es-UY-MateoNeural') ''
 Remove-Item Env:\CLAUDEVOICE_VOICE
+$male = [pscustomobject]@{ voiceGender = 'm'; edge = $cfgFile.edge }
+$vm = Get-SessionVoice $male 'cccc-3333'
+Check 'voiceGender m: la sesion nueva recibe una voz masculina' ((Get-VoiceGender $male $vm) -eq 'm') $vm
+Check 'voiceGender f: solo voces femeninas en el pool' (@(Get-VoicePool ([pscustomobject]@{ voiceGender = 'f'; edge = $cfgFile.edge }) | Where-Object { (Get-VoiceGender $cfgFile $_) -ne 'f' }).Count -eq 0) ''
 Check 'session id raro se sanea' ((Get-SessionKey '../x y;z') -eq 'xyz') (Get-SessionKey '../x y;z')
 # Origen tras /clear: un proceso padre falso con el --session-id con que el menu abrio la ventana.
 $fakeClaude = Start-Process cmd -ArgumentList '/c', 'ping -n 20 127.0.0.1 >nul & rem --session-id 11111111-2222-3333-4444-555555555555' -WindowStyle Hidden -PassThru

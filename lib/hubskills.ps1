@@ -187,11 +187,8 @@ function New-HubCreation([string]$Kind) {
         'mcp' { Tx 'Usa las skills de mcp-server-dev para crear un servidor MCP nuevo en esta carpeta. Primero preg\u00fantame qu\u00e9 debe hacer y c\u00f3mo se va a usar.' }
         default { Tx 'Usa las skills de plugin-dev para crear un plugin de Claude Code nuevo en esta carpeta. Primero preg\u00fantame qu\u00e9 debe hacer.' }
     }
-    # A trailing backslash ("C:\") would escape the closing quote.
-    if ($dir.EndsWith('\')) { $dir += '.' }
-    $launch = '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -Dir "{1}" -Prompt "{2}"' -f (Join-Path $TrayRoot 'open-session.ps1'), $dir, $prompt
-    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\conhost.exe') -ArgumentList $launch -WorkingDirectory $TrayRoot
-    Set-HubMessage ((L 'Abriendo Claude Code en ') + (Split-Path -Leaf $dir.TrimEnd('.', '\')) + '...')
+    Start-ClaudeCodeSession $dir $prompt
+    Set-HubMessage ((L 'Abriendo Claude Code en ') + (Split-Path -Leaf $dir) + '...')
 }
 
 function Set-HubSkillsTab([string]$Tab) {

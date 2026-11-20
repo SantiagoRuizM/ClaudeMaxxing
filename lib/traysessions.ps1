@@ -436,6 +436,7 @@ function Update-SessionIcons {
     $speaking = -1
     if ($speakKeys.Count) { foreach ($i in @($shown.Keys)) { if ($speakKeys -contains $shown[$i].Key) { $speaking = [int]$i } } }
     $anyBusy = $false
+    $busyCount = 0
     for ($i = 0; $i -lt $script:SessionIcons.Count; $i++) {
         $notify = $script:SessionIcons[$i]
         $session = $shown[$i]
@@ -447,7 +448,7 @@ function Update-SessionIcons {
         }
         $busy = $session -and (Test-SessionTitleBusy (Get-SessionWindowTitle $session.Hwnd))
         if ($busy -and $session.Key) { try { if (Test-SessionTurnEnded $session.Key) { $busy = $false } } catch { } }
-        if ($busy) { $anyBusy = $true; if ($script:SessionIconFrames[$i] -lt 0) { $script:SessionIconFrames[$i] = 0 } }
+        if ($busy) { $anyBusy = $true; $busyCount++; if ($script:SessionIconFrames[$i] -lt 0) { $script:SessionIconFrames[$i] = 0 } }
         elseif ($script:SessionIconFrames[$i] -ge 0) { $script:SessionIconFrames[$i] = -1; if ($i -ne $speaking) { $notify.Icon = Get-SessionIcon $script:SessionIconColor[$i] } }
         if ($docked) { if ($notify.Visible) { $notify.Visible = $false }; continue }
         $placed = Test-TrayIconsPlaced
@@ -467,6 +468,8 @@ function Update-SessionIcons {
         if ($speaking -ge 0) { try { Show-SessionGlow $shown[$speaking].Hwnd $SlotColors[$script:SessionIconColor[$speaking]].Hex } catch { Write-SessionIconError $_ } }
     }
     if ($anyBusy -or $speaking -ge 0) { $script:SessionAnimTimer.Start() } else { $script:SessionAnimTimer.Stop() }
+    # For the advice on sessions per screen (lib\sessions.ps1); a failed save must not stop the eggs.
+    try { Add-SessionActivity $shown.Count $busyCount } catch { Write-SessionIconError $_ }
     Set-SessionIconsPromoted
     Write-EggStates $shown $speaking
     Update-EggStrip $order

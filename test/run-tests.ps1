@@ -106,6 +106,17 @@ foreach ($file in @(Get-ChildItem (Join-Path $TrayRoot 'lib\lang') -Filter '*.js
     }
     Assert-Equal '' ($bad -join '; ') "$($file.Name): same {0} placeholders, nothing translated twice"
 }
+$savedLanguageFile = $LanguageFile
+$LanguageFile = Join-Path $env:TEMP 'claudemaxxing-no-language.json'
+$env:CLAUDEMAXXING_LANG = ''
+Assert-Equal 'en' (Get-UiLanguage) 'without a choice the language is English'
+Write-JsonFile $LanguageFile @{ language = 'es' }
+Assert-Equal 'es' (Get-UiLanguage) 'the saved choice wins'
+Write-JsonFile $LanguageFile @{ language = 'xx' }
+Assert-Equal 'en' (Get-UiLanguage) 'a saved language without a file falls back to English'
+Remove-Item -LiteralPath $LanguageFile -Force
+$LanguageFile = $savedLanguageFile
+$env:CLAUDEMAXXING_LANG = 'es'
 $plan = 'Planear sesi' + [char]0x00F3 + 'n'
 Set-UiLanguage 'en'
 Assert-Equal 'Plan session' (L $plan) 'English: a text with a translation'
@@ -355,13 +366,13 @@ Assert-Equal $null (Get-ExtrasView $null $now).LimitReset 'no extras file, nothi
 function Area($Left, $Top, $Right, $Bottom) { [pscustomobject]@{ Left = $Left; Top = $Top; Right = $Right; Bottom = $Bottom } }
 function Format-Slot($Slot) { '{0},{1} {2}x{3}' -f $Slot.X, $Slot.Y, $Slot.Width, $Slot.Height }
 # Listed out of order: the 1920x1080 monitor right of the primary, then the primary.
-$slots = Get-HalfSlots @((Area 2560 0 4480 1020), (Area 0 0 2560 1392))
+$slots = Get-ScreenSlots @((Area 2560 0 4480 1020), (Area 0 0 2560 1392))
 Assert-Equal 4 $slots.Count 'two slots per monitor'
 Assert-Equal '0,0 1280x1392' (Format-Slot $slots[0]) 'slot 0 is left half of leftmost monitor'
 Assert-Equal '1280,0 1280x1392' (Format-Slot $slots[1]) 'slot 1 is its right half'
 Assert-Equal '2560,0 960x1020' (Format-Slot $slots[2]) 'slot 2 is left half of next monitor'
 Assert-Equal '3520,0 960x1020' (Format-Slot $slots[3]) 'slot 3 is its right half'
-$odd = Get-HalfSlots @((Area -1365 0 0 728))
+$odd = Get-ScreenSlots @((Area -1365 0 0 728))
 Assert-Equal 2 $odd.Count 'one monitor gives two slots'
 Assert-Equal '-1365,0 682x728' (Format-Slot $odd[0]) 'odd width: left half rounds down, negative x kept'
 Assert-Equal '-683,0 683x728' (Format-Slot $odd[1]) 'odd width: right half takes the extra pixel'
@@ -371,7 +382,37 @@ Assert-Equal '-1920 0 2560' (((Get-ScreenOrder $three) | ForEach-Object { $_.Lef
 Assert-Equal '0 -1920 2560' (((Get-ScreenOrder $three 'windows') | ForEach-Object { $_.Left }) -join ' ') 'screens: as in Windows, the primary first, then the rest left to right'
 Assert-Equal '2560 -1920 0' (((Get-ScreenOrder $three '2') | ForEach-Object { $_.Left }) -join ' ') 'screens: a chosen one first'
 Assert-Equal '-1920 0 2560' (((Get-ScreenOrder $three '7') | ForEach-Object { $_.Left }) -join ' ') 'screens: a monitor that is gone keeps left to right'
-Assert-Equal '0,0 1280x1392' (Format-Slot (Get-HalfSlots $three 'windows')[0]) 'slots: as in Windows, slot 0 is the left half of the primary'
+Assert-Equal '0,0 1280x1392' (Format-Slot (Get-ScreenSlots $three 'windows')[0]) 'slots: as in Windows, slot 0 is the left half of the primary'
+
+$whole = Get-ScreenSlots @((Area 2560 0 4480 1020), (Area 0 0 2560 1392)) '' 1
+Assert-Equal '0,0 2560x1392|2560,0 1920x1020' (($whole | ForEach-Object { Format-Slot $_ }) -join '|') 'one per screen: the whole work area'
+$quarters = Get-ScreenSlots @((Area -1365 0 0 729)) '' 4
+Assert-Equal '-1365,0 682x364|-683,0 683x364|-1365,364 682x365|-683,364 683x365' (($quarters | ForEach-Object { Format-Slot $_ }) -join '|') 'four per screen: quarters, the last row and column take the extra pixel'
+Assert-Equal 'pantalla 2' (Format-SlotPlace 1 1 2) 'place: one per screen'
+Assert-Equal 'mitad derecha de la pantalla 1' (Format-SlotPlace 1 2 4) 'place: halves'
+Assert-Equal 'cuarto inferior izquierdo de la pantalla 2' (Format-SlotPlace 6 4 8) 'place: quarters'
+
+# Activity: open and working seconds per day, and the advice on sessions per screen.
+$ActivityFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-activity-{0}.json' -f [guid]::NewGuid().ToString('N'))
+try {
+    $t0 = Get-Date '2026-03-02 10:00'
+    $script:ActivityTickAt = $null
+    Add-SessionActivity 2 1 $t0
+    for ($s = 1; $s -le 61; $s++) { Add-SessionActivity 2 1 $t0.AddSeconds($s) }
+    Add-SessionActivity 2 2 $t0.AddSeconds(3600)
+    $act = Get-SessionActivity 7 $t0
+    Assert-Equal '120 60' ("$($act.Open) $($act.Busy)") 'activity: saved once a minute (the 61st second waits), two sessions, one working; a long gap does not count'
+    Assert-Equal $null (Get-PerScreenAdvice $act) 'advice: none under an hour of sessions'
+    Assert-Equal 4 (Get-PerScreenAdvice ([pscustomobject]@{ Open = 7200; Busy = 4000 })).PerScreen 'advice: busy agents, four per screen'
+    Assert-Equal 2 (Get-PerScreenAdvice ([pscustomobject]@{ Open = 7200; Busy = 2000 })).PerScreen 'advice: half idle, two'
+    Assert-Equal 1 (Get-PerScreenAdvice ([pscustomobject]@{ Open = 7200; Busy = 700 })).PerScreen 'advice: agents mostly waiting, one'
+    Assert-Equal 0 (Get-SessionActivity 7 $t0.AddDays(10)).Open 'activity: older days fall out of the window'
+} finally {
+    # Left on the temp file: the eggs' tests below tick Update-SessionIcons, which must not save to the real one.
+    Remove-Item -LiteralPath $ActivityFile -Force -ErrorAction SilentlyContinue
+    $script:ActivityTickAt = $null
+    $script:ActivityPending = @{ Open = 0.0; Busy = 0.0 }
+}
 
 function Session($Slot) { [pscustomobject]@{ slot = $Slot; hwnd = 1000 + $Slot } }
 Assert-Equal 0 (Get-FreeSlot 4 @()) 'no sessions: first slot'
@@ -402,6 +443,7 @@ Assert-Equal 'claude --settings "C:\h\freellm-settings.json" "/color red"' (Form
 Assert-Equal '-w new -d "D:\x" cmd /k claude' (Format-WtArguments 'D:\x' 'claude' $odd[0]) 'no --pos for negative coordinates'
 Assert-Equal $true ((Format-SessionsFullMessage 4 2).Contains('(2 pantallas)')) 'full message names the monitors'
 Assert-Equal $true ((Format-SessionsFullMessage 2 1).Contains('(1 pantalla)')) 'full message, one monitor'
+Assert-Equal $true ((Format-SessionsFullMessage 4 1 4).Contains('4 por pantalla')) 'full message names the sessions per screen'
 
 # --- FreeLLMAPI (lib\freellm.ps1): command-line environment for one session, key format, port
 . (Join-Path $TrayRoot 'lib\freellm.ps1')
@@ -700,6 +742,13 @@ $elPool =ConvertTo-ElevenVoicePool ([pscustomobject]@{ voices = @(
 Assert-Equal 'es/colombian,en/american' ($elPool[0].accents -join ',') 'eleven pool: accents from labels and verified languages, once each'
 Assert-Equal 'f' $elPool[0].gender 'eleven pool: gender'
 Assert-Equal 0 @($elPool[1].accents).Count 'eleven pool: no accent labels'
+$vgRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-vg-{0}' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
+try {
+    New-Item -ItemType Directory -Force (Join-Path $vgRoot 'voice') | Out-Null
+    Assert-Equal 'mix' (Get-VoiceEngineState $vgRoot).Gender 'voice gender: mixed by default'
+    Set-VoiceGender 'm' $vgRoot
+    Assert-Equal 'm|edge' ('{0}|{1}' -f (Get-VoiceEngineState $vgRoot).Gender, (Get-VoiceEngineState $vgRoot).Engine) 'voice gender: saved in config.local.json, engine untouched'
+} finally { Remove-Item -LiteralPath $vgRoot -Recurse -Force -ErrorAction SilentlyContinue }
 
 # --- Ahorro de tokens (lib\maxx.ps1): context-mode state from Claude Code's own files
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
@@ -813,6 +862,80 @@ try {
     Assert-Equal 0 @(Get-SkillList (Join-Path $skHome 'nothing')).Count 'skills: no ~/.claude, no rows'
 } finally { Remove-Item -LiteralPath $skHome -Recurse -Force -ErrorAction SilentlyContinue }
 Assert-Equal 'claude --session-id 1111 "Usa la skill skill-creator: crea una skill"' (Format-ClaudeCommand 'claude' '1111' '' 'green' '' 'Usa la skill "skill-creator": crea una skill') 'claude command: a first prompt takes the place of /color, without its double quotes'
+Assert-Equal 'claude "uno\; dos"' (Format-ClaudeCommand 'claude' '' '' '' '' 'uno; dos') 'claude command: a ; in the prompt is escaped for wt'
+
+# --- Captura a Claude Code (lib\snip.ps1)
+. (Join-Path $TrayRoot 'lib\snip.ps1')
+Assert-Equal "arregla 'esto' ya [Captura de pantalla: C:\s\snip-1.png]" (Format-SnipPrompt "  arregla `"esto`"`r`n  ya " 'C:\s\snip-1.png') 'snip prompt: one line, no double quotes, the image path at the end'
+Assert-Equal "lee [Captura de pantalla: C:\s\a.png; texto extraido: C:\s\a.txt]" (Format-SnipPrompt 'lee' 'C:\s\a.png' 'C:\s\a.txt') 'snip prompt: the extracted text goes as a file next to the image'
+Assert-Equal "mira [Video de la pantalla: C:\v.mp4; fotogramas: C:\v-1.png, C:\v-2.png]" (Format-SnipVideoPrompt 'mira' 'C:\v.mp4' @('C:\v-1.png', 'C:\v-2.png')) 'snip prompt: a video goes with its frames (Claude reads images, not video)'
+Assert-Equal "mira [Video de la pantalla: C:\v.mp4]" (Format-SnipVideoPrompt 'mira' 'C:\v.mp4' @()) 'snip prompt: a video without frames'
+$snipNow = Get-Date -Year 2026 -Month 11 -Day 19 -Hour 10 -Minute 0 -Second 0
+Assert-Equal $true (Test-SnipSource 'SnippingTool' $null $snipNow) 'snip: the snipping tool owns the clipboard'
+Assert-Equal $true (Test-SnipSource '' $snipNow.AddSeconds(-3) $snipNow) 'snip: no owner, but a screenshot was just saved'
+Assert-Equal $false (Test-SnipSource '' $snipNow.AddMinutes(-2) $snipNow) 'snip: an old screenshot does not count'
+Assert-Equal $false (Test-SnipSource 'chrome' $null $snipNow) 'snip: an image copied in another app is ignored'
+$snipHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-snip-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+try {
+    $proj = Join-Path $snipHome 'Proj'; $sub = Join-Path $proj 'App'; $other = Join-Path $snipHome 'Other'
+    foreach ($d in $sub, $other, "$snipHome\h\run", "$snipHome\h\environments") { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+    Assert-Equal $null (Get-SnipEnvironment "$snipHome\h") 'snip: no environment on, no default folder'
+    Write-JsonFile "$snipHome\h\run\active.json" @{ id = 'work'; name = 'Work' }
+    Write-JsonFile "$snipHome\h\environments\work.json" @{ name = 'Work'; folder = $proj; claude = @{ dir = $sub } }
+    Assert-Equal $sub (Get-SnipEnvironment "$snipHome\h").Dir 'snip: the environment on gives its Claude Code folder'
+    Write-JsonFile "$snipHome\h\environments\work.json" @{ name = 'Work'; folder = $proj }
+    $snipEnv = Get-SnipEnvironment "$snipHome\h"
+    Assert-Equal $proj $snipEnv.Dir 'snip: without claude.dir, its project folder'
+    $folders = Get-SnipFolders $snipEnv @("$proj\", (Join-Path $snipHome 'gone')) @($other, $proj)
+    Assert-Equal $proj $folders[0].Dir 'snip: the environment folder comes first (the default)'
+    Assert-Equal (Ux 'Proj  \u00b7  ambiente Work') $folders[0].Label 'snip: a folder shows its name and where it comes from'
+    Assert-Equal $other $folders[1].Dir 'snip: repeats (a trailing backslash too) and missing folders are left out'
+    Assert-Equal $proj (Get-SnipFolders $null @() @($proj))[0].Dir 'snip: without an environment, the last used first'
+    $snipFile = Join-Path $snipHome 'snip.json'
+    Assert-Equal $true (Get-SnipSettings $snipFile).Enabled 'snip: on by default'
+    foreach ($i in 1..6) { Add-SnipRecent "C:\p$i" $snipFile }
+    Add-SnipRecent 'C:\p4\' $snipFile
+    Set-SnipEnabled $false $snipFile
+    $snipSaved = Get-SnipSettings $snipFile
+    Assert-Equal 'C:\p4\, C:\p6, C:\p5, C:\p3, C:\p2' ($snipSaved.Recent -join ', ') 'snip: the last 5 folders, newest first, no repeats'
+    Assert-Equal $false $snipSaved.Enabled 'snip: switched off, keeping the recent folders'
+    Assert-Equal 'True/False' ("{0}/{1}" -f $snipSaved.SystemAudio, $snipSaved.Microphone) 'snip: recordings take the speakers and not the microphone by default'
+    Set-SnipSetting 'microphone' $true $snipFile
+    $snipSaved = Get-SnipSettings $snipFile
+    Assert-Equal 'True/5/False' ("{0}/{1}/{2}" -f $snipSaved.Microphone, $snipSaved.Recent.Count, $snipSaved.Enabled) 'snip: one setting changes, the others stay'
+} finally { Remove-Item -LiteralPath $snipHome -Recurse -Force -ErrorAction SilentlyContinue }
+Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+Initialize-SnipNative
+$snipShot = New-Object System.Drawing.Bitmap(4, 2)
+$snipShot.SetPixel(1, 1, [System.Drawing.Color]::FromArgb(200, 100, 50))
+$snipCanvas = New-Object ClaudeTray.SnipCanvas($snipShot)
+$snipPaint = New-Object System.Drawing.Bitmap(4, 2)
+$snipG = [System.Drawing.Graphics]::FromImage($snipPaint)
+$snipCanvas.Draw($snipG, (New-Object System.Drawing.Rectangle(0, 0, 4, 2)), $false)
+Assert-Equal '80,40,20' (($snipPaint.GetPixel(1, 1) | ForEach-Object { $_.R, $_.G, $_.B }) -join ',') 'snip veil: 60 % black over the frozen screen'
+$snipCanvas.Draw($snipG, (New-Object System.Drawing.Rectangle(1, 0, 1, 2)), $true)
+Assert-Equal '200,100,50' (($snipPaint.GetPixel(1, 1) | ForEach-Object { $_.R, $_.G, $_.B }) -join ',') 'snip veil: the snip shows clear'
+$snipG.Dispose()
+$snipShot.Dispose(); $snipPaint.Dispose(); $snipCanvas.Dispose()
+$snipLib = Join-Path ([IO.Path]::GetTempPath()) ('cmx-sniplib-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+try {
+    $snipPic = New-Object System.Drawing.Bitmap(3, 3)
+    $snipAt = Get-Date -Year 2026 -Month 11 -Day 19 -Hour 14 -Minute 22 -Second 19
+    $snipSaved = Save-SnipToLibrary $snipPic -Now $snipAt -Dir $snipLib
+    Assert-Equal 'Captura de pantalla 2026-11-19 142219.png' (Split-Path -Leaf $snipSaved) 'snip library: named like the Windows snipping tool names screenshots'
+    Set-Content -LiteralPath (Join-Path $snipLib 'v.mp4') -Value 'x'
+    Assert-Equal ((Ux 'Grabaci\u00f3n de pantalla') + ' 2026-11-19 142219.mp4') (Split-Path -Leaf (Save-SnipToLibrary -VideoPath (Join-Path $snipLib 'v.mp4') -Now $snipAt -Dir $snipLib)) 'snip library: recordings too'
+    Assert-Equal $true ([bool]$script:SnipSavedAt) 'snip library: the Win+Shift+S watch knows it was this tray'
+    $snipPic.Dispose()
+} finally { Remove-Item -LiteralPath $snipLib -Recurse -Force -ErrorAction SilentlyContinue }
+$snipRect = Get-SnipRect (New-Object System.Drawing.Point(300, 200)) (New-Object System.Drawing.Point(120, 260))
+Assert-Equal '120,200 180x60' ('{0},{1} {2}x{3}' -f $snipRect.X, $snipRect.Y, $snipRect.Width, $snipRect.Height) 'snip drag: the rectangle comes out right whatever the direction'
+$snipArea = New-Object System.Drawing.Rectangle(0, 0, 1920, 1040)
+function Format-SnipPoint($Point) { '{0},{1}' -f $Point.X, $Point.Y }
+Assert-Equal '612,300' (Format-SnipPoint (Get-SnipPanelPosition (New-Object System.Drawing.Rectangle(100, 300, 500, 200)) $snipArea 400 140 12)) 'snip panel: right of the snip, at its top'
+Assert-Equal '1108,900' (Format-SnipPoint (Get-SnipPanelPosition (New-Object System.Drawing.Rectangle(1520, 1000, 300, 30)) $snipArea 400 140 12)) 'snip panel: left when the right has no room, kept inside the screen'
+Assert-Equal '0,612' (Format-SnipPoint (Get-SnipPanelPosition (New-Object System.Drawing.Rectangle(0, 100, 1900, 500)) $snipArea 400 140 12)) 'snip panel: below a wide snip'
+Assert-Equal '1508,888' (Format-SnipPoint (Get-SnipPanelPosition $snipArea $snipArea 400 140 12)) 'snip panel: over the corner of a full-screen snip'
 
 # --- Consumo (lib\forecast.ps1, prices in lib\stats.cs)
 . (Join-Path $TrayRoot 'lib\forecast.ps1')

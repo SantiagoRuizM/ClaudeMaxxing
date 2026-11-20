@@ -153,6 +153,7 @@ Para cambiar algo, escríbelo en `config.local.json` con la misma estructura, so
 | `maxChars` | Recorta lo que se lee |
 | `stopOnPrompt` | Callar la sesión cuando escribes en ella |
 | `perSessionVoice`, `sessionActiveHours` | Voz distinta por sesión y cuánto cuenta una sesión como activa |
+| `voiceGender` | `mix`, `f` o `m`: de qué género son las voces (y los nombres) de las sesiones nuevas. Se cambia en ClaudeMaxxing > Configuración |
 | `announceFormat` | Qué se dice: `"Soy {name}, {role}. {text}"` (admite `{project}`) |
 | `chime.enabled`, `chime.volume`, `chime.roleTimbres`, `chime.defaultTimbre`, `chime.motifs` | Firma musical: timbre por rol y lista de motivos (`root` como `C4`/`F#3`/`Bb3`, `chord`, `pattern`) |
 | `queueTimeoutSeconds` | Máximo que una voz espera turno antes de descartarse |

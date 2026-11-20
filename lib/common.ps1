@@ -36,8 +36,8 @@ $LegacyTrayLink = Join-Path $StartupDir 'ClaudeTray.lnk'
 
 # UI language. The text in the code is Spanish; lib\lang\<code>.json has "name" (shown in Configuracion), "culture"
 # (numbers, money and dates) and "strings": each Spanish text, decoded, with its translation. A text missing there
-# is shown in Spanish, so adding a language is adding one file. The choice is saved in $LanguageFile; without it,
-# the Windows display language if there is a file for it, else Spanish.
+# is shown in Spanish, so adding a language is adding one file. The choice is saved in $LanguageFile; without it
+# (or with a code that has no file), English.
 $LangDir = Join-Path $PSScriptRoot 'lang'
 $LanguageFile = Join-Path $TrayHome 'language.json'
 $script:UiStrings = $null
@@ -81,9 +81,8 @@ function Get-UiLanguages {
 # $env:CLAUDEMAXXING_LANG wins: the tests pin Spanish with it and the previews (-RenderHubTo) draw other languages.
 function Get-UiLanguage {
     $saved = Read-JsonFile $LanguageFile
-    $code = if ($env:CLAUDEMAXXING_LANG) { $env:CLAUDEMAXXING_LANG } elseif ($saved -and $saved.language) { [string]$saved.language }
-        else { [Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName }
-    if ($code -notmatch '^[a-z]{2,3}(-[A-Za-z]+)?$' -or -not (Test-Path -LiteralPath (Join-Path $LangDir "$code.json"))) { $code = 'es' }
+    $code = if ($env:CLAUDEMAXXING_LANG) { $env:CLAUDEMAXXING_LANG } elseif ($saved -and $saved.language) { [string]$saved.language } else { 'en' }
+    if ($code -notmatch '^[a-z]{2,3}(-[A-Za-z]+)?$' -or -not (Test-Path -LiteralPath (Join-Path $LangDir "$code.json"))) { $code = 'en' }
     $code
 }
 

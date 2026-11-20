@@ -6,6 +6,7 @@
   "maxChars": 300,
   "stopOnPrompt": true,
   "perSessionVoice": true,
+  "voiceGender": "mix",
   "sessionActiveHours": 12,
   "announceFormat": "Soy {name}, {role}. {text}",
   "queueTimeoutSeconds": 90,

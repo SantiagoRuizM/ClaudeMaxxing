@@ -701,7 +701,7 @@ function Draw-StatsModels($G, $Map, $Hover, [int]$X0, [int]$Inner, $D) {
     $tiles = @(
         @('LLAMADAS WHISPER', (Format-HubNumber $ts.Calls), ((Format-HubDuration (60 * $ts.CallMinutes)) + (L ' en llamadas'))),
         @('SESIONES AGENDADAS', (Format-HubNumber $ts.Runs), ((Tx '{0} bien  \u00b7  {1} con error') -f $ts.RunsOk, ($ts.Runs - $ts.RunsOk))),
-        @((Tx 'APERTURAS DEL MEN\u00da'), (Format-HubNumber $ts.MenuOpens), 'en media pantalla'),
+        @((Tx 'APERTURAS DEL MEN\u00da'), (Format-HubNumber $ts.MenuOpens), 'cada una en su hueco'),
         @('PCS EMPAREJADOS', (Format-HubNumber $ts.Paired), 'en tu red local')
     )
     for ($i = 0; $i -lt 4; $i++) {

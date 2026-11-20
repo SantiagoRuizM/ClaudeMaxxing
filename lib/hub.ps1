@@ -200,6 +200,9 @@ function Update-HubCache([switch]$Full) {
         $c.ScreenAreas = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { [pscustomobject]@{ Left = $_.Bounds.Left; Top = $_.Bounds.Top; Right = $_.Bounds.Right; Bottom = $_.Bounds.Bottom } })
         $c.ScreenFirst = Get-ScreenFirst
         $c.SessionLimit = Test-SessionLimit
+        $c.PerScreen = Get-SessionsPerScreen
+        $c.Activity = Get-SessionActivity
+        $c.SnipEnabled = (Get-SnipSettings).Enabled
         $c.VoiceInstalled = Test-Path -LiteralPath (Join-Path $TrayRoot 'voice\hooks\speak.ps1')
         try { $c.VoiceEngine = Get-VoiceEngineState } catch { $c.VoiceEngine = $null }
         $c.Auto = Get-HubAutoView
@@ -347,13 +350,9 @@ function Open-HubSchedule([string]$Tab = 'schedule') {
 
 function Open-HubCodeSession {
     $picker = New-Object System.Windows.Forms.FolderBrowserDialog
-    $picker.Description = Tx 'Carpeta donde abrir Claude Code (en la siguiente mitad de pantalla libre)'
+    $picker.Description = Tx 'Carpeta donde abrir Claude Code (en el siguiente hueco libre de la pantalla)'
     if ($picker.ShowDialog($script:HubDialog) -ne 'OK' -or -not $picker.SelectedPath) { return }
-    # A trailing backslash ("C:\") would escape the closing quote.
-    $dir = $picker.SelectedPath
-    if ($dir.EndsWith('\')) { $dir += '.' }
-    $launch = '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -Dir "{1}"' -f (Join-Path $TrayRoot 'open-session.ps1'), $dir
-    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\conhost.exe') -ArgumentList $launch -WorkingDirectory $TrayRoot
+    Start-ClaudeCodeSession $picker.SelectedPath
     Set-HubMessage ((L 'Abriendo Claude Code en ') + (Split-Path -Leaf $picker.SelectedPath) + '...')
 }
 
@@ -443,7 +442,30 @@ function Set-HubSessionLimit([bool]$On) {
     if ($script:Hub.Preview) { return }
     Set-SessionLimit $On
     $script:Hub.Cache.SessionLimit = $On
-    Set-HubMessage $(if ($On) { 'Sesiones limitadas a 2 por pantalla.' } else { (Tx 'Sin l\u00edmite de sesiones: las nuevas se superponen.') })
+    Set-HubMessage $(if ($On) { (L 'Sesiones limitadas a {0} por pantalla.') -f (Get-SessionsPerScreen) } else { (Tx 'Sin l\u00edmite de sesiones: las nuevas se superponen.') })
+    Update-HubNow
+}
+
+# Sesiones por pantalla: 1, 2 or 4, stepped by the dropdown (Draw-HubCodeSection).
+$HubPerScreenOptions = [ordered]@{ '1' = 'Una, entera'; '2' = 'Dos, en mitades'; '4' = 'Cuatro, en cuartos' }
+function Step-HubPerScreen([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $keys = @($HubPerScreenOptions.Keys)
+    $i = [array]::IndexOf($keys, [string]$script:Hub.Cache.PerScreen)
+    $next = [int]$keys[[Math]::Max(0, [Math]::Min($keys.Count - 1, $i + $Delta))]
+    try { Set-SessionsPerScreen $next } catch { Set-HubMessage ((L 'No se pudo guardar: ') + $_.Exception.Message) -Failed; return }
+    $script:Hub.Cache.PerScreen = $next
+    Set-HubMessage 'Las sesiones nuevas se acomodan con el nuevo reparto.'
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+# Captura a Claude Code (lib\snip.ps1): its hotkey, and the box after a Win+Shift+S snip.
+function Set-HubSnip([bool]$On) {
+    if ($script:Hub.Preview) { return }
+    Set-SnipEnabled $On
+    $script:Hub.Cache.SnipEnabled = $On
+    try { Update-SnipHotkey } catch { Write-SnipLog $_.Exception.Message }
+    Set-HubMessage $(if ($On -and $script:SnipHotkeyName) { (L '{0} recorta para Claude Code; tras Win+Shift+S aparece el cuadro.') -f $script:SnipHotkeyName } elseif ($On) { L 'Los atajos de la captura los usan otras apps.' } else { L 'El atajo queda libre y los recortes ya no abren el cuadro.' })
     Update-HubNow
 }
 
@@ -568,6 +590,16 @@ function Set-HubVoiceEngine([int]$Delta) {
     if ($next -eq 'elevenlabs' -and -not $state.ElevenKey) { Set-HubMessage (Tx 'Pega tu clave de ElevenLabs: hasta entonces se usa Edge.') }
     elseif ($next -eq 'gemini' -and -not $state.GeminiKey) { Set-HubMessage (Tx 'Pega tu clave de Gemini: hasta entonces se usa Edge.') }
     else { Set-HubMessage ((L 'Motor de voz: ') + $script:VoiceEngines[$next]) }
+    if ($script:HubDialog) { $script:HubDialog.Invalidate() }
+}
+
+function Set-HubVoiceGender([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $keys = @($script:HubVoiceGenderLabels.Keys)
+    $current = if ($script:Hub.Cache.VoiceEngine) { $script:Hub.Cache.VoiceEngine.Gender } else { 'mix' }
+    $next = $keys[([array]::IndexOf($keys, $current) + $Delta + $keys.Count) % $keys.Count]
+    try { Set-VoiceGender $next } catch { Set-HubMessage ((L 'No se pudo guardar: ') + $_.Exception.Message); return }
+    $script:Hub.Cache.VoiceEngine = Get-VoiceEngineState
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
@@ -1851,7 +1883,7 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $now = Get-Date
     if (-not $script:HubFonts.Big) { $script:HubFonts.Big = New-UiFont 'Segoe UI Semibold' 22 }
 
-    # The plan, big: what is left of each window and when it renews. A click opens Uso y agenda.
+    # The plan, big: how much of each window is used and when it renews. A click opens Uso y agenda.
     $card = New-Rect $X0 (Px 72) $Inner (Px 168)
     Fill-Round $G $card (Px 12) $(if ($Hover -eq 'home-usage') { $P.SurfaceHover } else { $P.Surface })
     Add-Hit $Map 'home-usage' $card { Set-HubSection 'usage' }
@@ -1863,10 +1895,10 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         $active = $window -and $window.Active
         $pct = if ($active) { [int]$window.Percent } else { 0 }
         Draw-Text $G $(if ($i -eq 0) { (Tx 'SESI\u00d3N DE 5 H') } else { 'SEMANA' }) $F.Caps $P.Muted $x ($card.Y + (Px 18)) $colW (Px 18)
-        $left = if ($window) { "$([Math]::Max(0, 100 - $pct)) %" } else { [string][char]0x2013 }
-        $lw = Measure-TextWidth $left $script:HubFonts.Big
-        Draw-Text $G $left $script:HubFonts.Big $P.Text $x ($card.Y + (Px 38)) ($lw + (Px 4)) (Px 40)
-        if ($window) { Draw-Text $G 'libre' $F.Small $P.Muted ($x + $lw + (Px 8)) ($card.Y + (Px 52)) (Px 80) (Px 20) }
+        $used = if ($window) { "$pct %" } else { [string][char]0x2013 }
+        $lw = Measure-TextWidth $used $script:HubFonts.Big
+        Draw-Text $G $used $script:HubFonts.Big $P.Text $x ($card.Y + (Px 38)) ($lw + (Px 4)) (Px 40)
+        if ($window) { Draw-Text $G 'usado' $F.Small $P.Muted ($x + $lw + (Px 8)) ($card.Y + (Px 52)) (Px 80) (Px 20) }
         $track = New-Rect $x ($card.Y + (Px 86)) $colW (Px 8)
         Fill-Round $G $track (Px 4) $P.Track
         if ($active -and $pct -gt 0) { Fill-Round $G (New-Rect $x $track.Y ([Math]::Max((Px 8), [int]($colW * [Math]::Min(100, $pct) / 100))) $track.Height) (Px 4) $P[(Get-UsageLevel $pct)] }
@@ -2053,7 +2085,7 @@ function Step-HubScreenFirst([int]$Delta) {
     if ($script:HubDialog) { $script:HubDialog.Invalidate() }
 }
 
-# Every monitor as a small screen in the order sessions fill them, each with its two halves: the session on each
+# Every monitor as a small screen in the order sessions fill them, each with its slots (whole, halves or quarters): the session on each
 # (its color and name), the free ones numbered, and the next one to fill outlined in the accent color.
 function Draw-HubScreenMap($G, [System.Drawing.Rectangle]$Area, $Sessions) {
     $P = $script:Palette
@@ -2068,7 +2100,10 @@ function Draw-HubScreenMap($G, [System.Drawing.Rectangle]$Area, $Sessions) {
     $tallest = [double](($screens | ForEach-Object { [int]$_.Bottom - [int]$_.Top } | Measure-Object -Maximum).Maximum)
     $scale = [Math]::Min(($Area.Width - $gap * ($screens.Count - 1)) / $totalW, $maxH / $tallest)
     $live = @($Sessions | Where-Object { $_.Live })
-    $slotCount = 2 * $screens.Count
+    $per = [Math]::Max(1, [int]$c.PerScreen)
+    $cols = if ($per -eq 1) { 1 } else { 2 }
+    $rows = if ($per -eq 4) { 2 } else { 1 }
+    $slotCount = $per * $screens.Count
     $next = -1
     for ($s = 0; $s -lt $slotCount; $s++) { if (-not @($live | Where-Object { [int]$_.Slot -eq $s }).Count) { $next = $s; break } }
     $x = $Area.X
@@ -2079,10 +2114,11 @@ function Draw-HubScreenMap($G, [System.Drawing.Rectangle]$Area, $Sessions) {
         $box = New-Rect $x ($Area.Y + [int]$maxH - $h) $w $h
         Fill-Round $G $box (Px 6) $P.Back
         Stroke-Round $G $box (Px 6) $P.Border
-        foreach ($half in 0, 1) {
-            $slot = 2 * $i + $half
-            $hw = [int](($w - (Px 9)) / 2)
-            $cell = New-Rect ($box.X + (Px 3) + $half * ($hw + (Px 3))) ($box.Y + (Px 3)) $hw ($h - (Px 6))
+        $cw = [int](($w - (Px 3) * ($cols + 1)) / $cols)
+        $ch = [int](($h - (Px 3) * ($rows + 1)) / $rows)
+        for ($k = 0; $k -lt $per; $k++) {
+            $slot = $per * $i + $k
+            $cell = New-Rect ($box.X + (Px 3) + ($k % $cols) * ($cw + (Px 3))) ($box.Y + (Px 3) + [int][Math]::Floor($k / $cols) * ($ch + (Px 3))) $cw $ch
             $session = @($live | Where-Object { [int]$_.Slot -eq $slot }) | Select-Object -First 1
             if ($session) {
                 $hex = ConvertFrom-Hex (Get-HubSlotHex $session.Color)
@@ -2108,13 +2144,14 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $F = $script:Fonts
     $c = $script:Hub.Cache
     $screens = [Math]::Max(1, [int]$c.Screens)
-    $slots = 2 * $screens
+    $per = [Math]::Max(1, [int]$c.PerScreen)
+    $slots = $per * $screens
     $limit = $c.SessionLimit -ne $false
     $sessions = @($c.CodeSessions)
     $live = @($sessions | Where-Object { $_.Live }).Count
 
     # Your screens, in the order sessions fill them, and the one button to open the next.
-    $card = New-Rect $X0 (Px 72) $Inner (Px 146)
+    $card = New-Rect $X0 (Px 72) $Inner (Px 166)
     Draw-HubCard $G $card
     $tx = $card.X + (Px 16)
     $tw = $card.Width - (Px 32)
@@ -2125,7 +2162,17 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $bw = (Get-PillWidth $label) + (Px 12)
     Draw-PillButton $G $Map $Hover 'code-new' (New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 44)) $bw (Px 30)) $label { Open-HubCodeSession } -Accent
     Draw-HubScreenMap $G (New-Rect $tx ($card.Y + (Px 36)) ($tw - $bw - (Px 24)) (Px 72)) $sessions
-    Draw-HubDropdown $G $Map $Hover 'code-first' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 110)) ($card.Width - (Px 12)) (Px 30)) 'Primera pantalla' (Get-HubScreenFirstOptions) ([string]$c.ScreenFirst) 'Step-HubScreenFirst'
+    $half = [int](($card.Width - (Px 12)) / 2)
+    Draw-HubDropdown $G $Map $Hover 'code-first' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 110)) $half (Px 30)) 'Primera pantalla' (Get-HubScreenFirstOptions) ([string]$c.ScreenFirst) 'Step-HubScreenFirst'
+    Draw-HubDropdown $G $Map $Hover 'code-per' (New-Rect ($card.X + (Px 6) + $half) ($card.Y + (Px 110)) $half (Px 30)) 'Por pantalla' $HubPerScreenOptions ([string]$per) 'Step-HubPerScreen'
+    # How much the agents worked this week and how many per screen that suggests (Get-PerScreenAdvice).
+    $advice = Get-PerScreenAdvice $c.Activity
+    $adviceText = if (-not $advice) { Tx 'Midiendo cu\u00e1nto trabajan tus agentes: la recomendaci\u00f3n sale tras una hora de sesiones.' }
+        elseif ($advice.PerScreen -eq 4) { (Tx 'Esta semana tus agentes trabajaron el {0} % del tiempo abiertos: te esperan poco, prueba 4 por pantalla.') -f $advice.Percent }
+        elseif ($advice.PerScreen -eq 1) { (Tx 'Esta semana tus agentes trabajaron el {0} % del tiempo abiertos: casi siempre te esperan, con 1 por pantalla ves m\u00e1s de cada uno.') -f $advice.Percent }
+        else { (Tx 'Esta semana tus agentes trabajaron el {0} % del tiempo abiertos: 2 por pantalla es lo tuyo.') -f $advice.Percent }
+    $adviceColor = if ($advice -and $advice.PerScreen -ne $per) { $P.Accent } else { $P.Muted }
+    Draw-Text $G $adviceText $F.Small $adviceColor $tx ($card.Y + (Px 142)) $tw (Px 18)
 
     # The link on the caption's right swaps the lower part for the guide to Peek (file and image previews) and back.
     $help = [bool]$script:Hub.CodeHelp
@@ -2171,8 +2218,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
             $folder = Split-Path -Leaf $session.Dir
             $folderW = [Math]::Min([int](($right - $textX) * 0.4), (Measure-TextWidth $folder $F.Small))
             Draw-Text $G $name $F.BodyStrong $(if ($session.Live) { $P.Text } else { $P.Muted }) $textX ($row.Y + (Px 6)) ($right - $textX - $folderW - (Px 8)) (Px 20)
-            $side = if ($session.Slot % 2 -eq 0) { 'izquierda' } else { 'derecha' }
-            $meta = @((L 'mitad {0} de la pantalla {1}') -f (L $side), ([int][Math]::Floor(($session.Slot % $slots) / 2) + 1))
+            $meta = @(Format-SlotPlace $session.Slot $per $slots)
             if ($session.Backend -eq 'freellm') { $meta = @('FreeLLMAPI') + $meta }
             if ($session.At) { $meta += (L 'desde ') + (Format-DialogDateTime $session.At $now) }
             if ($session.Voice) { $meta += (L 'voz ') + (Format-VoiceName $session.Voice) }
@@ -2183,7 +2229,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
 
     # Settings of the sessions: one row each, what it does and its control.
-    $y = [Math]::Max($y + (Px 4), (Px 370))
+    $y = [Math]::Max($y, (Px 384))
     Draw-HubCaption $G 'AJUSTES DE LAS SESIONES' $X0 $y $Inner ''
     $scard = New-Rect $X0 ($y + (Px 22)) $Inner (Px 140)
     Draw-HubCard $G $scard
@@ -2191,7 +2237,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $rowW = $scard.Width - (Px 12)
     $menuText = if ($c.MenuInstalled) { Tx '\u2713 Clic derecho en una carpeta del Explorador \u203a Abrir con Claude Code.' } else { Tx 'El men\u00fa del Explorador no est\u00e1 instalado: ejecuta install.ps1.' }
     $limitSub = if ($limit) { $menuText } else { (Tx 'Sin l\u00edmite: desde la {0}\u00aa se superponen.') -f ($slots + 1) }
-    Draw-HubToggleRow $G $Map $Hover 'code-limit' (New-Rect $rowX ($scard.Y + (Px 6)) $rowW (Px 42)) ((Tx 'Una sesi\u00f3n por media pantalla, hasta {0} ({1})') -f $slots, $screensText) $limitSub $limit ([scriptblock]::Create("Set-HubSessionLimit `$$(-not $limit)"))
+    Draw-HubToggleRow $G $Map $Hover 'code-limit' (New-Rect $rowX ($scard.Y + (Px 6)) $rowW (Px 42)) ((Tx 'Una sesi\u00f3n por hueco, hasta {0} ({1})') -f $slots, $screensText) $limitSub $limit ([scriptblock]::Create("Set-HubSessionLimit `$$(-not $limit)"))
     $cm = $c.ContextMode
     $job = $c.MaxxStatus
     $busy = $job -and $job.state -eq 'running'
@@ -2205,7 +2251,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     foreach ($edge in $EggDockEdges) { $eggs[$edge] = $script:EggDockLabels[$edge] }
     Draw-HubDropdown $G $Map $Hover 'code-eggs' (New-Rect $rowX ($scard.Y + (Px 102)) $rowW (Px 30)) (Tx 'Icono de cada sesi\u00f3n') $eggs (Get-EggDock).Edge 'Step-HubEggDock'
 
-    $fy = $scard.Bottom + (Px 8)
+    $fy = $scard.Bottom + (Px 6)
     if (Test-HubModule 'freellm') { Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 $fy $Inner (Px 84)) }
     else { Draw-HubPolicyNote $G (New-Rect $X0 $fy $Inner (Px 84)) 'Modelos gratis con FreeLLMAPI' (Tx 'Apagado por la pol\u00edtica de la empresa: las sesiones usan solo el plan de Claude, sin enviar prompts a proveedores de terceros.') }
 }
@@ -2733,6 +2779,7 @@ function Draw-HubWhisperSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 # ---------------------------------------------------------------- Voz
 
 $script:HubVoiceEngineLabels = [ordered]@{ edge = 'Edge'; elevenlabs = 'ElevenLabs'; gemini = 'Gemini'; sapi = 'Windows' }
+$script:HubVoiceGenderLabels = [ordered]@{ mix = 'Mixtas'; f = 'Femeninas'; m = 'Masculinas' }
 
 function Draw-HubVoiceSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
@@ -2874,6 +2921,32 @@ function Draw-HubSettingsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     Draw-HubCard $G $card
     Draw-HubDropdown $G $Map $Hover 'language' (New-Rect ($card.X + (Px 8)) ($card.Y + (Px 12)) ($card.Width - (Px 16)) (Px 30)) 'Idioma' $script:Hub.Languages $script:UiLanguage 'Step-HubLanguage'
     Draw-Wrapped $G (Tx 'El de esta ventana, la bandeja y sus avisos. Claude Whisper y las dem\u00e1s ventanas lo toman al abrirse de nuevo.') $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 52)) ($card.Width - (Px 36)) (Px 36)
+
+    # Captura a Claude Code (lib\snip.ps1).
+    Draw-HubCaption $G 'CAPTURAS' $X0 (Px 210) $Inner ''
+    $card = New-Rect $X0 (Px 232) $Inner (Px 54)
+    Draw-HubCard $G $card
+    $snip = $script:Hub.Cache.SnipEnabled -ne $false
+    $sub = if ($snip -and -not $script:Hub.Preview -and -not $script:SnipHotkey) { Tx 'Win+Alt+C, Win+Shift+X y Ctrl+Alt+C los usan otras apps: cierra una y vuelve a encender esto.' }
+        else { Tx 'Recortador como el de Windows (v\u00eddeo, dibujo, color, texto) con el prompt al lado.' }
+    Draw-HubToggleRow $G $Map $Hover 'snip' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 6)) ($card.Width - (Px 12)) (Px 42)) ((L 'Captura a Claude Code') + ' (' + $(if ($script:SnipHotkeyName) { $script:SnipHotkeyName } else { 'Win+Alt+C' }) + ')') $sub $snip ([scriptblock]::Create("Set-HubSnip `$$(-not $snip)"))
+
+    # Voces de las sesiones: the same switch as Voz, and which voices new sessions get.
+    Draw-HubCaption $G 'VOZ' $X0 (Px 304) $Inner ''
+    $c = $script:Hub.Cache
+    $card = New-Rect $X0 (Px 326) $Inner (Px 104)
+    Draw-HubCard $G $card
+    if (-not $c.VoiceInstalled) {
+        Draw-Wrapped $G (Tx 'La voz no est\u00e1 instalada. Vuelve a ejecutar install.ps1.') $F.Body $P.Warn ($card.X + (Px 16)) ($card.Y + (Px 16)) ($card.Width - (Px 32)) (Px 40)
+        return
+    }
+    Draw-HubToggleRow $G $Map $Hover 'settings-voice-on' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 6)) ($card.Width - (Px 12)) (Px 42)) 'Voz en todas las sesiones' (Tx 'Si la apagas, ninguna sesi\u00f3n habla') (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)"))
+    $gender = if ($c.VoiceEngine) { $c.VoiceEngine.Gender } else { 'mix' }
+    $gy = $card.Y + (Px 58)
+    $seg = Draw-HubSegmented $G $Map $Hover 'voice-gender' ($card.Right - (Px 14)) $gy $script:HubVoiceGenderLabels $gender 'Set-HubVoiceGender'
+    $tw = $seg.X - $card.X - (Px 32)
+    Draw-Text $G 'Voces' $F.Body $P.Text ($card.X + (Px 16)) ($gy - (Px 4)) $tw (Px 20)
+    Draw-Text $G (Tx 'Para las sesiones nuevas: nombre y voz del mismo g\u00e9nero') $F.Small $P.Muted ($card.X + (Px 16)) ($gy + (Px 16)) $tw (Px 18)
 }
 
 function Step-HubLanguage([int]$Delta) {
@@ -2908,6 +2981,8 @@ function Set-HubPreview {
     $c.ScreenAreas = @([pscustomobject]@{ Left = -1920; Top = 0; Right = 0; Bottom = 1080 }, [pscustomobject]@{ Left = 0; Top = 0; Right = 2560; Bottom = 1440 },
         [pscustomobject]@{ Left = 2560; Top = 0; Right = 4480; Bottom = 1080 })
     $c.ScreenFirst = 'windows'
+    $c.PerScreen = 2
+    $c.Activity = [pscustomobject]@{ Open = 36000; Busy = 22000 }
     $c.ContextMode = [pscustomobject]@{ Installed = $true; Enabled = $true }
     $c.MaxxStatus = $null
     # Skills y MCP: one package installed, one installing, one not.
@@ -2926,7 +3001,7 @@ function Set-HubPreview {
         [pscustomobject]@{ Name = 'playwright'; Kind = 'stdio'; Target = 'npx.cmd'; Source = 'tuyos' },
         [pscustomobject]@{ Name = 'github'; Kind = 'http'; Target = 'api.githubcopilot.com'; Source = 'plugin github' },
         [pscustomobject]@{ Name = 'context-mode'; Kind = 'stdio'; Target = 'node.exe'; Source = 'plugin context-mode' })
-    $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
+    $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; Gender = 'mix'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true
     $c.Whip = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex', 'agy') }

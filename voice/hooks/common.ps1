@@ -209,11 +209,24 @@ function Test-Muted([string]$SessionId) {
     return Test-Path (Get-SessionFile 'muted' $SessionId)
 }
 
+# El pool de voces con la preferencia de genero (voiceGender: f, m o mix, de Configuracion en la ventana).
+# Si no queda ninguna de ese genero, el pool entero.
+function Get-VoicePool($Config) {
+    $pool = @(Get-Opt $Config 'edge.voicePool' $DefaultPool)
+    $want = "$(Get-Opt $Config 'voiceGender' 'mix')"
+    if ($want -notin 'f', 'm') { return $pool }
+    $kept = @($pool | Where-Object { (Get-VoiceGender $Config $_) -eq $want })
+    if ($kept.Count) { return $kept }
+    return $pool
+}
+
 # Voz de la sesion, por prioridad: CLAUDEVOICE_VOICE > elegida con /voz > asignada del pool
-# (la primera que no use otra sesion activa) > edge.voice.
+# (la primera que no use otra sesion activa) > edge.voice (o la primera del genero preferido).
 function Get-SessionVoice($Config, [string]$SessionId) {
     if ($env:CLAUDEVOICE_VOICE) { return $env:CLAUDEVOICE_VOICE }
+    $pool = Get-VoicePool $Config
     $fallback = Get-Opt $Config 'edge.voice' 'es-CO-SalomeNeural'
+    if ($pool -notcontains $fallback -and "$(Get-Opt $Config 'voiceGender' 'mix')" -in 'f', 'm') { $fallback = $pool[0] }
     $file = Get-SessionFile 'voice' $SessionId
     if (Test-Path $file) {
         (Get-Item $file).LastWriteTime = Get-Date
@@ -224,7 +237,6 @@ function Get-SessionVoice($Config, [string]$SessionId) {
     Use-StateLock {
         if (Test-Path $file) { return [IO.File]::ReadAllText($file, $Utf8).Trim() }  # otra llamada gano
         $recent = Get-ActiveStateFiles $Config 'voice' | ForEach-Object { [IO.File]::ReadAllText($_.FullName, $Utf8).Trim() }
-        $pool  = @(Get-Opt $Config 'edge.voicePool' $DefaultPool)
         $voice = $pool | Where-Object { $recent -notcontains $_ } | Select-Object -First 1
         if (-not $voice) { $voice = $pool[@($recent).Count % $pool.Count] }
         [IO.File]::WriteAllText($file, $voice, $Utf8)

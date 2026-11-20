@@ -7,10 +7,11 @@
 # -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; <section>-full, that section in full screen on a 1920x1080 screen).
 # -RenderEggsTo <folder> writes each session color's egg as <color>.png (the terminal tab icons; install.ps1) and
 # statusline.json, the egg as 8-bit text (still and thinking frames) for the Claude Code statusline.
+# -RenderSnipTo <png> draws Win+Alt+C and its boxes with a sample screen (lib\snipcapture.ps1; see the block below).
 # -RenderLogoTo <folder> writes the ClaudeMaxxing jellyfish (logo.png) as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
     [string]$RenderBridgeTo, [string]$RenderApprovalTo, [string]$RenderHubTo, [string]$HubSection = 'home', [string]$RenderLogoTo,
-    [string]$RenderEggsTo)
+    [string]$RenderEggsTo, [string]$RenderSnipTo)
 
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
@@ -37,7 +38,7 @@ Clear-ClaudeSessionEnv
 if ($UsagePath) { $UsageFile = $UsagePath }
 if ($ExtrasPath) { $ExtrasFile = $ExtrasPath }
 
-$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo -or $RenderHubTo -or $RenderLogoTo -or $RenderEggsTo)
+$Rendering = [bool]($RenderTo -or $RenderDialogTo -or $RenderBridgeTo -or $RenderApprovalTo -or $RenderHubTo -or $RenderLogoTo -or $RenderEggsTo -or $RenderSnipTo)
 if (-not $Rendering) {
     $createdNew = $false
     $script:TrayMutex = New-Object System.Threading.Mutex($true, 'Local\ClaudeTray', [ref]$createdNew)
@@ -61,6 +62,9 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\whip.ps1')
 . (Join-Path $TrayRoot 'lib\hubbusiness.ps1')
 . (Join-Path $TrayRoot 'lib\traysessions.ps1')
+. (Join-Path $TrayRoot 'lib\snip.ps1')
+. (Join-Path $TrayRoot 'lib\snipcapture.ps1')
+. (Join-Path $TrayRoot 'lib\sniprecord.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 # Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.
 [void][ClaudeTray.Native]::SetCurrentProcessExplicitAppUserModelID('ClaudeMaxxing.Tray')
@@ -535,6 +539,50 @@ if ($RenderEggsTo) {
     exit 0
 }
 
+if ($RenderSnipTo) {
+    # A sample screen with an error in it, drawn as Win+Alt+C shows it: a rectangle chosen with a pen mark and its
+    # panel (<png>), the shape menu over a window (-menu), the text extracted (-text), the color picker (-color), the
+    # recording bar (-bar), and the corner boxes after Win+Shift+S (-box) and after a recording (-video).
+    Initialize-SnipNative
+    function New-SnipSample {
+        $screen = New-Object System.Drawing.Bitmap(1600, 900)
+        $g = [System.Drawing.Graphics]::FromImage($screen)
+        $g.Clear((New-Rgb 236 236 236))
+        Fill-Round $g (New-Rect 80 60 1440 760) 8 (New-Rgb 30 30 30)
+        for ($i = 0; $i -lt 14; $i++) { Draw-Text $g ("  {0}  const value = items.map((item) => item.name);" -f (40 + $i)) $script:Fonts.Body (New-Rgb 160 160 160) 100 (90 + 26 * $i) 900 24 }
+        Draw-Text $g 'Error: Cannot read properties of undefined' $script:Fonts.Title (New-Rgb 232 112 92) 120 500 720 60
+        $g.Dispose()
+        $screen
+    }
+    $origin = New-Object System.Drawing.Point(0, 0)
+    $screens = New-Object System.Collections.ArrayList
+    [void]$screens.Add(@((New-Rect 0 0 1600 900), (New-Rect 0 0 1600 860)))
+    $windows = New-Object System.Collections.ArrayList
+    [void]$windows.Add(@(New-Rect 80 60 1440 760))
+    $cursor = New-Object System.Drawing.Point(800, 400)
+    $region = New-Rect 100 470 620 120
+    $stroke = @{ Color = '#E8453C'; Width = 4; Points = (New-Object 'System.Collections.Generic.List[System.Drawing.Point]') }
+    foreach ($pt in @(@(130, 560), @(260, 575), @(400, 565), @(520, 572))) { $stroke.Points.Add((New-Object System.Drawing.Point($pt[0], $pt[1]))) }
+    $strokes = New-Object System.Collections.ArrayList
+    [void]$strokes.Add($stroke)
+    $name = [IO.Path]::GetFileNameWithoutExtension($RenderSnipTo)
+    $dir = Split-Path -Parent $RenderSnipTo
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = $RenderSnipTo; Region = $region; Tool = 'pen'; Strokes = $strokes }
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = (Join-Path $dir "$name-menu.png"); Shape = 'window'; Menu = $true; Hover = (New-Rect 80 60 1440 760) }
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = (Join-Path $dir "$name-text.png"); Tool = 'text'; Region = $region; Ocr = "Error: Cannot read properties of undefined"; HoverId = 'text' }
+    Show-SnipCapture (New-SnipSample) $origin $screens $windows $cursor -Render @{ Path = (Join-Path $dir "$name-color.png"); Tool = 'color'; Loupe = (New-Object System.Drawing.Point(160, 520)); HoverId = 'color' }
+    $sample = New-SnipSample
+    Show-SnipBox ($sample.Clone($region, $sample.PixelFormat)) (Join-Path $dir "$name-box.png")
+    Show-SnipBox ($sample.Clone($region, $sample.PixelFormat)) (Join-Path $dir "$name-video.png") @{ Path = 'C:\video.mp4'; Frames = @(); Duration = [TimeSpan]::FromSeconds(42) }
+    $script:SnipRecording = @{ State = 'ready'; Recorder = $null }
+    $bar = New-SnipRecordBar (New-Rect 100 470 620 120)
+    $script:SnipRecording.Bar = $bar
+    Update-SnipRecordBar
+    Save-SnipRender $bar (Join-Path $dir "$name-bar.png")
+    $Notify.Dispose()
+    exit 0
+}
+
 if ($RenderHubTo) {
     Show-HubDialog $HubSection $RenderHubTo
     $Notify.Dispose()
@@ -577,6 +625,8 @@ for ($i = $script:UsageBars.Count - 1; $i -ge 0; $i--) {
     $script:UsageBars[$i].Visible = $true
 }
 Start-SessionIcons
+# Captura a Claude Code: the box after a Win+Shift+S snip (lib\snip.ps1).
+Start-SnipWatch
 Start-UsageOverlay
 Start-TrayWatchdog (Join-Path $TrayRoot 'tray.ps1')
 Start-UsageRefresh
@@ -593,6 +643,7 @@ try {
     $script:BridgeTimer.Stop()
     Stop-BridgeTray
     Stop-SessionIcons
+    Stop-SnipWatch
     Stop-UsageOverlay
     foreach ($bar in $script:UsageBars) { $bar.Visible = $false; $bar.Dispose() }
     $Notify.Visible = $false
