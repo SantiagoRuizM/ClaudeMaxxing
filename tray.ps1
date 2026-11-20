@@ -4,7 +4,7 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; <section>-full, that section in full screen on a 1920x1080 screen).
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; skills-catalog, Skills y MCP on its Catalogo tab; <section>-full, that section in full screen on a 1920x1080 screen).
 # -RenderEggsTo <folder> writes each session color's egg as <color>.png (the terminal tab icons; install.ps1) and
 # statusline.json, the egg as 8-bit text (still and thinking frames) for the Claude Code statusline.
 # -RenderSnipTo <png> draws Win+Alt+C and its boxes with a sample screen (lib\snipcapture.ps1; see the block below).
@@ -59,6 +59,7 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\debate.ps1')
 . (Join-Path $TrayRoot 'lib\debateui.ps1')
 . (Join-Path $TrayRoot 'lib\hubskills.ps1')
+. (Join-Path $TrayRoot 'lib\catalog.ps1')
 . (Join-Path $TrayRoot 'lib\whip.ps1')
 . (Join-Path $TrayRoot 'lib\hubbusiness.ps1')
 . (Join-Path $TrayRoot 'lib\traysessions.ps1')

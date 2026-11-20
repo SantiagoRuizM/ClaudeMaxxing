@@ -739,6 +739,9 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "code-help": Claude Code with its guide to file and image previews open.
     $codeHelp = $false
     if ($Section -eq 'code-help') { $codeHelp = $true; $Section = 'code' }
+    # "skills-catalog": Skills y MCP on its Catalogo tab.
+    $skillsTab = $null
+    if ($Section -eq 'skills-catalog') { $skillsTab = 'catalog'; $Section = 'skills' }
     # "stats-hours", "stats-models-all"...: a tab (and the all-time range) of Estadisticas.
     $statsTab = 'summary'; $statsRange = 'recent'
     if ($Section -match '^stats-([a-z]+?)(?:-(all))?$') { $statsTab = $Matches[1]; if ($Matches[2]) { $statsRange = 'all' }; $Section = 'stats' }
@@ -776,7 +779,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Cache = @{}
         SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = ''
         StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview; EnvsPreview = $envsPreview
-        W = (Px $HubWidth); H = (Px $HubHeight); Zoom = $zoom; FullScale = 1.0; Normal = $null; CodeHelp = $codeHelp; Visits = $null }
+        W = (Px $HubWidth); H = (Px $HubHeight); Zoom = $zoom; FullScale = 1.0; Normal = $null; CodeHelp = $codeHelp; Visits = $null; SkillsTab = $skillsTab }
     Update-HubMarks
     if ($fullPreview) {
         $screen = New-Rect 0 0 1920 1080
@@ -3001,6 +3004,11 @@ function Set-HubPreview {
         [pscustomobject]@{ Name = 'playwright'; Kind = 'stdio'; Target = 'npx.cmd'; Source = 'tuyos' },
         [pscustomobject]@{ Name = 'github'; Kind = 'http'; Target = 'api.githubcopilot.com'; Source = 'plugin github' },
         [pscustomobject]@{ Name = 'context-mode'; Kind = 'stdio'; Target = 'node.exe'; Source = 'plugin context-mode' })
+    # The catalog as shipped, with two skills and one server on (one skill only in the Trabajo environment).
+    $c.Catalog = @(Get-CatalogItems (Join-Path $TrayRoot 'catalog'))
+    $c.CatalogSettings = @{ skills = @{ 'accessibility' = [string[]]@('*'); 'agent-eval' = [string[]]@('trabajo') }; mcp = @{ 'context7' = [string[]]@('*') } }
+    $c.CatalogTargets = [ordered]@{ '*' = [pscustomobject]@{ Id = '*'; Name = 'Siempre'; Dir = ''; Skills = ''; Scope = 'user' }
+        'trabajo' = [pscustomobject]@{ Id = 'trabajo'; Name = 'Trabajo'; Dir = 'C:\Users\me\Trabajo'; Skills = ''; Scope = 'local' } }
     $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; Gender = 'mix'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true

@@ -2,12 +2,13 @@
 # claude CLI, and installs the skill and MCP creation packages of "Skills y MCP" (pack-install -Plugin, from
 # Anthropic's official marketplace) and the team kit of the business edition (team-install: the marketplaces and
 # plugins of the company policy, lib\business.ps1); reports in maxx-status.json. Started hidden from the window.
-param([Parameter(Mandatory = $true)][ValidateSet('contextmode-on', 'contextmode-off', 'pack-install', 'team-install')][string]$Action,
+param([Parameter(Mandatory = $true)][ValidateSet('contextmode-on', 'contextmode-off', 'pack-install', 'team-install', 'catalog-mcp')][string]$Action,
     [ValidatePattern('^[a-z0-9-]+@claude-plugins-official$')][string]$Plugin)
 
 $TrayRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
+. (Join-Path $TrayRoot 'lib\catalog.ps1')
 Clear-ClaudeSessionEnv
 
 function Set-Status([string]$State, [string]$Message) {
@@ -45,6 +46,13 @@ try {
         Set-Status 'done' "Kit del equipo: $count plugin(s) listos para las sesiones nuevas."
         return
     }
+    if ($Action -eq 'catalog-mcp') {
+        # Read here, not passed in: only the servers of the installed catalog\mcp.json get added.
+        $errors = Invoke-CatalogMcpSync { param($a) Invoke-Claude $a } (Get-CatalogSettings) (Get-CatalogTargets) (Get-CatalogItems (Join-Path $TrayRoot 'catalog'))
+        if ($errors.Count) { throw ($errors -join '; ') }
+        Set-Status 'done' "Servidores MCP del cat$([char]0x00E1)logo al d$([char]0x00ED)a: se usan en las sesiones nuevas."
+        return
+    }
     if ($Action -eq 'pack-install') {
         if (-not $Plugin) { throw 'no plugin given' }
         $r = Invoke-Claude @('plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official')
@@ -77,7 +85,7 @@ try {
 } catch {
     $message = $_.Exception.Message
     if ($message.Length -gt 200) { $message = $message.Substring(0, 200) }
-    $what = if ($Action -eq 'pack-install') { 'instalar ' + $Plugin.Split('@')[0] } elseif ($Action -eq 'team-install') { 'instalar el kit del equipo' } else { 'cambiar context-mode' }
+    $what = if ($Action -eq 'pack-install') { 'instalar ' + $Plugin.Split('@')[0] } elseif ($Action -eq 'team-install') { 'instalar el kit del equipo' } elseif ($Action -eq 'catalog-mcp') { 'aplicar los MCP del cat' + [char]0x00E1 + 'logo' } else { 'cambiar context-mode' }
     Set-Status 'error' ('No se pudo ' + $what + ': ' + $message)
 } finally {
     $mutex.ReleaseMutex()

@@ -861,6 +861,76 @@ try {
     Assert-Equal 'skill-creator=False, mcp-server-dev=False, plugin-dev=True' ((Get-SkillPackState $skHome | ForEach-Object { "$($_.Id)=$($_.Installed)" }) -join ', ') 'packs: installed means installed for the user, not for one project'
     Assert-Equal 0 @(Get-SkillList (Join-Path $skHome 'nothing')).Count 'skills: no ~/.claude, no rows'
 } finally { Remove-Item -LiteralPath $skHome -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Catalogo de Skills y MCP (lib\catalog.ps1): the shipped catalog, and switching on and off in a fake home
+. (Join-Path $TrayRoot 'lib\catalog.ps1')
+$catDir = Join-Path $TrayRoot 'catalog'
+$catItems = @(Get-CatalogItems $catDir)
+$catSkills = @($catItems | Where-Object { $_.Kind -eq 'skill' })
+Assert-Equal $true ($catSkills.Count -gt 300 -and @($catItems | Where-Object { $_.Kind -eq 'mcp' }).Count -gt 10) 'catalog: the index lists the skills and mcp.json the servers'
+Assert-Equal $catSkills.Count @($catSkills.Name | Select-Object -Unique).Count 'catalog: every skill name once'
+$catMissing = @($catSkills | Where-Object { -not (Test-Path -LiteralPath (Join-Path $catDir "skills\$($_.Source)\$($_.Name)\SKILL.md")) -or -not $_.Description })
+Assert-Equal '' (($catMissing | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ', ') 'catalog: each indexed skill has its SKILL.md and a description'
+$catCode = @(Get-ChildItem -LiteralPath (Join-Path $catDir 'skills') -Recurse -File | Where-Object { '.md', '.txt', '.ttf', '.otf', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.svg' -notcontains $_.Extension.ToLowerInvariant() -and $_.Name -notmatch '^LICENSE' })
+Assert-Equal '' (($catCode | Select-Object -First 3 | ForEach-Object { $_.FullName.Substring($catDir.Length) }) -join ', ') 'catalog: no scripts, only text, fonts, images and PDFs'
+Assert-Equal 0 @(Get-ChildItem -LiteralPath (Join-Path $catDir 'skills') -Recurse -Filter 'SKILL.md' | Select-String -Pattern '^(allowed-tools|hooks):' -List).Count 'catalog: no skill grants tools or registers hooks'
+foreach ($src in 'anthropic', 'superpowers', 'wshobson', 'ecc') {
+    Assert-Equal $true ([bool](Get-ChildItem -LiteralPath (Join-Path $catDir "skills\$src") -File -Filter '*' | Where-Object { $_.Name -match 'LICENSE|NOTICES' })) "catalog: $src keeps its license"
+}
+
+$catHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-catalog-{0}' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
+try {
+    $fakeCat = "$catHome\cat"
+    Write-SkillFixture "$fakeCat\index.json" '{ "skills": [ { "name": "alpha", "source": "ecc", "description": "A" }, { "name": "beta", "source": "wshobson", "description": "B" } ] }'
+    Write-SkillFixture "$fakeCat\mcp.json" '{ "servers": [ { "name": "docs", "label": "Docs", "auth": "none", "description": "d", "config": { "type": "http", "url": "https://docs.example.com/mcp" } }, { "name": "local", "label": "Local", "auth": "none", "description": "l", "config": { "command": "cmd", "args": ["/c", "npx", "-y", "pkg@1.0.0"] } } ] }'
+    Write-SkillFixture "$fakeCat\skills\ecc\alpha\SKILL.md" "---`nname: alpha`ndescription: A`n---"
+    Write-SkillFixture "$fakeCat\skills\ecc\alpha\references\more.md" 'more'
+    Write-SkillFixture "$fakeCat\skills\wshobson\beta\SKILL.md" "---`nname: beta`ndescription: B`n---"
+    Write-SkillFixture "$catHome\claude\skills\beta\SKILL.md" "---`nname: beta`ndescription: mine`n---"
+    $proj = "$catHome\work"
+    New-Item -ItemType Directory -Force -Path "$proj\.git\info" | Out-Null
+    [IO.File]::WriteAllText("$proj\.git\info\exclude", "# git ls-files --others --exclude-from=.git/info/exclude`n")
+    Write-SkillFixture "$catHome\envs\trabajo.json" ('{ "name": "Trabajo", "claude": { "dir": "' + ($proj -replace '\\', '\\') + '" } }')
+    Write-SkillFixture "$catHome\envs\gone.json" '{ "name": "Gone", "folder": "C:\\nowhere\\at\\all" }'
+    $targets = Get-CatalogTargets "$catHome\envs" "$catHome\claude"
+    Assert-Equal '*,trabajo' (@($targets.Keys) -join ',') 'catalog targets: always, then each environment whose folder exists'
+
+    $set = Get-CatalogSettings "$catHome\none.json"
+    Set-CatalogItem $set 'skill' 'alpha' '*' $true
+    Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $true
+    Set-CatalogItem $set 'skill' 'beta' '*' $true
+    Save-CatalogSettings $set "$catHome\catalog.json"
+    $set = Get-CatalogSettings "$catHome\catalog.json"
+    Assert-Equal '*,trabajo' ($set.skills['alpha'] -join ',') 'catalog settings: one item on in two targets survives a save'
+    $conflicts = Sync-CatalogSkills $set $targets $fakeCat
+    Assert-Equal 'beta' ($conflicts -join ',') 'catalog: a skill folder of the user with the same name is reported'
+    Assert-Equal 'mine' (Read-SkillHeader "$catHome\claude\skills\beta\SKILL.md").Description 'catalog: and left alone'
+    Assert-Equal $true ((Test-Path "$catHome\claude\skills\alpha\references\more.md") -and (Test-Path "$catHome\claude\skills\alpha\.maxx-catalog")) 'catalog: on always copies the whole folder, marked'
+    Assert-Equal $true (Test-Path "$proj\.claude\skills\alpha\SKILL.md") 'catalog: on in an environment copies into its folder'
+    Assert-Equal $true ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match '(?m)^/\.claude/skills/alpha/$') 'catalog: and keeps it out of git status'
+    Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $false
+    Set-CatalogItem $set 'skill' 'beta' '*' $false
+    [void](Sync-CatalogSkills $set $targets $fakeCat)
+    Assert-Equal $false (Test-Path "$proj\.claude\skills\alpha") 'catalog: off deletes the marked copy'
+    Assert-Equal $false ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match 'ClaudeMaxxing') 'catalog: and its exclude lines'
+    Assert-Equal $true ((Test-Path "$catHome\claude\skills\alpha") -and (Test-Path "$catHome\claude\skills\beta\SKILL.md")) 'catalog: other targets and the user skill stay'
+
+    Set-CatalogItem $set 'mcp' 'docs' '*' $true
+    Set-CatalogItem $set 'mcp' 'local' 'trabajo' $true
+    $calls = New-Object System.Collections.Generic.List[string]
+    $fake = { param($a) $calls.Add((Get-Location).Path + '>' + ($a -join ' ')); if ($a -contains 'local' -and $a[1] -eq 'add') { @{ Ok = $false; Output = "MCP server local already exists`nmore" } } else { @{ Ok = $true; Output = '' } } }
+    $items = Get-CatalogItems $fakeCat
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp add --transport http -s user docs https://docs.example.com/mcp|$proj>mcp add -s local local -- cmd /c npx -y pkg@1.0.0" ($calls -join '|') 'catalog mcp: http with flags for the user, stdio in the environment folder'
+    Assert-Equal 'local: MCP server local already exists' ($errors -join '|') 'catalog mcp: a name taken by a server of yours is an error, not recorded'
+    Assert-Equal 'docs' ((Get-CatalogApplied "$catHome\applied.json")['*'] -join ',') 'catalog mcp: what was added is recorded'
+    $calls.Clear()
+    Set-CatalogItem $set 'mcp' 'docs' '*' $false
+    Set-CatalogItem $set 'mcp' 'local' 'trabajo' $false
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp remove -s user docs" ($calls -join '|') 'catalog mcp: off removes only what ClaudeMaxxing added'
+    Assert-Equal 0 @((Get-CatalogApplied "$catHome\applied.json")['*']).Count 'catalog mcp: and forgets it'
+} finally { Remove-Item -LiteralPath $catHome -Recurse -Force -ErrorAction SilentlyContinue }
 Assert-Equal 'claude --session-id 1111 "Usa la skill skill-creator: crea una skill"' (Format-ClaudeCommand 'claude' '1111' '' 'green' '' 'Usa la skill "skill-creator": crea una skill') 'claude command: a first prompt takes the place of /color, without its double quotes'
 Assert-Equal 'claude "uno\; dos"' (Format-ClaudeCommand 'claude' '' '' '' '' 'uno; dos') 'claude command: a ; in the prompt is escaped for wt'
 
@@ -1231,7 +1301,8 @@ try {
 # The example environment is the exception: its paths are made up (C:\Users\me) and the harness tests use them.
 $repoRefs = @($manifest | Where-Object {
     $text = [IO.File]::ReadAllText((Join-Path $TrayRoot $_))
-    $text -match [regex]::Escape($TrayRoot) -or ($_ -ne 'harness\test\environments\trabajo.json' -and $text -match 'C:[\\/]+Users[\\/]+')
+    # The catalog's third-party skills too: their examples carry made-up paths like C:\Users\me.
+    $text -match [regex]::Escape($TrayRoot) -or ($_ -ne 'harness\test\environments\trabajo.json' -and $_ -notlike 'catalog\skills\*' -and $text -match 'C:[\\/]+Users[\\/]+')
 })
 Assert-Equal '' ($repoRefs -join ', ') 'no runtime file has an absolute path to this PC'
 

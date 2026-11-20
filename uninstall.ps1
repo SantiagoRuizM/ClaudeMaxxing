@@ -14,6 +14,7 @@ $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Here 'lib\schedule.ps1')
 . (Join-Path $Here 'lib\statusline.ps1')
 . (Join-Path $Here 'lib\installer.ps1')
+. (Join-Path $Here 'lib\catalog.ps1')
 . (Join-Path $Here 'lib\judge.ps1')
 . (Join-Path $Here 'lib\bridge.ps1')
 . (Join-Path $Here 'lib\bridgeinstall.ps1')
@@ -82,6 +83,16 @@ Write-Host "Peek: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\
 Write-Host "Theme: $(Uninstall-ThemeSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'theme'))"
 Write-Host "Claude Whip: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip'))"
 Write-Host "PDF: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'pdf'))"
+# The catalog: the skill copies it made (marked) and the MCP servers it added (catalog-applied.json); yours stay.
+$none = @{ skills = @{}; mcp = @{} }
+$catalogTargets = Get-CatalogTargets
+try { [void](Sync-CatalogSkills $none $catalogTargets (Join-Path $InstallDir 'catalog')); Write-Host 'catalog skills removed' } catch { Write-Host "catalog skills: $($_.Exception.Message)" }
+$claude = Resolve-ClaudePath
+if ($claude -and (Get-CatalogApplied).Count) {
+    Clear-ClaudeSessionEnv
+    $errors = Invoke-CatalogMcpSync { param($a) $o = & $claude @a 2>&1 | Out-String; @{ Ok = ($LASTEXITCODE -eq 0); Output = $o.Trim() } } $none $catalogTargets (Get-CatalogItems (Join-Path $InstallDir 'catalog'))
+    Write-Host $(if ($errors.Count) { 'catalog MCP servers: ' + ($errors -join '; ') } else { 'catalog MCP servers removed' })
+}
 
 if (Test-Path -LiteralPath $UninstallKey) { Remove-Item -LiteralPath $UninstallKey -Recurse; Write-Host 'Settings > Apps entry removed' }
 

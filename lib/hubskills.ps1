@@ -156,7 +156,139 @@ function Update-HubSkills([switch]$Force) {
     $c.Skills = @(Get-SkillList)
     $c.Mcp = @(Get-McpList)
     $c.Packs = @(Get-SkillPackState)
+    if ($null -eq $c.Catalog) { $c.Catalog = @(Get-CatalogItems (Join-Path $TrayRoot 'catalog')) }
+    $c.CatalogSettings = Get-CatalogSettings
+    $c.CatalogTargets = Get-CatalogTargets
     $c.SkillsAt = Get-Date
+    # A switch flipped while the MCP job was running is picked up by one more run.
+    if ($jobEnded -and $job.action -eq 'catalog-mcp' -and $job.state -eq 'done' -and
+        @(Get-CatalogMcpPlan $c.CatalogSettings $c.CatalogTargets (Get-CatalogApplied) $c.Catalog).Count) { Start-MaxxJob 'catalog-mcp' }
+}
+
+# ---------------------------------------------------------------- catalog
+
+$script:CatalogSources = [ordered]@{ all = 'Todas las fuentes'; on = (Ux 'Activados aqu\u00ed'); anthropic = 'Anthropic'; superpowers = 'Superpowers'
+    wshobson = 'wshobson/agents'; ecc = 'ECC'; mcp = 'Servidores MCP' }
+$script:CatalogPageRows = 5
+
+function Get-HubCatalogScopes {
+    $scopes = [ordered]@{}
+    foreach ($target in @($script:Hub.Cache.CatalogTargets.Values)) { $scopes[$target.Id] = $(if ($target.Id -eq $CatalogEverywhere) { 'Siempre' } else { $target.Name }) }
+    $scopes
+}
+
+function Get-HubCatalogRows {
+    $hub = $script:Hub
+    $c = $hub.Cache
+    $source = if ($hub.CatalogSource) { $hub.CatalogSource } else { 'all' }
+    $query = [string]$hub.CatalogQuery
+    @($c.Catalog | Where-Object {
+        ($source -eq 'all' -or $_.Source -eq $source -or ($source -eq 'on' -and (Test-CatalogOn $c.CatalogSettings $_.Kind $_.Name $hub.CatalogScope))) -and
+        (-not $query -or $_.Name -like "*$query*" -or $_.Label -like "*$query*" -or $_.Description -like "*$query*")
+    })
+}
+
+function Step-HubCatalogOption([string]$Field, $Options, [int]$Delta) {
+    $keys = @($Options.Keys)
+    $i = [array]::IndexOf($keys, [string]$script:Hub[$Field])
+    $script:Hub[$Field] = $keys[[Math]::Max(0, [Math]::Min($keys.Count - 1, $i + $Delta))]
+    $script:Hub.SkillsPage = 0
+    $script:HubDialog.Invalidate()
+}
+
+function Step-HubCatalogSource([int]$Delta) { Step-HubCatalogOption 'CatalogSource' $script:CatalogSources $Delta }
+function Step-HubCatalogScope([int]$Delta) { Step-HubCatalogOption 'CatalogScope' (Get-HubCatalogScopes) $Delta }
+
+function Show-HubCatalogSearch {
+    $P = $script:Palette
+    $dlg = New-JudgeForm '' $P 420 150
+    $dlg.Text = Tx 'Buscar en el cat\u00e1logo'
+    $dlg.MinimumSize = New-Object System.Drawing.Size((Px 360), (Px 170))
+    $dlg.ClientSize = New-Object System.Drawing.Size((Px 420), (Px 150))
+    Add-JudgeRow $dlg (New-JudgeLabel (Tx 'Una palabra del nombre o de la descripci\u00f3n (en ingl\u00e9s): react, test, security...') $P.Muted)
+    $box = New-Object System.Windows.Forms.TextBox
+    $box.BackColor = $P.Surface; $box.ForeColor = $P.Text; $box.BorderStyle = 'FixedSingle'
+    $box.Font = New-UiFont 'Segoe UI' 10
+    $box.Text = [string]$script:Hub.CatalogQuery
+    Add-JudgeRow $dlg $box
+    $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttons.AutoSize = $true; $buttons.FlowDirection = 'RightToLeft'
+    $go = New-WhisperButton 'Buscar' $P $true
+    $cancel = New-WhisperButton 'Cancelar' $P
+    $go.DialogResult = 'OK'; $cancel.DialogResult = 'Cancel'
+    $buttons.Controls.Add($go); $buttons.Controls.Add($cancel)
+    Add-JudgeRow $dlg $buttons
+    $dlg.AcceptButton = $go
+    $dlg.CancelButton = $cancel
+    $dlg.Add_Shown({ $box.Focus(); $box.SelectAll() })
+    $result = $dlg.ShowDialog($script:HubDialog)
+    $query = $box.Text.Trim()
+    $dlg.Dispose()
+    if ($result -ne 'OK') { return }
+    $script:Hub.CatalogQuery = $query
+    $script:Hub.SkillsPage = 0
+    $script:HubDialog.Invalidate()
+}
+
+# One switch: saved, then the skills copied or deleted right away and the MCP servers by the background job.
+function Switch-HubCatalogItem([string]$Kind, [string]$Name) {
+    $hub = $script:Hub
+    if ($hub.Preview) { return }
+    $job = $hub.Cache.MaxxStatus
+    $running = $job -and $job.state -eq 'running'
+    if ($Kind -eq 'mcp' -and $running -and $job.action -ne 'catalog-mcp') { Set-HubMessage (Tx 'Espera: hay otra instalaci\u00f3n en curso.'); return }
+    $target = $hub.CatalogScope
+    $settings = Get-CatalogSettings
+    $on = -not (Test-CatalogOn $settings $Kind $Name $target)
+    Set-CatalogItem $settings $Kind $Name $target $on
+    try { Save-CatalogSettings $settings } catch { Set-HubMessage ((L 'No se pudo guardar: ') + $_.Exception.Message) -Failed; return }
+    $hub.Cache.CatalogSettings = $settings
+    $where = (Get-HubCatalogScopes)[$target]
+    if ($Kind -eq 'mcp') {
+        if (-not $running) { Start-MaxxJob 'catalog-mcp' }
+    } else {
+        try { $conflicts = Sync-CatalogSkills $settings $hub.Cache.CatalogTargets (Join-Path $TrayRoot 'catalog') }
+        catch { Set-HubMessage ((L 'No se pudo copiar la skill: ') + $_.Exception.Message) -Failed; return }
+        if ($conflicts -contains $Name) { Set-HubMessage ((Tx 'Ya tienes una skill {0} propia: no se toc\u00f3.') -f $Name) -Failed; Update-HubNow; return }
+    }
+    $text = if ($on) { L '{0} activado en {1}: se usa en las sesiones nuevas.' } else { L '{0} apagado en {1}.' }
+    Set-HubMessage ($text -f $Name, (L $where))
+    Update-HubNow
+}
+
+function Draw-HubCatalogList($G, $Map, $Hover, [int]$X0, [int]$Inner, [int]$Y) {
+    $P = $script:Palette
+    $F = $script:Fonts
+    $hub = $script:Hub
+    $c = $hub.Cache
+    if (-not $hub.CatalogSource) { $hub.CatalogSource = 'all' }
+    # The preview (and a first paint before the refresh) reads the catalog and the switches directly.
+    if ($null -eq $c.Catalog) { $c.Catalog = @(Get-CatalogItems (Join-Path $TrayRoot 'catalog')); $c.CatalogSettings = Get-CatalogSettings; $c.CatalogTargets = Get-CatalogTargets }
+    $scopes = Get-HubCatalogScopes
+    if (-not $hub.CatalogScope -or -not $scopes.Contains($hub.CatalogScope)) { $hub.CatalogScope = $CatalogEverywhere }
+    $half = [int]($Inner / 2)
+    Draw-HubDropdown $G $Map $Hover 'cat-source' (New-Rect ($X0 - (Px 10)) $Y ($half + (Px 4)) (Px 30)) 'Fuente' $script:CatalogSources $hub.CatalogSource 'Step-HubCatalogSource'
+    Draw-HubDropdown $G $Map $Hover 'cat-scope' (New-Rect ($X0 + $half) $Y $half (Px 30)) 'Activar en' $scopes $hub.CatalogScope 'Step-HubCatalogScope'
+    $y = $Y + (Px 38)
+    $rows = Get-HubCatalogRows
+    $pages = [Math]::Max(1, [int][Math]::Ceiling($rows.Count / $script:CatalogPageRows))
+    $page = [Math]::Min([int]$hub.SkillsPage, $pages - 1)
+    if (-not $rows.Count) {
+        $empty = New-Rect $X0 $y $Inner (Px 44)
+        Fill-Round $G $empty (Px 8) $P.Surface
+        Draw-Text $G 'Nada con este filtro.' $F.Body $P.Muted ($X0 + (Px 14)) $y ($Inner - (Px 28)) (Px 44)
+    }
+    foreach ($item in @($rows | Select-Object -Skip ($page * $script:CatalogPageRows) -First $script:CatalogPageRows)) {
+        $row = New-Rect $X0 $y $Inner (Px 44)
+        Fill-Round $G $row (Px 8) $P.Surface
+        $label = $item.Label
+        if ($item.Auth -eq 'oauth') { $label += (Tx '  \u00b7  ') + (Tx 'inicia sesi\u00f3n con /mcp') }
+        $sub = if ($item.Kind -eq 'mcp') { L $item.Description } else { $item.Description }
+        $on = Test-CatalogOn $c.CatalogSettings $item.Kind $item.Name $hub.CatalogScope
+        Draw-HubToggleRow $G $Map $Hover "cat-$($item.Kind)-$($item.Name)" $row $label $sub $on ([scriptblock]::Create("Switch-HubCatalogItem '$($item.Kind)' '$($item.Name)'"))
+        $y += Px 48
+    }
+    $pages
 }
 
 function Install-HubSkillPack([string]$Id) {
@@ -249,7 +381,8 @@ function Draw-HubSkillsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $y += Px 6
     $skills = @($c.Skills)
     $servers = @($c.Mcp)
-    $tabs = @(@{ Id = 'skills'; Label = "Skills ($($skills.Count))" }, @{ Id = 'mcp'; Label = (L 'Servidores MCP ({0})') -f $servers.Count })
+    $tabs = @(@{ Id = 'skills'; Label = "Skills ($($skills.Count))" }, @{ Id = 'mcp'; Label = (L 'Servidores MCP ({0})') -f $servers.Count },
+        @{ Id = 'catalog'; Label = (Tx 'Cat\u00e1logo ({0})') -f @($c.Catalog).Count })
     $x = $X0
     foreach ($tab in $tabs) {
         $active = $hub.SkillsTab -eq $tab.Id
@@ -261,8 +394,10 @@ function Draw-HubSkillsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         if (-not $active) { Add-Hit $Map $hitId $rect ([scriptblock]::Create("Set-HubSkillsTab '$($tab.Id)'")) }
         $x += $rect.Width + (Px 4)
     }
-    $rows = if ($hub.SkillsTab -eq 'mcp') { $servers } else { $skills }
-    $pages = [Math]::Max(1, [int][Math]::Ceiling($rows.Count / $script:SkillsPageRows))
+    $catalog = $hub.SkillsTab -eq 'catalog'
+    $rows = if ($hub.SkillsTab -eq 'mcp') { $servers } elseif ($catalog) { Get-HubCatalogRows } else { $skills }
+    $pageRows = if ($catalog) { $script:CatalogPageRows } else { $script:SkillsPageRows }
+    $pages = [Math]::Max(1, [int][Math]::Ceiling($rows.Count / $pageRows))
     $page = [Math]::Min([int]$hub.SkillsPage, $pages - 1)
     $right = $X0 + $Inner
     if ($pages -gt 1) {
@@ -279,8 +414,18 @@ function Draw-HubSkillsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
             $dir = Join-Path $env:USERPROFILE '.claude\skills'
             if (Test-Path -LiteralPath $dir) { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $dir + '"') }
         }
+    } elseif ($catalog) {
+        $label = if ($hub.CatalogQuery) { (Tx '\u201c{0}\u201d  \u00d7') -f $hub.CatalogQuery } else { Tx 'Buscar\u2026' }
+        $bw = Get-PillWidth $label
+        $action = if ($hub.CatalogQuery) { { $script:Hub.CatalogQuery = ''; $script:Hub.SkillsPage = 0; $script:HubDialog.Invalidate() } } else { { Show-HubCatalogSearch } }
+        Draw-PillButton $G $Map $Hover 'cat-search' (New-Rect ($right - $bw) ($y + (Px 2)) $bw (Px 24)) $label $action
     }
     $y += Px 38
+    if ($catalog) {
+        [void](Draw-HubCatalogList $G $Map $Hover $X0 $Inner $y)
+        Draw-Wrapped $G (Tx 'Todo viene apagado. Siempre: en todas tus sesiones. Un ambiente: solo en las sesiones de su carpeta. Se aplica en las sesiones nuevas.') $F.Small $P.Faint $X0 (Px 598) $Inner (Px 34)
+        return
+    }
     if (-not $rows.Count) {
         $empty = New-Rect $X0 $y $Inner (Px 44)
         Fill-Round $G $empty (Px 8) $P.Surface

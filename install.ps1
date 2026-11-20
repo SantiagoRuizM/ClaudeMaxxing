@@ -38,6 +38,7 @@ $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $RepoRoot 'lib\statusline.ps1')
 . (Join-Path $RepoRoot 'lib\schedule.ps1')
 . (Join-Path $RepoRoot 'lib\installer.ps1')
+. (Join-Path $RepoRoot 'lib\catalog.ps1')
 . (Join-Path $RepoRoot 'lib\bridge.ps1')
 . (Join-Path $RepoRoot 'lib\bridgeinstall.ps1')
 . (Join-Path $RepoRoot 'lib\business.ps1')
@@ -114,6 +115,11 @@ if ($stopped) { Write-Host "Claude Whisper stopped (PID $stopped)" }
 Write-Step 'Copying the runtime'
 $count = Sync-Runtime $RepoRoot $InstallDir
 Write-Host "$count files in $InstallDir"
+# The catalog skills switched on get the new version of their files (nothing is on until switched on in the window).
+try {
+    $conflicts = Sync-CatalogSkills (Get-CatalogSettings) (Get-CatalogTargets) (Join-Path $InstallDir 'catalog') -Refresh
+    if ($conflicts.Count) { Add-Warning ('Catalog skills left alone, a folder of yours has the name: ' + ($conflicts -join ', ')) }
+} catch { Add-Warning "Catalog skills not refreshed: $($_.Exception.Message)" }
 # Tray icons: taken from the installed Claude app (not redistributed here); without it the tray uses a stock icon.
 $assets = Join-Path $InstallDir 'assets'
 $claudeApp = Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue | Select-Object -First 1

@@ -155,7 +155,7 @@ This removes everything listed below, including the menu entry, its certificate 
 | **[Claude Whip](#claude-whip)** | When the plan runs low, Claude stops writing code and directs another agent (Codex, Antigravity, OpenCode or Copilot) that does. |
 | **[Other PCs](#other-pcs)** | Pair PCs on the same network to open terminals or Claude Code on each other, or let both Claudes debate a decision. Off until you turn it on. |
 | **[Claude Whisper](#claude-whisper)** | A live copilot for calls: it transcribes, spots questions and suggests what to say. |
-| **[Skills & MCP](#the-claudemaxxing-window)** | Every skill and MCP server Claude Code loads, and Anthropic's official packages to create your own. |
+| **[Skills & MCP](#skills--mcp-catalog)** | Every skill and MCP server Claude Code loads, Anthropic's official packages to create your own, and a catalog of about 430 skills and 16 MCP servers, all off until you switch one on, always or for one environment. |
 | **[Context saving](#context-saving) and [free models](#free-models-with-freellmapi)** | Optional add-ons that make the plan last longer. |
 
 There are two editions, picked at install: **personal** (the default, everything above) and **[business](#business-edition)** (`-Business`): the same tools under a company policy, plus a Business section with the seat report, team reports, the company's goals and the team kit.
@@ -407,6 +407,21 @@ The **Context saving (context-mode)** switch in the Claude Code section installs
 
 Nothing global changes: `~/.claude/settings.json`, scheduled sessions, open sessions and Other PCs keep using your plan. Quality and speed depend on the free model the router picks, and some providers' free tiers may use your prompts for training.
 
+### Skills & MCP catalog
+
+The **Catalog** tab of Skills & MCP lists third-party skills and MCP servers that come with ClaudeMaxxing, **all off**: a skill costs context in every session only once it is on. Each row has a switch, for the place picked in **Turn on in**: **Always** (every session: the skill is copied to `~/.claude/skills`, the server added with `claude mcp add -s user`) or one of your [environments](#environments) (only the sessions in its folder, `claude.dir` or else `folder`: `<folder>\.claude\skills`, listed in that repo's `.git/info/exclude`, and `claude mcp add -s local`). **Source** filters by repo (or shows what is on there) and **Search** by a word. Switching off deletes only the copies ClaudeMaxxing made (they carry a `.maxx-catalog` marker) and removes only the servers it added, so a skill or server of yours with the same name is never touched. It applies to new sessions; an MCP server marked *sign in with /mcp* asks for its OAuth login the first time.
+
+The skills are copied as text from these repos, at a pinned commit, by `toolsendor-catalog.ps1` (`catalog\sources.json` lists each commit and every skill left out, with the reason):
+
+| Source | License | What comes in |
+|---|---|---|
+| [anthropics/skills](https://github.com/anthropics/skills) | Apache-2.0 | The skills with no scripts (frontend-design, canvas-design, doc-coauthoring, theme-factory...) |
+| [obra/superpowers](https://github.com/obra/superpowers) | MIT | The skills with no scripts (test-driven-development, writing-plans...), without its SessionStart hook |
+| [wshobson/agents](https://github.com/wshobson/agents) | MIT | About 170 skills: languages, infrastructure, security, data, LLM apps |
+| [affaan-m/ECC](https://github.com/affaan-m/ECC) | MIT | About 240 skills. Not the ECC plugin itself, whose 28 hooks run on every tool call |
+
+A skill is left out if it ships any script, grants tools (`allowed-tools`), registers hooks, posts or acts on your accounts, needs a paid third-party API, promotes a sponsor or only works with its own plugin. The MCP servers (`catalog\mcp.json`) are the vendors' official ones: documentation with no login (Context7, Microsoft Learn, AWS Knowledge, Cloudflare Docs), services with OAuth (Linear, Notion, Atlassian, Sentry, GitLab, Vercel, Supabase, Stripe, Figma) and three local ones run with `npx` at a pinned version (Playwright, Memory, Sequential Thinking).
+
 ## Privacy, risks and permissions
 
 What each module lets in or sends out:
@@ -419,6 +434,7 @@ What each module lets in or sends out:
 | Claude Whisper | The call's audio, both sides, goes to Anthropic through an undocumented service; you are asked once before the first listen |
 | Voice | The Edge voice (the default) sends each spoken summary to Microsoft; ElevenLabs and Gemini send it to them. The Windows voice stays on the PC |
 | FreeLLMAPI | The prompts of the sessions it serves go to free third-party providers, some of which train on them |
+| Skills & MCP catalog | A skill is instructions Claude follows: the catalog's were checked when copied (text only, no scripts, hooks or tool grants) but are third-party. An MCP server you switch on reaches that vendor with your login; the local ones download their npm package the first time |
 | Keys | The ElevenLabs, Gemini and FreeLLMAPI keys are stored encrypted for your Windows user (DPAPI). The Jev key in `harness\.env` is plain text (Node reads it) |
 
 Statistics, transcripts and usage data are read and kept on your PC.
@@ -481,6 +497,7 @@ The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and
 
 - **ASCII scripts.** `.ps1` files must stay ASCII: Windows PowerShell 5.1 reads BOM-less scripts as ANSI. Accented UI text goes in as `\uXXXX` and is decoded with `Tx`, or comes from UTF-8 JSON.
 - **Runtime files.** `lib/installer.ps1` lists exactly which files make up the installed runtime.
+- **The skills catalog.** `toolsendor-catalog.ps1` rebuilds `catalog\skills`, `catalog\index.json` and `catalog\sources.json` from the commits pinned in it (bump them there to update). It runs nothing it downloads, applies the rules above, and lists lines that read like prompt injection to check by hand before committing. The servers are edited in `catalog\mcp.json` (pin an `npx` package's version).
 - **Languages** (`lib/lang/<code>.json`). The text in the code is Spanish, and each file maps it to its translation (`"strings"`), with the name shown in Settings (`"name"`) and the culture for numbers and dates (`"culture"`). To add a language, copy `en.json` to `<code>.json`, change `name` and `culture` and translate the values; a text left out shows in Spanish. Text built from pieces goes in as a template, `(L 'Actualizado hace {0} min') -f $n`, so a language can reorder it. `$env:CLAUDEMAXXING_LANG='en'` draws the previews in that language, and `test\run-tests.ps1` checks every catalog.
 - **Menu** (`menu/`): an `IExplorerCommand` in C++ (`menu/src`), registered through a sparse MSIX (`menu/package`). `menu\build.cmd` rebuilds the DLL and stub (needs Visual Studio with C++). `menu\package.ps1` rebuilds the unsigned MSIX after the manifest or the logos change (needs the Windows SDK; raise `Version` in `AppxManifest.xml` too). `menu\install.ps1` signs a copy with `menu\src\MsixSigner.cs` and registers it.
 
@@ -488,6 +505,6 @@ The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and
 
 ClaudeMaxxing is released under the [MIT License](LICENSE).
 
-Third-party code keeps its own license: Claude Judge's [court skill](claudeJudge/.claude/skills/court/LICENSE) (MIT, Alex Chen) and [Peek](peek/LICENSE), derived from midudev's Quick Peek (MIT). PyMuPDF (AGPL-3.0), Win32-OpenSSH, context-mode (Elastic License 2.0) and FreeLLMAPI (MIT) are downloaded on your PC when needed and never bundled.
+Third-party code keeps its own license: the catalog's skills ([anthropics/skills](catalog/skills/anthropic) Apache-2.0, [obra/superpowers](catalog/skills/superpowers/LICENSE), [wshobson/agents](catalog/skills/wshobson/LICENSE) and [affaan-m/ECC](catalog/skills/ecc/LICENSE), MIT), Claude Judge's [court skill](claudeJudge/.claude/skills/court/LICENSE) (MIT, Alex Chen) and [Peek](peek/LICENSE), derived from midudev's Quick Peek (MIT). PyMuPDF (AGPL-3.0), Win32-OpenSSH, context-mode (Elastic License 2.0) and FreeLLMAPI (MIT) are downloaded on your PC when needed and never bundled.
 
 ClaudeMaxxing is an independent project, not affiliated with or endorsed by Anthropic.

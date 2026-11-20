@@ -22,7 +22,9 @@ $script:RuntimeFiles = @(
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
 # claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
 # (env.js, the Chrome extension loaded unpacked from the install folder and its native messaging host).
-$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension', 'theme')
+$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension', 'theme',
+    # The catalog of Skills y MCP (lib\catalog.ps1): third-party skills copied as text, and the MCP servers it can add.
+    'catalog')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
 # the Python environment for edge-tts, the icons copied from the Claude app and the native host files that
 # Register-HarnessHost writes (Chrome may be running that launcher) and the extension's icons (install.ps1 draws them).
