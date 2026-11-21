@@ -310,7 +310,7 @@ An environment says what to close and what to open to work on one thing. For exa
 When the plan runs low, Claude Code stops writing code itself and directs another agent that does. Each agent spends its own quota, not your Claude plan.
 
 - **Setup.** The Claude Whip section has a switch, the threshold (70 % to 95 %, or always) and the agents you have installed: Codex, Antigravity CLI (`agy`), OpenCode and Copilot CLI, each with its account, plan and renewal date.
-- **When it acts.** At the threshold, or earlier when the open 5-hour window is past half and on pace to run out before it resets. The tray recomputes that forecast every 5 minutes, and the session says when the limit would come.
+- **When it acts.** At the threshold. With **Before the threshold, if it will run out** on (off by default), also earlier when the open 5-hour window is past half and on pace to run out before it resets; the tray recomputes that forecast every 5 minutes, and the session says when the limit would come.
 - **What it does.** In every session, including open ones, Claude can no longer edit, write, start subagents or run shell commands other than git, read-only ones, the agents and the check. Claude plans and writes the task, an agent writes the code (`whip\bin\whip-run.sh`), and Claude reviews git, runs the tests (`whip-check.sh`) and sends back what failed, for at most 3 rounds.
 - **What it is not.** The shell rule is a guard on your plan, not a sandbox, and most agents run without one (see [Privacy, risks and permissions](#privacy-risks-and-permissions)).
 
@@ -406,6 +406,7 @@ The ClaudeMaxxing app for Android shows the panel of the ClaudeMaxxing window an
 - The first page is the panel: the plan, the open sessions and every section of the window's side menu, with the same switches and choices. Buttons marked *on the PC* open something on the PC.
 - Swipe sideways to go through the open sessions, one page each, with the session's color. Each page shows the conversation as it happens and has a box to write to the session.
 - Attach photos, documents and audio to a session (the PC keeps them in ~/.claude/usage-tray/mobile/uploads and sends their path), dictate a voice note, and keep the sessions' eggs in the notification shade, moving and speaking as in the tray.
+- **Voice notes**: what each session's voice says arrives on the phone as a voice note in its chat, as in WhatsApp: play and pause, drag the bar, 1×, 1.5× or 2×, and what it said underneath. The phone downloads each one as soon as the PC has it, whichever page is open, and keeps it. The headphones icon lists them all, newest first, also after their session closed; a long press deletes one from the phone. The PC keeps only its last 100 (`historySize` in the voice settings), so a phone away for longer misses the older ones. Lines read by Windows' own voice (SAPI, when no engine made an mp3) have no audio to send.
 - One app can hold several PCs: switch between them with the computer icon.
 - **Phone** lists the paired phones, with the last time each one connected. **Revoke** cuts one off.
 

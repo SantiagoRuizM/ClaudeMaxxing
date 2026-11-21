@@ -1,7 +1,8 @@
 // Claude Whip rules, pure so node --test can cover them (whip/test/rules.test.mjs).
 // The tray (ClaudeMaxxing > Claude Whip) writes whip.json; the statusline keeps usage.json up to date.
 
-export type Settings = { enabled?: boolean; threshold?: number; agents?: string[] }
+// forecast: also on before the threshold when the window is on pace to run out (off unless switched on).
+export type Settings = { enabled?: boolean; threshold?: number; agents?: string[]; forecast?: boolean }
 // The company policy IT puts in %ProgramData%\ClaudeMaxxing\policy.json (lib\business.ps1). Read here too, so editing
 // whip.json does not get around a policy that turns the whip off.
 export type Policy = { disabled?: string[] }
@@ -68,11 +69,12 @@ export function forecastHit(forecast: Forecast | undefined, percent: number, now
   return forecast.projectedPercent >= 100 && percent >= FORECAST_FLOOR && nowSec - forecast.at <= FORECAST_MAX_AGE
 }
 
-// On, with an agent to hand work to, and the plan at or past the threshold (0 = always), or on pace to hit the limit.
+// On, with an agent to hand work to, and the plan at or past the threshold (0 = always), or on pace to hit the limit
+// when that switch is on: the threshold the user picked is never crossed otherwise.
 export function isActive(settings: Settings | undefined, percent: number, hit = false): boolean {
   if (!settings?.enabled || enabledAgents(settings).length === 0) return false
   const threshold = typeof settings.threshold === 'number' ? settings.threshold : 85
-  return percent >= threshold || hit
+  return percent >= threshold || (hit && settings.forecast === true)
 }
 
 // "plan at 62%, on pace to hit the limit at 15:40" when the forecast is what turned it on.

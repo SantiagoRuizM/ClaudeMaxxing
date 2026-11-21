@@ -2433,6 +2433,10 @@ function Set-HubWhipAgent([string]$Id, [bool]$On) {
     Update-HubWhip { param($s) $s.Agents = @(@($s.Agents | Where-Object { $_ -ne $Id }) + @(if ($On) { $Id })) } $(if ($On) { (L '{0} activado.') -f $Id } else { (L '{0} apagado.') -f $Id })
 }
 
+function Set-HubWhipForecast([bool]$On) {
+    Update-HubWhip { param($s) $s.Forecast = $On } $(if ($On) { 'Claude Whip entra antes del umbral si el plan va a agotarse.' } else { 'Claude Whip entra solo desde el umbral.' })
+}
+
 function Step-HubWhipThreshold([int]$Delta) {
     Update-HubWhip { param($s) $s.Threshold = Step-WhipThreshold $s.Threshold $Delta } 'Umbral de Claude Whip cambiado.'
 }
@@ -2450,7 +2454,7 @@ function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $names = @($agents | Where-Object { $s.Agents -contains $_.Id } | ForEach-Object { $_.Label }) -join ', '
 
     # the switch, what it is doing now and the threshold
-    $card = New-Rect $X0 (Px 72) $Inner (Px 108)
+    $card = New-Rect $X0 (Px 72) $Inner (Px 154)
     Draw-HubCard $G $card
     $tx = $card.X + (Px 16)
     $tw = $card.Width - (Px 84)
@@ -2459,15 +2463,17 @@ function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $status, $color = switch ($mode) {
         'off'     { (Tx 'Apagado. Cuando el plan llegue al umbral, un agente programa y Claude revisa el git, ejecuta los tests y le devuelve lo que falle.'), $P.Muted }
         'noagent' { (Tx 'Activa al menos un agente abajo: sin agentes, Claude Whip no entra en acci\u00f3n.'), $P.Warn }
-        'armed'   { ((Tx 'Listo: entra en acci\u00f3n cuando el plan llegue al {0}% (ahora {1}%) o vaya a agotarse antes de reiniciarse.') -f $s.Threshold, $pct), $P.Muted }
+        'armed'   { $(if ($s.Forecast) { (Tx 'Listo: entra en acci\u00f3n cuando el plan llegue al {0}% (ahora {1}%) o vaya a agotarse antes de reiniciarse.') } else { (Tx 'Listo: entra en acci\u00f3n cuando el plan llegue al {0}% (ahora {1}%).') }) -f $s.Threshold, $pct; $P.Muted }
         'forecast' { ((Tx '\u2713 En acci\u00f3n antes del umbral: a este ritmo el plan ({0}%) se agota a las {1}. Programa {2}.') -f $pct, $forecast.limitAt, $names), $P.Ok }
         default   { ((Tx '\u2713 En acci\u00f3n (plan al {0}%): programa {1}; Claude revisa el git y los tests.') -f $pct, $names), $P.Ok }
     }
     Draw-Text $G $status $F.Small $color $tx ($card.Y + (Px 38)) ($card.Width - (Px 32)) (Px 18)
     Draw-HubPicker $G $Map $Hover 'whip-threshold' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 66)) ($card.Width - (Px 12)) (Px 30)) 'Se activa' (Format-WhipThreshold $s.Threshold) 'Step-HubWhipThreshold'
+    # The forecast turns it on before the threshold only when switched on here: the threshold is what the user picked.
+    Draw-HubToggleRow $G $Map $Hover 'whip-forecast' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 104)) ($card.Width - (Px 12)) (Px 42)) (Tx 'Antes del umbral, si va a agotarse') (Tx 'Desde el 50 %, cuando a este ritmo el plan se acaba antes de renovarse.') ([bool]$s.Forecast) ([scriptblock]::Create("Set-HubWhipForecast `$$(-not $s.Forecast)")) ($s.Threshold -gt 0)
 
     # the agents
-    $y = Px 192
+    $y = Px 238
     Draw-HubCaption $G 'AGENTES' $X0 $y $Inner 'Cada uno gasta su propia cuota'
     $y += Px 22
     $list = New-Rect $X0 $y $Inner ([Math]::Max(1, $agents.Count) * (Px 46) + (Px 8))

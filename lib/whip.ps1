@@ -18,7 +18,7 @@ $script:WhipAgents = @(
         Note = 'Segunda opini\u00f3n, con tu cuenta de GitHub Copilot.' }
 )
 
-# @{ Enabled; Threshold; Agents } with the defaults for a missing or damaged file; unknown agents are dropped.
+# @{ Enabled; Threshold; Agents; Forecast } with the defaults for a missing or damaged file; unknown agents are dropped.
 function Get-WhipSettings([string]$Path = $WhipFile) {
     $saved = Read-JsonFile $Path
     $known = @($script:WhipAgents | ForEach-Object { $_.Id })
@@ -27,12 +27,14 @@ function Get-WhipSettings([string]$Path = $WhipFile) {
     [pscustomobject]@{
         Enabled = [bool]($saved -and $saved.enabled)
         Threshold = $threshold
+        # Also on before the threshold when the window is on pace to run out: off unless switched on.
+        Forecast = [bool]($saved -and $saved.forecast)
         Agents = @(@($(if ($saved) { $saved.agents })) | Where-Object { $known -contains $_ } | ForEach-Object { [string]$_ })
     }
 }
 
 function Save-WhipSettings($Settings, [string]$Path = $WhipFile) {
-    Write-JsonFile $Path ([ordered]@{ enabled = [bool]$Settings.Enabled; threshold = [int]$Settings.Threshold; agents = @($Settings.Agents) })
+    Write-JsonFile $Path ([ordered]@{ enabled = [bool]$Settings.Enabled; threshold = [int]$Settings.Threshold; agents = @($Settings.Agents); forecast = [bool]$Settings.Forecast })
 }
 
 # The agents with whether each CLI is on PATH and its account (a PATH lookup and a few small files each: called on the
@@ -154,7 +156,7 @@ function Get-WhipMode($Settings, [int]$Percent, $Forecast = $null, [datetime]$No
     if (-not $Settings.Enabled) { return 'off' }
     if (-not @($Settings.Agents).Count) { return 'noagent' }
     if ($Percent -ge $Settings.Threshold) { return 'active' }
-    if (Test-WhipForecastHit $Forecast $Percent $Now) { 'forecast' } else { 'armed' }
+    if ($Settings.Forecast -and (Test-WhipForecastHit $Forecast $Percent $Now)) { 'forecast' } else { 'armed' }
 }
 
 # A company policy that turns the module off also turns off a switch left on (the plugin only reads whip.json).

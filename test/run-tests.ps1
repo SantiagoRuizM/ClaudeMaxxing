@@ -776,18 +776,20 @@ try {
     Assert-Equal "True|85|codex,agy" "$($ws.Enabled)|$($ws.Threshold)|$($ws.Agents -join ',')" 'whip: unknown threshold and agents dropped'
     $ws.Agents = @('codex'); $ws.Threshold = 0
     Save-WhipSettings $ws $whipFile
-    Assert-Equal '{"enabled":true,"threshold":0,"agents":["codex"]}' (([IO.File]::ReadAllText($whipFile) | ConvertFrom-Json) | ConvertTo-Json -Compress) 'whip: one agent stays a list (the plugin reads an array)'
+    Assert-Equal '{"enabled":true,"threshold":0,"agents":["codex"],"forecast":false}' (([IO.File]::ReadAllText($whipFile) | ConvertFrom-Json) | ConvertTo-Json -Compress) 'whip: one agent stays a list (the plugin reads an array)'
     Assert-Equal 90 (Step-WhipThreshold 85 1) 'whip: threshold up'
     Assert-Equal 0 (Step-WhipThreshold 95 1) 'whip: threshold wraps to always'
     Assert-Equal 'Siempre|Desde 85%' ((Format-WhipThreshold 0) + '|' + (Format-WhipThreshold 85)) 'whip: threshold labels'
-    $mode = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex') }
+    $mode = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex'); Forecast = $false }
     Assert-Equal 'armed|active' ((Get-WhipMode $mode 84) + '|' + (Get-WhipMode $mode 85)) 'whip: armed under the threshold, active at it'
     $fcFile = "$whipFile.forecast"
     $wNow = Get-Date
     Save-WhipForecast ([pscustomobject]@{ ProjectedPercent = 131.6; LimitAt = $wNow.Date.AddHours(15).AddMinutes(40) }) $wNow $fcFile
     $wfc = Read-JsonFile $fcFile
     Assert-Equal '132|15:40' "$($wfc.projectedPercent)|$($wfc.limitAt)" 'whip forecast: percent and the time the limit is hit'
-    Assert-Equal 'forecast|armed' ((Get-WhipMode $mode 62 $wfc $wNow) + '|' + (Get-WhipMode $mode 40 $wfc $wNow)) 'whip: on pace to hit the limit turns it on from half the plan'
+    Assert-Equal 'armed' (Get-WhipMode $mode 62 $wfc $wNow) 'whip: the threshold rules while the forecast switch is off'
+    $mode.Forecast = $true
+    Assert-Equal 'forecast|armed' ((Get-WhipMode $mode 62 $wfc $wNow) + '|' + (Get-WhipMode $mode 40 $wfc $wNow)) 'whip: switched on, on pace to hit the limit turns it on from half the plan'
     Assert-Equal 'armed' (Get-WhipMode $mode 62 $wfc $wNow.AddMinutes(20)) 'whip: a stale forecast does not count'
     Save-WhipForecast ([pscustomobject]@{ ProjectedPercent = $null }) $wNow $fcFile
     Assert-Equal $false (Test-Path $fcFile) 'whip forecast: removed when there is none'
