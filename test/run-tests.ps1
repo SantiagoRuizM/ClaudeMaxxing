@@ -480,11 +480,13 @@ try {
     Assert-Equal 0 @((Get-HarnessState $null).Envs).Count 'harness: no folder, no environments'
     Assert-Equal $false ([bool](Test-HarnessDir $yh)) 'harness: a folder without env.js is not the harness'
     [IO.File]::WriteAllText((Join-Path $yh 'env.js'), '')
-    [IO.File]::WriteAllText((Join-Path $yh 'environments\Zeta.json'), '{"name":"Zeta","focus":"z"}')
+    [IO.File]::WriteAllText((Join-Path $yh 'environments\Zeta.json'), '{"name":"Zeta","focus":"z","folder":"D:\\zeta","claude":{"dir":"D:\\zeta\\app"}}')
     [IO.File]::WriteAllText((Join-Path $yh 'environments\alfa.json'), '{"name":"Alfa","focus":"a"}')
     Assert-Equal $true ([bool](Test-HarnessDir $yh)) 'harness: a folder with env.js is'
     $hs = Get-HarnessState $yh
     Assert-Equal 'alfa,zeta' ((@($hs.Envs) | ForEach-Object { $_.Id }) -join ',') 'harness: environments sorted, ids lower-case'
+    Assert-Equal 'D:\zeta|D:\zeta\app' (@($hs.Envs[1].Folders) -join '|') 'harness: an environment knows its folder and where its Claude opens'
+    Assert-Equal 0 @($hs.Envs[0].Folders).Count 'harness: an environment without a folder has none'
     Assert-Equal $null $hs.Active 'harness: nothing on without active.json'
     [IO.File]::WriteAllText((Join-Path $yh 'run\active.json'), '{"id":"alfa","name":"Alfa","since":"2026-11-03T09:00:00Z"}')
     [IO.File]::WriteAllText((Join-Path $yh 'run\job.json'), '{"id":"zeta","name":"Zeta","action":"on","state":"running","step":"x","pid":999999}')
@@ -881,11 +883,12 @@ foreach ($src in 'anthropic', 'superpowers', 'wshobson', 'ecc') {
 $catHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-catalog-{0}' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
 try {
     $fakeCat = "$catHome\cat"
-    Write-SkillFixture "$fakeCat\index.json" '{ "skills": [ { "name": "alpha", "source": "ecc", "description": "A" }, { "name": "beta", "source": "wshobson", "description": "B" } ] }'
+    Write-SkillFixture "$fakeCat\index.json" '{ "skills": [ { "name": "alpha", "source": "ecc", "description": "A" }, { "name": "beta", "source": "wshobson", "description": "B" }, { "name": "gamma", "source": "ecc", "description": "G" } ] }'
     Write-SkillFixture "$fakeCat\mcp.json" '{ "servers": [ { "name": "docs", "label": "Docs", "auth": "none", "description": "d", "config": { "type": "http", "url": "https://docs.example.com/mcp" } }, { "name": "local", "label": "Local", "auth": "none", "description": "l", "config": { "command": "cmd", "args": ["/c", "npx", "-y", "pkg@1.0.0"] } } ] }'
     Write-SkillFixture "$fakeCat\skills\ecc\alpha\SKILL.md" "---`nname: alpha`ndescription: A`n---"
     Write-SkillFixture "$fakeCat\skills\ecc\alpha\references\more.md" 'more'
     Write-SkillFixture "$fakeCat\skills\wshobson\beta\SKILL.md" "---`nname: beta`ndescription: B`n---"
+    Write-SkillFixture "$fakeCat\skills\ecc\gamma\SKILL.md" "---`nname: gamma`ndescription: G`n---"
     Write-SkillFixture "$catHome\claude\skills\beta\SKILL.md" "---`nname: beta`ndescription: mine`n---"
     $proj = "$catHome\work"
     New-Item -ItemType Directory -Force -Path "$proj\.git\info" | Out-Null
@@ -899,6 +902,7 @@ try {
     Set-CatalogItem $set 'skill' 'alpha' '*' $true
     Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $true
     Set-CatalogItem $set 'skill' 'beta' '*' $true
+    Set-CatalogItem $set 'skill' 'gamma' 'trabajo' $true
     Save-CatalogSettings $set "$catHome\catalog.json"
     $set = Get-CatalogSettings "$catHome\catalog.json"
     Assert-Equal '*,trabajo' ($set.skills['alpha'] -join ',') 'catalog settings: one item on in two targets survives a save'
@@ -906,12 +910,13 @@ try {
     Assert-Equal 'beta' ($conflicts -join ',') 'catalog: a skill folder of the user with the same name is reported'
     Assert-Equal 'mine' (Read-SkillHeader "$catHome\claude\skills\beta\SKILL.md").Description 'catalog: and left alone'
     Assert-Equal $true ((Test-Path "$catHome\claude\skills\alpha\references\more.md") -and (Test-Path "$catHome\claude\skills\alpha\.maxx-catalog")) 'catalog: on always copies the whole folder, marked'
-    Assert-Equal $true (Test-Path "$proj\.claude\skills\alpha\SKILL.md") 'catalog: on in an environment copies into its folder'
-    Assert-Equal $true ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match '(?m)^/\.claude/skills/alpha/$') 'catalog: and keeps it out of git status'
+    Assert-Equal $true (Test-Path "$proj\.claude\skills\gamma\SKILL.md") 'catalog: on in an environment copies into its folder'
+    Assert-Equal $true ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match '(?m)^/\.claude/skills/gamma/$') 'catalog: and keeps it out of git status'
     Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $false
+    Set-CatalogItem $set 'skill' 'gamma' 'trabajo' $false
     Set-CatalogItem $set 'skill' 'beta' '*' $false
     [void](Sync-CatalogSkills $set $targets $fakeCat)
-    Assert-Equal $false (Test-Path "$proj\.claude\skills\alpha") 'catalog: off deletes the marked copy'
+    Assert-Equal $false (Test-Path "$proj\.claude\skills\gamma") 'catalog: off deletes the marked copy'
     Assert-Equal $false ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match 'ClaudeMaxxing') 'catalog: and its exclude lines'
     Assert-Equal $true ((Test-Path "$catHome\claude\skills\alpha") -and (Test-Path "$catHome\claude\skills\beta\SKILL.md")) 'catalog: other targets and the user skill stay'
 
@@ -919,7 +924,7 @@ try {
     Set-CatalogItem $set 'mcp' 'local' 'trabajo' $true
     $calls = New-Object System.Collections.Generic.List[string]
     $fake = { param($a) $calls.Add((Get-Location).Path + '>' + ($a -join ' ')); if ($a -contains 'local' -and $a[1] -eq 'add') { @{ Ok = $false; Output = "MCP server local already exists`nmore" } } else { @{ Ok = $true; Output = '' } } }
-    $items = Get-CatalogItems $fakeCat
+    $items = Get-CatalogItems $fakeCat "$catHome\stash.json"
     $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
     Assert-Equal "$env:USERPROFILE>mcp add --transport http -s user docs https://docs.example.com/mcp|$proj>mcp add -s local local -- cmd /c npx -y pkg@1.0.0" ($calls -join '|') 'catalog mcp: http with flags for the user, stdio in the environment folder'
     Assert-Equal 'local: MCP server local already exists' ($errors -join '|') 'catalog mcp: a name taken by a server of yours is an error, not recorded'
@@ -930,6 +935,61 @@ try {
     $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
     Assert-Equal "$env:USERPROFILE>mcp remove -s user docs" ($calls -join '|') 'catalog mcp: off removes only what ClaudeMaxxing added'
     Assert-Equal 0 @((Get-CatalogApplied "$catHome\applied.json")['*']).Count 'catalog mcp: and forgets it'
+
+    # An Ambiente with its own list: what is on always is not copied or added again in its folder.
+    $set = Get-CatalogSettings "$catHome\none.json"
+    Assert-Equal 0 $set.limited.Count 'catalog settings: no Ambiente has its own list at first'
+    Set-CatalogItem $set 'skill' 'alpha' '*' $true
+    Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $true
+    Set-CatalogItem $set 'skill' 'mine' 'trabajo' $true
+    Set-CatalogItem $set 'mcp' 'docs' '*' $true
+    Set-CatalogItem $set 'mcp' 'docs' 'trabajo' $true
+    $set.limited = [string[]]@('trabajo')
+    Save-CatalogSettings $set "$catHome\catalog.json"
+    $set = Get-CatalogSettings "$catHome\catalog.json"
+    Assert-Equal 'trabajo' ($set.limited -join ',') 'catalog settings: the Ambientes with a list survive a save'
+    [void](Sync-CatalogSkills $set $targets $fakeCat)
+    Assert-Equal $false (Test-Path "$proj\.claude\skills\alpha") 'catalog: a skill on always is not copied into an Ambiente too'
+    Assert-Equal $true ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match '(?m)^/\.claude/settings\.local\.json$') 'catalog: a limited Ambiente keeps its settings.local.json out of git'
+    Assert-Equal 'add docs *' ((@(Get-CatalogMcpPlan $set $targets @{} $items) | ForEach-Object { "$($_.Action) $($_.Name) $($_.Target.Id)" }) -join '|') 'catalog mcp: a server on always is not added in an Ambiente too'
+
+    # The Ambiente's folder: every other skill off, the listed ones on, the other servers blocked; yours stay.
+    Write-SkillFixture "$proj\.claude\settings.local.json" '{ "permissions": { "allow": ["Bash(git:*)"] }, "skillOverrides": { "keepme": "name-only" }, "deniedMcpServers": [ { "serverName": "theirs" } ] }'
+    Sync-CatalogOverrides $set $targets ([string[]]@('mine', 'alpha', 'p:tool', 'keepme')) ([string[]]@('docs', 'plugin:p:srv', 'theirs')) "$catHome\overrides.json"
+    $local = Read-JsonFile "$proj\.claude\settings.local.json"
+    Assert-Equal 'keepme=name-only, mine=on, alpha=on, p:tool=off' (($local.skillOverrides.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ', ') 'overrides: the list on, every other skill off, an entry of yours kept'
+    Assert-Equal 'theirs, plugin:p:srv' (($local.deniedMcpServers | ForEach-Object { $_.serverName }) -join ', ') 'overrides: the servers off the list blocked, yours kept'
+    Assert-Equal 'Bash(git:*)' ($local.permissions.allow -join ',') 'overrides: the rest of the file stays'
+    $set.limited = [string[]]@()
+    Sync-CatalogOverrides $set $targets ([string[]]@('mine', 'alpha', 'p:tool', 'keepme')) ([string[]]@('docs', 'plugin:p:srv', 'theirs')) "$catHome\overrides.json"
+    $local = Read-JsonFile "$proj\.claude\settings.local.json"
+    Assert-Equal 'keepme|theirs' ((@($local.skillOverrides.PSObject.Properties.Name) -join ',') + '|' + (@($local.deniedMcpServers.serverName) -join ',')) 'overrides: without the list only its own entries go'
+
+    # Siempre: a skill of yours off in skillOverrides of settings.json, edited as text.
+    Write-SkillFixture "$catHome\settings.json" "{`n  `"model`": `"opus`"`n}"
+    Set-CatalogSkillOff 'ship' $true "$catHome\settings.json"
+    Set-CatalogSkillOff 'p:tool' $true "$catHome\settings.json"
+    Assert-Equal 'ship,p:tool' ((Get-CatalogSkillOff "$catHome\settings.json") -join ',') 'skill off: written in skillOverrides'
+    Assert-Equal 'opus' (Read-JsonFile "$catHome\settings.json").model 'skill off: the rest of settings.json stays'
+    Set-CatalogSkillOff 'ship' $false "$catHome\settings.json"
+    Set-CatalogSkillOff 'p:tool' $false "$catHome\settings.json"
+    Assert-Equal "{`n  `"model`": `"opus`"`n}" ([IO.File]::ReadAllText("$catHome\settings.json")) 'skill off: back on leaves the file as it was'
+    Assert-Equal $null (Set-JsonKeyText '{ "a": [1, 2 }' 'b' 'x') 'json text: a result that would not parse is refused'
+
+    # Siempre: a server of yours off goes to the stash (with its env and headers) and is removed; on, added back.
+    Write-SkillFixture "$catHome\claude.json" '{ "mcpServers": { "aws": { "type": "stdio", "command": "uvx", "args": ["aws-mcp"], "env": { "AWS_PROFILE": "dev" } }, "api": { "type": "http", "url": "https://api.example.com/mcp", "headers": { "Authorization": "Bearer x" } } } }'
+    Save-CatalogStash 'aws' "$catHome\claude.json" "$catHome\stash.json" "$catHome\applied.json"
+    Save-CatalogStash 'api' "$catHome\claude.json" "$catHome\stash.json" "$catHome\applied.json"
+    $set = Get-CatalogSettings "$catHome\none.json"
+    $items = Get-CatalogItems $fakeCat "$catHome\stash.json"
+    $calls.Clear()
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp remove -s user aws|$env:USERPROFILE>mcp remove -s user api" ($calls -join '|') 'stash: a server of yours off in Siempre is removed'
+    Set-CatalogItem $set 'mcp' 'aws' 'trabajo' $true
+    Set-CatalogItem $set 'mcp' 'api' '*' $true
+    $calls.Clear()
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp add --transport http -H Authorization: Bearer x -s user api https://api.example.com/mcp|$proj>mcp add -e AWS_PROFILE=dev -s local aws -- uvx aws-mcp" ($calls -join '|') 'stash: added back with its env and headers, in Siempre or in an Ambiente'
 } finally { Remove-Item -LiteralPath $catHome -Recurse -Force -ErrorAction SilentlyContinue }
 Assert-Equal 'claude --session-id 1111 "Usa la skill skill-creator: crea una skill"' (Format-ClaudeCommand 'claude' '1111' '' 'green' '' 'Usa la skill "skill-creator": crea una skill') 'claude command: a first prompt takes the place of /color, without its double quotes'
 Assert-Equal 'claude "uno\; dos"' (Format-ClaudeCommand 'claude' '' '' '' '' 'uno; dos') 'claude command: a ; in the prompt is escaped for wt'
@@ -1799,7 +1859,7 @@ foreach ($script in 'install.ps1', 'get.ps1') {
 }
 
 $policy = Merge-BusinessPolicy $null
-Assert-Equal 'ambientes,bridge,freellm,whip,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs, Whisper, Whip and Ambientes off by default'
+Assert-Equal 'ambientes,bridge,freellm,mobile,whip,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs, Whisper, Whip, Ambientes and Celular off by default'
 $policy = Merge-BusinessPolicy ([pscustomobject]@{ disabled = @('whisper'); seatMonthlyUsd = '150'; autoReport = 1; unknown = 'x'; plugins = 'one@kit' })
 Assert-Equal 'whisper' (@($policy.disabled) -join ',') 'policy: a list replaces the default'
 Assert-Equal 150 $policy.seatMonthlyUsd 'policy: the seat price is a number'
@@ -1892,6 +1952,158 @@ try {
     Assert-Equal $true (Test-ReportDue $due ([pscustomobject]@{ lastReportAt = $now.AddDays(-8).ToString('o') }) $now) 'auto report: due after 7 days'
     Assert-Equal $false (Test-ReportDue ([pscustomobject]@{ Business = $true; Policy = (Merge-BusinessPolicy $null) }) $null $now) 'auto report: only when the policy asks'
 } finally { Remove-Item -LiteralPath $bizRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Celular (the phone app's server, lib\mobile.ps1 and lib\mobile.cs)
+Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $TrayRoot 'lib\mobile.cs'))) -ReferencedAssemblies System.Core
+. (Join-Path $TrayRoot 'lib\mobile.ps1')
+$mobileRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-mobile-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $mobileRoot | Out-Null
+$MobileHome = $mobileRoot
+$MobileLogFile = Join-Path $mobileRoot 'mobile.log'
+$MobileDevicesFile = Join-Path $mobileRoot 'devices.json'
+$MobileSettingsFile = Join-Path $mobileRoot 'settings.json'
+try {
+    $pairing = New-MobilePairing $now
+    Assert-Equal 16 $pairing.Code.Length 'mobile: the pairing code is 16 hex characters'
+    Assert-Equal 'none' (Test-MobilePairCode $null 'x' $now) 'mobile: no pairing open refuses every code'
+    Assert-Equal 'wrong' (Test-MobilePairCode $pairing 'nope' $now) 'mobile: a wrong code is refused'
+    Assert-Equal 'ok' (Test-MobilePairCode $pairing $pairing.Code $now) 'mobile: the right code pairs'
+    Assert-Equal 'wrong' (Test-MobilePairCode $pairing $pairing.Code.ToUpper() $now) 'mobile: the code is case-sensitive'
+    Assert-Equal 'expired' (Test-MobilePairCode $pairing $pairing.Code $now.AddMinutes(6)) 'mobile: the code expires after 5 minutes'
+    $tries = New-MobilePairing $now
+    foreach ($i in 1..5) { [void](Test-MobilePairCode $tries 'bad' $now) }
+    Assert-Equal 'expired' (Test-MobilePairCode $tries $tries.Code $now) 'mobile: five wrong tries end the pairing'
+
+    $q = ConvertFrom-MobileQuery 'session=abc&after=12&x=a%20b&y=c+d&flag'
+    Assert-Equal 'abc|12|a b|c d|' ('{0}|{1}|{2}|{3}|{4}' -f $q['session'], $q['after'], $q['x'], $q['y'], $q['flag']) 'mobile: the query string is decoded'
+    Assert-Equal 'cmx://pair?h=192.168.1.5,100.64.0.9&p=47830&f=ab&c=cd&n=MY%20PC' (Format-MobilePairUri @('192.168.1.5', '100.64.0.9') 47830 'ab' 'cd' 'MY PC') 'mobile: the pairing URI the QR carries'
+
+    foreach ($case in @(@('192.168.1.2', $true), @('10.1.2.3', $true), @('172.20.0.1', $true), @('172.32.0.1', $false), @('8.8.8.8', $false),
+            @('100.100.1.1', $true), @('100.128.0.1', $false), @('127.0.0.1', $true), @('::1', $true), @('fd7a:115c:a1e0::1', $true),
+            @('fe80::1', $true), @('2001:4860::1', $false), @('::ffff:10.0.0.1', $true), @('::ffff:8.8.4.4', $false))) {
+        Assert-Equal $case[1] ([ClaudeTray.MobileGate]::IsAllowed([System.Net.IPAddress]::Parse($case[0]))) "mobile: $($case[0]) allowed is $($case[1])"
+    }
+    Assert-Equal $true ((Get-MobileFirewallScript 47830) -match 'LocalPort 47830 .*-Profile Private,Domain -RemoteAddress LocalSubnet,100\.64\.0\.0/10') 'mobile: the firewall rule is the port, private networks, LAN and Tailscale'
+
+    # tokens: only the hash is kept
+    $token = New-RandomHex 32
+    $devices = @([pscustomobject]@{ id = 'aaaaaaaaaaaa'; name = 'Pixel'; tokenHash = (Get-Sha256Hex $token); lastSeen = ''; address = '' })
+    Assert-Equal 'aaaaaaaaaaaa' (Find-MobileDevice $devices $token).id 'mobile: a paired token finds its device'
+    Assert-Equal $null (Find-MobileDevice $devices (New-RandomHex 32)) 'mobile: another token finds nothing'
+    Assert-Equal $null (Find-MobileDevice $devices 'short') 'mobile: a short token finds nothing'
+
+    # requests: /info is open, the rest needs a token, /pair needs the code once
+    $script:Mobile.Devices = @()
+    $script:Mobile.Pairing = New-MobilePairing
+    $req = { param($Method, $Path, $Token, $Body) $r = New-Object ClaudeTray.MobileRequest; $r.Method = $Method; $r.Path = $Path; $r.Token = "$Token"; $r.Body = "$Body"; $r.Remote = '192.168.1.40'; Invoke-MobileRequest $r }
+    Assert-Equal 200 (& $req 'GET' '/info').Status 'mobile: /info answers without a token'
+    Assert-Equal 401 (& $req 'GET' '/state').Status 'mobile: /state without a token is refused'
+    Assert-Equal 401 (& $req 'POST' '/pair' '' '{"code":"0000","device":"Pixel"}').Status 'mobile: /pair with a wrong code is refused'
+    $paired = & $req 'POST' '/pair' '' ('{"code":"' + $script:Mobile.Pairing.Code + '","device":"Pixel 8"}')
+    Assert-Equal 200 $paired.Status 'mobile: /pair with the code answers a token'
+    Assert-Equal 64 ([string]$paired.Body.token).Length 'mobile: the token is 32 random bytes'
+    Assert-Equal $null $script:Mobile.Pairing 'mobile: the code works once'
+    Assert-Equal 'Pixel 8' @(Read-MobileDevices)[0].name 'mobile: the device is saved'
+    Assert-Equal $false ((Get-Content -LiteralPath $MobileDevicesFile -Raw).Contains($paired.Body.token)) 'mobile: the saved file never holds the token'
+    Assert-Equal 404 (& $req 'GET' '/nope' $paired.Body.token).Status 'mobile: an unknown route with a token is 404'
+    Assert-Equal 400 (& $req 'POST' '/prompt' $paired.Body.token '{"session":"../x","text":"hi"}').Status 'mobile: a session id that is not a GUID is refused'
+    Assert-Equal 400 (& $req 'GET' '/messages' $paired.Body.token).Status 'mobile: /messages needs a session'
+    Assert-Equal 400 (& $req 'POST' '/action' $paired.Body.token '{bad').Status 'mobile: a body that is not JSON is refused'
+    Assert-Equal 200 (& $req 'POST' '/unpair' $paired.Body.token).Status 'mobile: a phone can unpair itself'
+    Assert-Equal 401 (& $req 'GET' '/state' $paired.Body.token).Status 'mobile: an unpaired token is refused'
+
+    # a choice sends a step to the hub's Step- command; actions are only the ones a section registered
+    $script:MobileSection = 'test'
+    $script:StepSeen = $null
+    function Step-TestChoice([int]$Delta) { $script:StepSeen = $Delta }
+    $choice = MChoice 'pick' 'Pick' ([ordered]@{ a = 'A'; b = 'B' }) 'a' 'Step-TestChoice'
+    & $script:Mobile.Actions['test/pick'] 1
+    Assert-Equal 1 $script:StepSeen 'mobile: a choice calls its command with the step'
+    Assert-Equal 'a,b' (@($choice.options | ForEach-Object { $_.k }) -join ',') 'mobile: a choice lists its options in order'
+
+    # Ambientes from the phone: the app asks, so the PC switches without a dialog nobody could answer
+    $savedHub = $script:Hub
+    $savedSwitch = ${function:Switch-HubHarness}
+    $script:Hub = @{ Cache = @{ Harness = @{ Dir = 'x'; Job = $null; Active = $null; Envs = @(@{ Id = 'work'; Name = 'Trabajo' }) } } }
+    $script:MobileSection = 'envs'
+    function Get-HubHarnessQuestion([string]$Id) { "ask $Id" }
+    $envSwitch = @(Get-MobileEnvsItems | Where-Object { $_.t -eq 'switch' })[0]
+    Assert-Equal 'ask work' $envSwitch.confirm 'mobile: an environment switch carries the question for the app'
+    function Switch-HubHarness([string]$Id, [switch]$NoConfirm) { $script:SwitchSeen = "$Id $NoConfirm" }
+    & $script:Mobile.Actions['envs/env-work']
+    Assert-Equal 'work True' $script:SwitchSeen 'mobile: the phone switches the environment without asking on the PC'
+    ${function:Switch-HubHarness} = $savedSwitch
+    $script:Hub = $savedHub
+
+    # the panel's quick Nueva sesion: in /state, its action registered under Claude Code
+    $savedState = ${function:Get-MobileState}; $savedNew = ${function:Get-MobileNewSessionItem}
+    function Get-MobileState { [ordered]@{ pc = 'x' } }
+    function Get-MobileNewSessionItem { [ordered]@{ t = 'choice'; id = (Register-MobileAction 'new-session' { }) } }
+    $script:Mobile.Actions.Remove('code/new-session')
+    Assert-Equal 'new-session' (Get-MobilePanelState).newSession.id 'mobile: /state carries the quick new session'
+    Assert-Equal $true $script:Mobile.Actions.ContainsKey('code/new-session') 'mobile: the quick new session acts as the one in Claude Code'
+    ${function:Get-MobileState} = $savedState; ${function:Get-MobileNewSessionItem} = $savedNew
+
+    # Energia: the shutdown asks on the phone; while it counts down, only its cancel
+    $script:MobileSection = 'power'
+    $script:Mobile.ShutdownAt = $null
+    $shut = @(Get-MobilePowerItems | Where-Object { $_.t -eq 'button' -and $_.id -eq 'shutdown' })[0]
+    Assert-Equal $true ($shut.confirm -like "*$env:COMPUTERNAME*") 'mobile: shutting down the PC asks first on the phone'
+    $script:Mobile.ShutdownAt = (Get-Date).AddSeconds(30)
+    Assert-Equal 'dark-on,shutdown-cancel' (@(Get-MobilePowerItems | Where-Object { $_.t -eq 'button' } | ForEach-Object { $_.id }) -join ',') 'mobile: a pending shutdown offers its cancel'
+    $script:Mobile.ShutdownAt = $null
+
+    # the transcript: complete lines only, read again from the returned offset
+    $transcript = Join-Path $mobileRoot 't.jsonl'
+    $lines = @(
+        '{"type":"user","message":{"role":"user","content":"hola"},"timestamp":"t1"}',
+        '{"type":"user","isMeta":true,"message":{"role":"user","content":"meta"}}',
+        '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"Listo."},{"type":"tool_use","name":"Bash","input":{"command":"git status","description":"Show status"}}]}}',
+        '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}',
+        '{"type":"user","message":{"role":"user","content":"<command-name>/color</command-name>\n<command-args>orange</command-args>"}}'
+    )
+    [IO.File]::WriteAllText($transcript, ($lines -join "`n") + "`n" + '{"type":"user","mess', (New-Object System.Text.UTF8Encoding($false)))
+    $chunk = Read-MobileTranscript $transcript -1
+    Assert-Equal 5 $chunk.Lines.Count 'mobile: the half-written last line is left for later'
+    $items = @(foreach ($l in $chunk.Lines) { ConvertFrom-MobileTranscriptLine $l })
+    Assert-Equal 'user:hola|assistant:Listo.|tool:Bash: Show status|user:/color orange' (@($items | ForEach-Object { "$($_.role):$($_.text)" }) -join '|') 'mobile: the chat leaves out meta, thinking and tool results'
+    [IO.File]::AppendAllText($transcript, 'age":{"role":"user","content":"sigue"}}' + "`n")
+    $next = Read-MobileTranscript $transcript $chunk.Offset
+    Assert-Equal 1 $next.Lines.Count 'mobile: the next read starts where the last one ended'
+    Assert-Equal 'sigue' (ConvertFrom-MobileTranscriptLine $next.Lines[0]).text 'mobile: the line finished later is read whole'
+    $tail = Read-MobileTranscript $transcript -1 -TailBytes 60
+    Assert-Equal $true (@($tail.Lines | Where-Object { -not $_.StartsWith('{') }).Count -eq 0) 'mobile: reading the tail skips the cut first line'
+
+    $peerLine = '{"type":"user","isMeta":true,"origin":{"kind":"peer","from":"unknown"},"message":{"role":"user","content":"Another Claude session sent a message:\n(ClaudeMaxxing app, from the user''s phone) sigue con los tests\n\nThis came from another Claude session - not typed by your user."}}'
+    $peer = ConvertFrom-MobileTranscriptLine $peerLine
+    Assert-Equal 'user:sigue con los tests' "$($peer.role):$($peer.text)" 'mobile: what the phone sent shows as the user''s, without the wrapper'
+    $other = ConvertFrom-MobileTranscriptLine $peerLine.Replace("(ClaudeMaxxing app, from the user's phone) ", '')
+    Assert-Equal 'tool' $other.role 'mobile: another session''s message is a side line'
+
+    # uploads: a safe name on disk, the caption and the attachment line, refused without the session's inbox
+    Assert-Equal 'foto_de_hoy.jpg' (Get-MobileSafeName 'C:\x\..\foto de hoy.jpg') 'mobile: an upload keeps only a safe file name'
+    Assert-Equal 'file' (Get-MobileSafeName '...') 'mobile: a name of dots becomes file'
+    Assert-Equal 80 ((Get-MobileSafeName (('a' * 100) + '.pdf')).Length) 'mobile: a long name is cut to 80, keeping its extension'
+    Assert-Equal "mira esto`n[phone attachment] C:\u\f.png" (Format-MobileUploadText ' mira esto ' 'C:\u\f.png') 'mobile: the upload message is the caption and the attachment'
+    Assert-Equal '[phone attachment] C:\u\f.png' (Format-MobileUploadText '' 'C:\u\f.png') 'mobile: an upload without caption'
+    $MobileInboxDir = Join-Path $mobileRoot 'inbox'
+    $sid = [guid]::NewGuid().ToString()
+    Assert-Equal 409 (Save-MobileUpload $sid 'a.png' '' ([byte[]](1, 2, 3))).Status 'mobile: an upload to a session without inbox is refused'
+    Assert-Equal 400 (Save-MobileUpload $sid 'a.png' '' ([byte[]]@())).Status 'mobile: an empty upload is refused'
+    New-Item -ItemType Directory -Force -Path $MobileInboxDir | Out-Null
+    [IO.File]::WriteAllText((Join-Path $MobileInboxDir "$sid.json"), '{"socket":"\\\\.\\pipe\\LOCAL\\cc-msg-00000000000000000000000000000000","token":"t"}')
+    Assert-Equal 409 (Save-MobileUpload $sid 'a b.png' 'hola' ([byte[]](1, 2, 3))).Status 'mobile: a closed session answers that it does not respond'
+    Assert-Equal 3 @(Get-ChildItem -LiteralPath (Join-Path $mobileRoot "uploads\$sid") -Filter '*-a_b.png')[0].Length 'mobile: the upload is kept on disk with its bytes'
+
+    $inbox = Format-MobileInboxLines 'tok' 'hola "mundo"'
+    Assert-Equal 'auth|tok' ("{0}|{1}" -f ($inbox[0] | ConvertFrom-Json).type, ($inbox[0] | ConvertFrom-Json).token) 'mobile: the inbox auth line'
+    Assert-Equal 'user|user|hola "mundo"' ("{0}|{1}|{2}" -f ($inbox[1] | ConvertFrom-Json).type, ($inbox[1] | ConvertFrom-Json).message.role, ($inbox[1] | ConvertFrom-Json).message.content) 'mobile: the inbox message line'
+
+    $qr = [ClaudeTray.QrCode]::Encode('HELLO', 1)
+    Assert-Equal 21 $qr.GetLength(0) 'mobile: a short text fits a version 1 QR'
+    Assert-Equal 'True|False|True' ("{0}|{1}|{2}" -f $qr[0, 0], $qr[1, 1], $qr[2, 2]) 'mobile: the finder pattern in the corner'
+    Assert-Equal 49 ([ClaudeTray.QrCode]::Encode((Format-MobilePairUri @('192.168.1.5', '100.64.0.9') 47830 ('ab' * 32) ('cd' * 8) 'DESKTOP-ABCDEFG'), 1)).GetLength(0) 'mobile: a pairing URI is a version 8 QR'
+} finally { Remove-Item -LiteralPath $mobileRoot -Recurse -Force -ErrorAction SilentlyContinue }
 
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {

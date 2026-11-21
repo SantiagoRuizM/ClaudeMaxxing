@@ -52,6 +52,7 @@ $script:HubSections = @(
     @{ Id = 'voice'; Label = 'Voz'; Glyph = '\ue767'; Group = 'SESIONES' },
     @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968'; Module = 'bridge'; Group = 'CONEXIONES' },
     @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720'; Module = 'whisper'; Group = 'CONEXIONES' },
+    @{ Id = 'mobile'; Label = 'Celular'; Glyph = '\ue8ea'; Module = 'mobile'; Group = 'CONEXIONES' },
     @{ Id = 'settings'; Label = (Ux 'Configuraci\u00f3n'); Glyph = '\ue713'; Group = ' ' }
 )
 
@@ -687,8 +688,24 @@ function Open-HubHarnessFolder {
     Start-Process explorer.exe -ArgumentList ('"{0}"' -f $dir)
 }
 
-# A dot was clicked: turn that environment on, or off when it is the one on. Asks first, since both close things.
-function Switch-HubHarness([string]$Id) {
+# What switching environment $Id closes and opens, asked before doing it (here, or on the phone: lib\mobile.ps1).
+function Get-HubHarnessQuestion([string]$Id) {
+    $state = $script:Hub.Cache.Harness
+    $target = @($state.Envs | Where-Object { $_.Id -eq $Id })[0]
+    if (-not $target) { return '' }
+    if ($state.Active -and $state.Active.id -eq $Id) {
+        # Tx only on literal text: names and paths may hold backslashes, which Tx would try to decode.
+        $ask = (Tx '\u00bfApagar ') + $target.Name + (Tx '? Se cierra solo lo suyo: sus pesta\u00f1as, servidores, Docker, m\u00fasica y carpeta, con apagado suave.')
+    } else {
+        $ask = (Tx '\u00bfEncender ') + $target.Name + (L '? Se cierra lo que no sea suyo (cada cierre con su motivo, con apagado suave) y se abre lo suyo.')
+        if ($state.Active) { $ask += (L ' Sales de ') + $state.Active.name + '.' }
+    }
+    $ask
+}
+
+# A dot was clicked: turn that environment on, or off when it is the one on. Asks first, since both close things;
+# -NoConfirm when the phone already asked.
+function Switch-HubHarness([string]$Id, [switch]$NoConfirm) {
     if ($script:Hub.Preview) { return }
     $state = $script:Hub.Cache.Harness
     if (-not $state -or -not $state.Dir) { return }
@@ -696,16 +713,8 @@ function Switch-HubHarness([string]$Id) {
     $target = @($state.Envs | Where-Object { $_.Id -eq $Id })[0]
     if (-not $target) { return }
     $isOn = $state.Active -and $state.Active.id -eq $Id
-    if ($isOn) {
-        $action = 'off'
-        # Tx only on literal text: names and paths may hold backslashes, which Tx would try to decode.
-        $ask = (Tx '\u00bfApagar ') + $target.Name + (Tx '? Se cierra solo lo suyo: sus pesta\u00f1as, servidores, Docker, m\u00fasica y carpeta, con apagado suave.')
-    } else {
-        $action = 'on'
-        $ask = (Tx '\u00bfEncender ') + $target.Name + (L '? Se cierra lo que no sea suyo (cada cierre con su motivo, con apagado suave) y se abre lo suyo.')
-        if ($state.Active) { $ask += (L ' Sales de ') + $state.Active.name + '.' }
-    }
-    if (-not (Confirm-UiAction $ask $script:HubDialog)) { return }
+    $action = if ($isOn) { 'off' } else { 'on' }
+    if (-not $NoConfirm -and -not (Confirm-UiAction (Get-HubHarnessQuestion $Id) $script:HubDialog)) { return }
     $failed = Start-HarnessJob $state.Dir $Id $action
     if ($failed) { Set-HubMessage $failed -Failed; return }
     Set-HubMessage $(if ($isOn) { (L 'Apagando {0}...') -f $target.Name } else { (L 'Encendiendo {0}...') -f $target.Name })
@@ -726,6 +735,18 @@ function Invoke-HubHarnessDetect {
     Update-HubNow
 }
 
+# The window opens like a session: on the first half, quarter or screen no live session holds (Claude Code >
+# sesiones por pantalla), or over the first one when all are taken. $null when the screens cannot be read.
+# shortcut: the window does not hold its slot; a session opened next can land under it.
+function Get-HubFreeSlot {
+    try {
+        $slots = Get-ScreenSlots @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { $_.WorkingArea }) (Get-ScreenFirst) (Get-SessionsPerScreen)
+        if (-not $slots.Count) { return $null }
+        $s = $slots[(Get-FreeSlot $slots.Count @(Get-HubCodeSessions | Where-Object { $_.Live }) $true) % $slots.Count]
+        New-Rect $s.X $s.Y $s.Width $s.Height
+    } catch { $null }
+}
+
 # How much the window shrinks to fit the screen's work area (with a margin), 1 when it fits; never under 0.6.
 function Get-HubZoom([int]$AreaWidth, [int]$AreaHeight, [int]$Width, [int]$Height, [int]$Margin = 24) {
     $zoom = [Math]::Min(1.0, [Math]::Min(($AreaWidth - $Margin) / [double]$Width, ($AreaHeight - $Margin) / [double]$Height))
@@ -739,9 +760,12 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     # "code-help": Claude Code with its guide to file and image previews open.
     $codeHelp = $false
     if ($Section -eq 'code-help') { $codeHelp = $true; $Section = 'code' }
-    # "skills-catalog": Skills y MCP on its Catalogo tab.
+    # "skills-mcp": Skills y MCP on its MCP tab.
     $skillsTab = $null
-    if ($Section -eq 'skills-catalog') { $skillsTab = 'catalog'; $Section = 'skills' }
+    if ($Section -eq 'skills-mcp') { $skillsTab = 'mcp'; $Section = 'skills' }
+    # "envs-lists": Ambientes on its Skills y MCP tab.
+    $envsTab = $null
+    if ($Section -eq 'envs-lists') { $envsTab = 'lists'; $Section = 'envs' }
     # "stats-hours", "stats-models-all"...: a tab (and the all-time range) of Estadisticas.
     $statsTab = 'summary'; $statsRange = 'recent'
     if ($Section -match '^stats-([a-z]+?)(?:-(all))?$') { $statsTab = $Matches[1]; if ($Matches[2]) { $statsRange = 'all' }; $Section = 'stats' }
@@ -766,11 +790,16 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.FormBorderStyle = 'None'
     $dlg.StartPosition = 'CenterScreen'
     $dlg.BackColor = $P.Back
+    $slot = if ($RenderPath) { $null } else { Get-HubFreeSlot }
     $dlg.KeyPreview = $true
     # The window is drawn at its full size; on a screen too small for it (1366x768 at 125 %), shown smaller.
-    $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
+    $area = if ($slot) { $slot } else { [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea }
     $zoom = if ($RenderPath) { 1.0 } else { Get-HubZoom $area.Width $area.Height (Px $HubWidth) (Px $HubHeight) }
     $dlg.ClientSize = New-Object System.Drawing.Size([int]((Px $HubWidth) * $zoom), [int]((Px $HubHeight) * $zoom))
+    if ($slot) {
+        $dlg.StartPosition = 'Manual'
+        $dlg.Location = New-Object System.Drawing.Point(($slot.X + [int](($slot.Width - $dlg.Width) / 2)), ($slot.Y + [int](($slot.Height - $dlg.Height) / 2)))
+    }
     $appIcon = Get-AppIcon; if ($appIcon) { $dlg.Icon = $appIcon }
     Enable-DoubleBuffer $dlg
     $dlg.Tag = New-HitMap
@@ -779,7 +808,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $script:Hub = @{ Section = $(if ($Section) { $Section } else { 'home' }); Cache = @{}
         SlowAt = [datetime]::MinValue; Message = ''; MessageAt = [datetime]::MinValue; Preview = [bool]$RenderPath; Timer = $null; Error = ''
         StatsTab = $statsTab; StatsRange = $statsRange; StatsError = ''; PlanPreview = $planPreview; EnvsPreview = $envsPreview
-        W = (Px $HubWidth); H = (Px $HubHeight); Zoom = $zoom; FullScale = 1.0; Normal = $null; CodeHelp = $codeHelp; Visits = $null; SkillsTab = $skillsTab }
+        W = (Px $HubWidth); H = (Px $HubHeight); Zoom = $zoom; FullScale = 1.0; Normal = $null; CodeHelp = $codeHelp; Visits = $null; SkillsTab = $skillsTab; EnvsTab = $envsTab }
     Update-HubMarks
     if ($fullPreview) {
         $screen = New-Rect 0 0 1920 1080
@@ -794,8 +823,14 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
     $dlg.Add_KeyDown({
         param($sender, $e)
         if ($e.KeyCode -eq 'F11') { Switch-HubFullScreen }
-        elseif ($e.KeyCode -eq 'Escape') { if ($script:Hub.Normal) { Switch-HubFullScreen } else { $sender.Close() } }
+        elseif ($e.KeyCode -eq 'Escape') {
+            if ($script:Hub.Normal) { Switch-HubFullScreen }
+            elseif ($script:Hub.Section -eq 'skills' -and $script:Hub.SkillsQuery) { $e.SuppressKeyPress = $true; [void](Send-HubSkillsKey ([char]27)) }
+            else { $sender.Close() }
+        }
     })
+    # Skills y MCP: typing goes to its search box.
+    $dlg.Add_KeyPress({ param($sender, $e) if (Send-HubSkillsKey $e.KeyChar) { $e.Handled = $true } })
     # Drag the window by the header or the brand area (not in full screen).
     $dlg.Add_MouseDown({
         param($sender, $e)
@@ -1321,6 +1356,7 @@ function Draw-Hub($Form, $G) {
         'whip'    { Draw-HubWhipSection $G $map $hover $x0 $inner }
         'pcs'     { Draw-HubPcsSection $G $map $hover $x0 $inner }
         'whisper' { Draw-HubWhisperSection $G $map $hover $x0 $inner }
+        'mobile'  { Draw-HubMobileSection $G $map $hover $x0 $inner }
         'voice'   { Draw-HubVoiceSection $G $map $hover $x0 $inner }
         'settings' { Draw-HubSettingsSection $G $map $hover $x0 $inner }
         default   { Draw-HubHome $G $map $hover $x0 $inner }
@@ -1778,10 +1814,10 @@ function Draw-HubSelfSection($G, $Map, $Hover, [int]$X0, [int]$Inner, [int]$Offs
 function Draw-HubAmbientes($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
     $HF = $script:HubFonts
-    $tab = if ($script:Hub.Section -eq 'self' -or $script:Hub.EnvsTab -eq 'focus') { 'focus' } else { 'map' }
+    $tab = if ($script:Hub.Section -eq 'self' -or $script:Hub.EnvsTab -eq 'focus') { 'focus' } elseif ($script:Hub.EnvsTab -eq 'lists') { 'lists' } else { 'map' }
     $badge = Get-HubNavBadge 'self'
     $tx = $X0
-    foreach ($t in @(@{ Id = 'map'; Label = 'Mapa' }, @{ Id = 'focus'; Label = 'Foco y ajustes' })) {
+    foreach ($t in @(@{ Id = 'map'; Label = 'Mapa' }, @{ Id = 'lists'; Label = 'Skills y MCP' }, @{ Id = 'focus'; Label = 'Foco y ajustes' })) {
         $on = $tab -eq $t.Id
         $font = if ($on) { $HF.NavStrong } else { $HF.Nav }
         $lw = (Measure-TextWidth $t.Label $font) + (Px 6)
@@ -1801,7 +1837,9 @@ function Draw-HubAmbientes($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     }
     # Below the tabs (not $top: PowerShell names ignore case and the sections use $top for their own values).
     $tabsH = Px 34
-    if ($tab -eq 'focus') { Draw-HubSelfSection $G $Map $Hover $X0 $Inner $tabsH } else { Draw-HubEnvsSection $G $Map $Hover $X0 $Inner $tabsH }
+    if ($tab -eq 'focus') { Draw-HubSelfSection $G $Map $Hover $X0 $Inner $tabsH }
+    elseif ($tab -eq 'lists') { Draw-HubEnvLists $G $Map $Hover $X0 $Inner $tabsH }
+    else { Draw-HubEnvsSection $G $Map $Hover $X0 $Inner $tabsH }
 }
 
 function Set-HubEnvsTab([string]$Tab) {
@@ -3006,9 +3044,21 @@ function Set-HubPreview {
         [pscustomobject]@{ Name = 'context-mode'; Kind = 'stdio'; Target = 'node.exe'; Source = 'plugin context-mode' })
     # The catalog as shipped, with two skills and one server on (one skill only in the Trabajo environment).
     $c.Catalog = @(Get-CatalogItems (Join-Path $TrayRoot 'catalog'))
-    $c.CatalogSettings = @{ skills = @{ 'accessibility' = [string[]]@('*'); 'agent-eval' = [string[]]@('trabajo') }; mcp = @{ 'context7' = [string[]]@('*') } }
+    # The keys skillOverrides and deniedMcpServers take: "plugin:skill", "plugin:<plugin>:<server>".
+    foreach ($row in @($c.Skills) + @($c.Mcp)) {
+        $plugin = if ($row.Source -like 'plugin *') { $row.Source.Substring(7) } else { '' }
+        $key = if (-not $plugin) { $row.Name } elseif ($row.PSObject.Properties['Target']) { "plugin:${plugin}:$($row.Name)" } else { "${plugin}:$($row.Name)" }
+        $row | Add-Member -NotePropertyName Key -NotePropertyValue $key
+    }
+    # Trabajo has its own list (two skills and context7); Casa still loads what Siempre does. informe-semanal is off.
+    $c.CatalogSettings = @{ skills = @{ 'accessibility' = [string[]]@('*'); 'agent-eval' = [string[]]@('trabajo'); 'ship' = [string[]]@('trabajo') }
+        mcp = @{ 'context7' = [string[]]@('*', 'trabajo') }; limited = [string[]]@('trabajo') }
     $c.CatalogTargets = [ordered]@{ '*' = [pscustomobject]@{ Id = '*'; Name = 'Siempre'; Dir = ''; Skills = ''; Scope = 'user' }
-        'trabajo' = [pscustomobject]@{ Id = 'trabajo'; Name = 'Trabajo'; Dir = 'C:\Users\me\Trabajo'; Skills = ''; Scope = 'local' } }
+        'trabajo' = [pscustomobject]@{ Id = 'trabajo'; Name = 'Trabajo'; Dir = 'D:\Trabajo'; Skills = ''; Scope = 'local' }
+        'casa' = [pscustomobject]@{ Id = 'casa'; Name = 'Casa'; Dir = 'D:\Casa'; Skills = ''; Scope = 'local' } }
+    $c.CatalogApplied = @{ '*' = [string[]]@('context7') }
+    $c.SkillOff = [string[]]@('informe-semanal')
+    Update-HubSkillRows
     $c.VoiceEngine = [pscustomobject]@{ Engine = 'elevenlabs'; Gender = 'mix'; ElevenKey = $true; ElevenVoices = 21; GeminiKey = $false; Credits = [pscustomobject]@{ used = 1568; limit = 10000; resetAt = (Get-Date).AddDays(12).ToString('s') } }
     $c.FreeLlm = @{ Installed = $true; Exe = 'FreeLLMAPI.exe'; Port = $FreeLlmDefaultPort; Up = $true; Enabled = $true; HasKey = $true; Installing = $false; Install = $null }
     $c.VoiceInstalled = $true

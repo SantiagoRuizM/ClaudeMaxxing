@@ -36,7 +36,7 @@
 | **Windows** | Windows 11, x64. Windows 10 is untested. On ARM64 the Explorer menu entry is skipped, because its DLL is x64 only. |
 | **Claude Code** | Installed, with `claude` on `PATH`. Peek needs 2.1.319 or later and the fullscreen interface (`"tui": "fullscreen"` in `~/.claude/settings.json`, or `/config`). |
 | **Windows Terminal** | Included with Windows 11. |
-| **Admin approval** | One UAC prompt for the menu entry on the first install, and one for the Other PCs firewall rules if you turn that feature on. Without them, everything else still installs. |
+| **Admin approval** | One UAC prompt for the menu entry on the first install, and one for the firewall rules of Other PCs and of the phone app if you turn them on. Without them, everything else still installs. |
 
 Optional:
 
@@ -155,7 +155,8 @@ This removes everything listed below, including the menu entry, its certificate 
 | **[Claude Whip](#claude-whip)** | When the plan runs low, Claude stops writing code and directs another agent (Codex, Antigravity, OpenCode or Copilot) that does. |
 | **[Other PCs](#other-pcs)** | Pair PCs on the same network to open terminals or Claude Code on each other, or let both Claudes debate a decision. Off until you turn it on. |
 | **[Claude Whisper](#claude-whisper)** | A live copilot for calls: it transcribes, spots questions and suggests what to say. |
-| **[Skills & MCP](#skills--mcp-catalog)** | Every skill and MCP server Claude Code loads, Anthropic's official packages to create your own, and a catalog of about 430 skills and 16 MCP servers, all off until you switch one on, always or for one environment. |
+| **[Phone app](#phone-app)** | The ClaudeMaxxing panel on your Android phone: pair it with a QR, swipe through the sessions open on your PC and write to them. Off until you turn it on. |
+| **[Skills & MCP](#skills--mcp-catalog)** | Every skill and MCP server, yours and a catalog of about 430 skills and 16 servers, in one searchable list with a switch each, always or per environment (an environment can load exactly its own list), and Anthropic's official packages to create your own. |
 | **[Context saving](#context-saving) and [free models](#free-models-with-freellmapi)** | Optional add-ons that make the plan last longer. |
 
 There are two editions, picked at install: **personal** (the default, everything above) and **[business](#business-edition)** (`-Business`): the same tools under a company policy, plus a Business section with the seat report, team reports, the company's goals and the team kit.
@@ -172,7 +173,7 @@ The tray icon shows your plan's usage. Left-click opens or closes the popup; rig
 
 ### The ClaudeMaxxing window
 
-One window with every tool. It goes full screen with the maximize button or F11 (Esc or F11 leaves it). The side menu is grouped like this:
+One window with every tool. It opens like a session, on the first half, quarter or screen no session holds (Claude Code > Per screen), and goes full screen with the maximize button or F11 (Esc or F11 leaves it). The side menu is grouped like this:
 
 | Group | Section | What it has |
 |---|---|---|
@@ -184,7 +185,7 @@ One window with every tool. It goes full screen with the maximize button or F11 
 | Focus | **Environments** | See [Environments](#environments). |
 | Sessions | **Claude Code** | The sessions opened from the menu (color, name, role, voice and slot), **Show** to bring one to the front, **New session...** in a folder you pick, **Per screen**, the screen order, whether the menu entry is installed, a link that explains Peek, and the [context-mode](#context-saving) and [FreeLLMAPI](#free-models-with-freellmapi) cards. |
 | | **Claude Whip** | See [Claude Whip](#claude-whip). |
-| | **Skills & MCP** | Every skill and MCP server Claude Code loads (yours, your projects', your plugins', claude.ai's). It also installs Anthropic's official packages to create them (skill-creator, mcp-server-dev, plugin-dev), each with a button that opens a Claude Code session that starts using it. |
+| | **Skills & MCP** | One list of skills and one of MCP servers, with a switch each: the ones Claude Code loads (yours, your plugins', claude.ai's, your projects') and the [catalog's](#skills--mcp-catalog), with a search box. It also installs Anthropic's official packages to create them (skill-creator, mcp-server-dev, plugin-dev), each with a button that opens a Claude Code session that starts using it. |
 | | **Voice** | Voice on or off for every session, the global hotkeys, **Test voice**, **Repeat the last one** and **Stop audio**, and the sessions that spoke in the last 12 hours, each with its own switch. |
 | Connections | **Other PCs** | This PC's status, the **Accepts connections** switch and the paired PCs, with Terminal, Claude Code and **Disconnect**. Pairing happens in the Other PCs window (**Pair or find a PC...**), because pairing is only accepted while that window is open. |
 | | **Claude Whisper** | Open or show it, **Context...**, language, model, answer, microphone and call-notice options, the hotkeys, and the call history (click a call to open its Markdown file). While Whisper is open, its settings are read-only here. |
@@ -298,6 +299,7 @@ An environment says what to close and what to open to work on one thing. For exa
 
 - **Map tab.** A graph of your environments. Click a dot to turn it on or off. Each arrow is a switch you have made, with how many times, and each dot shows the time spent there today and in total. Only one change runs at a time: turning one on closes what doesn't belong (each close with its reason, and time to close before anything is forced), and turning it off closes only its own things.
 - **Focus & settings tab.** **Focus drift** lists the open tabs the environment would close (close one, or all with **Close all**; Ctrl+Shift+T brings them back) and the apps that don't fit. **Servers** lists the dev servers listening, with **Turn off**, which stops that process tree only if it still listens on that port. **Switch notice** sets the detection, and **Environment stats** shows the time per environment and your average focus span. **Check now** runs a detection.
+- **Skills & MCP tab.** A card per environment with a folder (`claude.dir` or else `folder`) with the skills and MCP servers its sessions load there. **Edit list** opens Skills & MCP on that environment: its first change gives it its own list, and from then on its folder loads exactly that list and nothing else (see [Skills & MCP catalog](#skills--mcp-catalog)).
 - **Getting started.** A new install has no environments. The section shows a prompt to paste into Claude Code: Claude reads your usage, projects and sessions, proposes environments, asks what it can't tell, writes each `.json` and checks it with a preview that closes nothing. **Create with Claude** copies the same prompt later.
 - **Where they live.** Your environments are this PC's, never in the repo: `~/.claude/usage-tray/harness/environments/*.json` (**Open folder** opens it), with the state in `run\` and the Jev key in `.env` next to them.
 - **The Chrome extension** shows a badge with how many tabs the environment would close, a small bar when you load something off focus, and a popup with the plan's usage, the environment that is on and a switcher. `install.ps1` registers its native host (needs Node.js); load it once per Chrome profile from `chrome://extensions` > Developer mode > **Load unpacked** > `%LOCALAPPDATA%\ClaudeMaxxing\harness\extension`.
@@ -393,6 +395,31 @@ A live copilot for calls: job interviews, meetings, sales calls. Open **Claude W
 - **The call is sent to Anthropic**, under your Claude account. In many countries the other side has to know and agree; follow the rules that apply where you are.
 - **It doesn't hide.** The window shows in screen sharing and in the taskbar like any other, on purpose.
 
+### Phone app
+
+The ClaudeMaxxing app for Android shows the panel of the ClaudeMaxxing window and the Claude Code sessions open on your PC. Off until you turn it on.
+
+**Setting it up.** In the ClaudeMaxxing window, open **Phone** and turn it on. Windows asks once for admin approval to allow it in the firewall. Install the app from the APK in the [GitHub Releases](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases), tap **Add PC** and scan the QR shown in **Phone** (**Show the QR**, valid for 5 minutes). The phone has to be on the same Wi-Fi as the PC. From anywhere else, install [Tailscale](https://tailscale.com) on both.
+
+**Using it.**
+
+- The first page is the panel: the plan, the open sessions and every section of the window's side menu, with the same switches and choices. Buttons marked *on the PC* open something on the PC.
+- Swipe sideways to go through the open sessions, one page each, with the session's color. Each page shows the conversation as it happens and has a box to write to the session.
+- Attach photos, documents and audio to a session (the PC keeps them in ~/.claude/usage-tray/mobile/uploads and sends their path), dictate a voice note, and keep the sessions' eggs in the notification shade, moving and speaking as in the tray.
+- One app can hold several PCs: switch between them with the computer icon.
+- **Phone** lists the paired phones, with the last time each one connected. **Revoke** cuts one off.
+
+<details>
+<summary><strong>How it works and what it can't do</strong></summary>
+
+- The phone talks only to your PC: HTTPS on port 47830, with a self-signed certificate whose SHA-256 the QR carries, so the app rejects any other server. There is no relay. The firewall rule covers Private networks, from the local subnet or Tailscale (100.64.0.0/10), and the server refuses any other address.
+- Pairing gives the phone a random token. The PC keeps only its hash (`~/.claude/usage-tray/mobile/devices.json`) and the phone keeps it in the Android Keystore. A pairing code works once and 5 wrong tries end it.
+- The panel is described by the PC, already in the language chosen there: the app only draws it. A switch or a choice sends back the id of an action the PC registered for it, never a command.
+- Writing to a session goes through Claude Code's cross-session messaging (a named pipe per session, Claude Code 2.1.234 or later). Claude Code delivers your text as a message from another session: Claude follows it, but it can't approve a permission prompt, which stays on the PC. Only sessions opened from the Explorer menu take messages, because the voice plugin records each one's inbox when it starts.
+- Not included yet: iPhone (the Flutter code would build there, but it needs a Mac), and a release signed with a fixed key (the APK is signed with the build PC's debug key, so an update from another PC has to be installed over an uninstall).
+
+</details>
+
 ### Context saving
 
 The **Context saving (context-mode)** switch in the Claude Code section installs or turns on [context-mode](https://github.com/mksglu/context-mode) (Elastic License 2.0) as a Claude Code plugin, from its own marketplace. It keeps big tool outputs (logs, web pages, JSON) out of the context window and keeps the session's memory across compactions, so the plan lasts longer. It applies to new sessions. Its optional statusline is not installed, because the statusline is what feeds the usage tray.
@@ -409,7 +436,11 @@ Nothing global changes: `~/.claude/settings.json`, scheduled sessions, open sess
 
 ### Skills & MCP catalog
 
-The **Catalog** tab of Skills & MCP lists third-party skills and MCP servers that come with ClaudeMaxxing, **all off**: a skill costs context in every session only once it is on. Each row has a switch, for the place picked in **Turn on in**: **Always** (every session: the skill is copied to `~/.claude/skills`, the server added with `claude mcp add -s user`) or one of your [environments](#environments) (only the sessions in its folder, `claude.dir` or else `folder`: `<folder>\.claude\skills`, listed in that repo's `.git/info/exclude`, and `claude mcp add -s local`). **Source** filters by repo (or shows what is on there) and **Search** by a word. Switching off deletes only the copies ClaudeMaxxing made (they carry a `.maxx-catalog` marker) and removes only the servers it added, so a skill or server of yours with the same name is never touched. It applies to new sessions; an MCP server marked *sign in with /mcp* asks for its OAuth login the first time.
+Skills & MCP has two tabs, **Skills** and **MCP**, each one list: what Claude Code already loads (yours, your plugins', claude.ai's, your projects') and the third-party skills and servers that come with ClaudeMaxxing, which are **all off** (a skill costs context in every session only once it is on; an MCP server costs more). Being installed or in the catalog only changes whether its switch starts on. Each switch acts in the place picked in **Turn on in**: **Always** (every session) or one of your [environments](#environments) (only the sessions in its folder, `claude.dir` or else `folder`). **Source** filters (what is on there, installed, or one repo) and the search box filters as you type (Esc clears it). New sessions pick the change up.
+
+- **Always.** A catalog skill is copied to `~/.claude/skills` and a catalog server added with `claude mcp add -s user`. A skill of yours (or of a plugin, or claude.ai's) is switched off with `skillOverrides` in `~/.claude/settings.json`, the setting `/skills` uses. One of your user-scope servers switched off is kept in `~/.claude/usage-tray/catalog-stash.json` (with its env and headers) and removed with `claude mcp remove`; from then on it is switched like a catalog server. A plugin's server has no switch here: it goes with its plugin, and can be off in an environment.
+- **An environment.** Until you change something there, it loads what Always does. Its first change gives it its own list, starting from what it had: its folder then loads exactly that list. `<folder>\.claude\settings.local.json` gets `skillOverrides` (every other skill off, the listed ones on even if off in Always) and `deniedMcpServers` (every other server blocked); catalog skills are copied to `<folder>\.claude\skills` and servers added with `claude mcp add -s local`, all of it listed in that repo's `.git/info/exclude`. A skill or plugin installed later is off there too (the list is brought up to date each time Skills & MCP reads it). `catalog-overrides.json` records the entries ClaudeMaxxing wrote, the only ones it ever changes.
+- **What is never touched.** Switching off deletes only the copies ClaudeMaxxing made (they carry a `.maxx-catalog` marker) and removes only the servers it added, so a skill or server of yours with the same name stays. An MCP server marked *sign in with /mcp* asks for its OAuth login the first time. claude.ai's connectors live in your account, not on disk: they are not listed.
 
 The skills are copied as text from these repos, at a pinned commit, by `toolsendor-catalog.ps1` (`catalog\sources.json` lists each commit and every skill left out, with the reason):
 
@@ -430,6 +461,7 @@ What each module lets in or sends out:
 |---|---|
 | Claude Whip | Antigravity runs with `--dangerously-skip-permissions`, Copilot with `--allow-all-tools` and OpenCode with `--auto`: they can run any command as you, so a prompt injection in the repo reaches your PC. Only Codex runs in a sandbox (`workspace-write`). Enable only the agents you trust with the repo |
 | Other PCs | An allowed connection is a shell as your Windows user. **Allow 1 hour** lets that PC run commands with no question for an hour, including ones a Claude Code on that PC decides to run |
+| Phone app | A paired phone reads your sessions' conversations, changes the settings the window has and writes to the sessions, from your network or Tailscale. It cannot approve a permission. Revoke a lost phone in **Phone** |
 | Environments | The Chrome extension reads every tab of the profiles where you load it. Detection, off by default, sends tab titles to TypeSafe (Jev) or Anthropic (Haiku, your plan) |
 | Claude Whisper | The call's audio, both sides, goes to Anthropic through an undocumented service; you are asked once before the first listen |
 | Voice | The Edge voice (the default) sends each spoken summary to Microsoft; ElevenLabs and Gemini send it to them. The Windows voice stays on the PC |
@@ -489,6 +521,8 @@ node --test whip\test\rules.test.mjs                                            
 node harness\test.js                                                            # Environments
 powershell -NoProfile -ExecutionPolicy Bypass -File test\bridge-e2e.ps1        # Other PCs on loopback: two fake PCs pair, log in with every ssh client and hold a debate
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File test\bridge-tray-e2e.ps1   # the same through the tray functions
+powershell -NoProfile -ExecutionPolicy Bypass -File test\mobile-e2e.ps1        # the phone app's HTTPS server on loopback: pinned certificate, pairing, refusals
+cd mobile; flutter analyze; flutter test; flutter build apk --release            # the phone app (Flutter); the APK lands in mobile\build\app\outputs\flutter-apk
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draw the popup to an image (-RenderHubTo x.png -HubSection <id> draws a section of the window)
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Claude Whisper with sample data
 ```

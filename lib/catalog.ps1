@@ -5,15 +5,24 @@
 # -s local run there). A skill on is a copy of its folder with a .maxx-catalog marker; off deletes marked copies only,
 # so a skill of yours with the same name is never touched. MCP servers are added and removed by lib\maxx-worker.ps1
 # (catalog-mcp), which records what it added in catalog-applied.json and only ever removes those.
+# Your own skills and servers are switched in the same list: a skill off in Siempre is "off" in skillOverrides of
+# ~/.claude/settings.json; one of your MCP servers off in Siempre is kept in catalog-stash.json and removed with
+# claude mcp, then added back like a catalog server. An Ambiente with its own list ("limited") gets exactly that
+# list: <dir>\.claude\settings.local.json turns every other skill off (skillOverrides) and blocks every other
+# server (deniedMcpServers); catalog-overrides.json records those entries, the only ones ever changed there.
 # Needs common.ps1 only (tests). Keep this file ASCII.
 
 $CatalogFile = Join-Path $TrayHome 'catalog.json'
 $CatalogAppliedFile = Join-Path $TrayHome 'catalog-applied.json'
 $CatalogMarker = '.maxx-catalog'
 $CatalogEverywhere = '*'
+$CatalogStashFile = Join-Path $TrayHome 'catalog-stash.json'
+$CatalogOverridesFile = Join-Path $TrayHome 'catalog-overrides.json'
+$ClaudeSettingsFile = Join-Path $env:USERPROFILE '.claude\settings.json'
 
-# Every item: Kind (skill|mcp), Name, Label, Source (anthropic, superpowers, wshobson, ecc or mcp), Description, Auth.
-function Get-CatalogItems([string]$CatalogDir) {
+# Every item: Kind (skill|mcp), Name, Label, Source (anthropic, superpowers, wshobson, ecc, mcp, or tuyos for a
+# server of yours switched off in Siempre), Description, Auth, Config.
+function Get-CatalogItems([string]$CatalogDir, [string]$StashPath = $CatalogStashFile) {
     $items = New-Object System.Collections.Generic.List[object]
     $index = Read-JsonFile (Join-Path $CatalogDir 'index.json')
     foreach ($skill in @($(if ($index) { $index.skills }))) {
@@ -25,13 +34,20 @@ function Get-CatalogItems([string]$CatalogDir) {
         $items.Add([pscustomobject]@{ Kind = 'mcp'; Name = [string]$server.name; Label = [string]$server.label; Source = 'mcp'
             Description = [string]$server.description; Auth = [string]$server.auth; Config = $server.config })
     }
+    $stash = Read-JsonFile $StashPath
+    if ($stash -is [pscustomobject]) {
+        foreach ($prop in $stash.PSObject.Properties) {
+            $items.Add([pscustomobject]@{ Kind = 'mcp'; Name = $prop.Name; Label = $prop.Name; Source = 'tuyos'; Description = ''; Auth = ''; Config = $prop.Value })
+        }
+    }
     $items.ToArray()
 }
 
-# @{ skills = @{ name = [string[]] targets }; mcp = @{ ... } }; a missing or damaged file is all off.
+# @{ skills = @{ name = [string[]] targets }; mcp = @{ ... }; limited = [string[]] the Ambientes with their own list };
+# a missing or damaged file is all off. A skill of a plugin goes by "plugin:skill", a server of one by "plugin:p:server".
 function Get-CatalogSettings([string]$Path = $CatalogFile) {
     $saved = Read-JsonFile $Path
-    $settings = @{ skills = @{}; mcp = @{} }
+    $settings = @{ skills = @{}; mcp = @{}; limited = [string[]]@($(if ($saved) { $saved.limited }) | Where-Object { $_ } | ForEach-Object { [string]$_ }) }
     foreach ($kind in 'skills', 'mcp') {
         if (-not $saved -or $saved.$kind -isnot [pscustomobject]) { continue }
         foreach ($prop in $saved.$kind.PSObject.Properties) {
@@ -82,7 +98,7 @@ function Remove-CatalogCopy([string]$Path) {
 }
 
 # The project's .git\info\exclude lists the copies in that folder, so git status stays clean.
-function Update-CatalogGitExclude([string]$Dir, [string[]]$Names) {
+function Update-CatalogGitExclude([string]$Dir, [string[]]$Entries) {
     $git = Join-Path $Dir '.git'
     if (-not (Test-Path -LiteralPath $git -PathType Container)) { return }
     $file = Join-Path $git 'info\exclude'
@@ -96,9 +112,9 @@ function Update-CatalogGitExclude([string]$Dir, [string[]]$Names) {
         if ($line -eq $end) { $inside = $false; continue }
         if (-not $inside) { $kept.Add($line) }
     }
-    if ($Names.Count) {
+    if ($Entries.Count) {
         $kept.Add($begin)
-        foreach ($name in $Names) { $kept.Add('/.claude/skills/' + $name + '/') }
+        foreach ($entry in $Entries) { $kept.Add($entry) }
         $kept.Add($end)
     }
     if ((@($kept) -join "`n") -eq ($lines -join "`n")) { return }
@@ -116,7 +132,9 @@ function Sync-CatalogSkills($Settings, $Targets, [string]$CatalogDir, [switch]$R
     }
     $conflicts = @()
     foreach ($target in @($Targets.Values)) {
-        $wanted = @($Settings.skills.Keys | Where-Object { @($Settings.skills[$_]) -contains $target.Id -and $sources.ContainsKey($_) })
+        # A skill on always is already loaded in an Ambiente's folder: not copied there again.
+        $wanted = @($Settings.skills.Keys | Where-Object { @($Settings.skills[$_]) -contains $target.Id -and $sources.ContainsKey($_) -and
+            ($target.Id -eq $CatalogEverywhere -or @($Settings.skills[$_]) -notcontains $CatalogEverywhere) })
         $root = $target.Skills
         $ours = @()
         if (Test-Path -LiteralPath $root) {
@@ -136,7 +154,11 @@ function Sync-CatalogSkills($Settings, $Targets, [string]$CatalogDir, [switch]$R
             [IO.File]::WriteAllText((Join-Path $to $CatalogMarker), 'Copied by ClaudeMaxxing from its catalog. Switch it off in ClaudeMaxxing > Skills y MCP > Catalogo.')
             $ours += $name
         }
-        if ($target.Dir) { Update-CatalogGitExclude $target.Dir ([string[]]@($ours | Sort-Object)) }
+        if ($target.Dir) {
+            $lines = @($ours | Sort-Object | ForEach-Object { '/.claude/skills/' + $_ + '/' })
+            if (@($Settings.limited) -contains $target.Id) { $lines += '/.claude/settings.local.json' }
+            Update-CatalogGitExclude $target.Dir ([string[]]$lines)
+        }
     }
     , @($conflicts | Select-Object -Unique)
 }
@@ -156,7 +178,8 @@ function Get-CatalogMcpPlan($Settings, $Targets, $Applied, $Items) {
     foreach ($item in @($Items | Where-Object { $_.Kind -eq 'mcp' })) { $servers[$item.Name] = $item }
     foreach ($target in @($Targets.Values)) {
         $have = @($(if ($Applied.ContainsKey($target.Id)) { $Applied[$target.Id] }))
-        $wanted = @($Settings.mcp.Keys | Where-Object { @($Settings.mcp[$_]) -contains $target.Id -and $servers.ContainsKey($_) })
+        $wanted = @($Settings.mcp.Keys | Where-Object { @($Settings.mcp[$_]) -contains $target.Id -and $servers.ContainsKey($_) -and
+            ($target.Id -eq $CatalogEverywhere -or @($Settings.mcp[$_]) -notcontains $CatalogEverywhere) })
         foreach ($name in @($have | Where-Object { $wanted -notcontains $_ })) { [pscustomobject]@{ Action = 'remove'; Name = $name; Target = $target; Server = $null } }
         foreach ($name in @($wanted | Where-Object { $have -notcontains $_ })) { [pscustomobject]@{ Action = 'add'; Name = $name; Target = $target; Server = $servers[$name] } }
     }
@@ -167,11 +190,15 @@ function Get-CatalogMcpArgs($Step) {
     $scope = $Step.Target.Scope
     if ($Step.Action -eq 'remove') { return , @('mcp', 'remove', '-s', $scope, $Step.Name) }
     $config = $Step.Server.Config
+    # A server of yours brings its env and headers; -e and -H take several values, so -s after them ends the list.
+    $opts = @()
+    if ($config.env) { foreach ($p in $config.env.PSObject.Properties) { $opts += '-e', ($p.Name + '=' + [string]$p.Value) } }
+    if ($config.headers) { foreach ($p in $config.headers.PSObject.Properties) { $opts += '-H', ($p.Name + ': ' + [string]$p.Value) } }
     if ($config.url) {
         $transport = if ($config.type) { [string]$config.type } else { 'http' }
-        return , @('mcp', 'add', '--transport', $transport, '-s', $scope, $Step.Name, [string]$config.url)
+        return , (@('mcp', 'add', '--transport', $transport) + $opts + @('-s', $scope, $Step.Name, [string]$config.url))
     }
-    , (@('mcp', 'add', '-s', $scope, $Step.Name, '--', [string]$config.command) + @($config.args | ForEach-Object { [string]$_ }))
+    , (@('mcp', 'add') + $opts + @('-s', $scope, $Step.Name, '--', [string]$config.command) + @($config.args | ForEach-Object { [string]$_ }))
 }
 
 # Runs the plan with $Claude (a scriptblock taking the argument array and returning @{ Ok; Output }), in each
@@ -192,4 +219,115 @@ function Invoke-CatalogMcpSync([scriptblock]$Claude, $Settings, $Targets, $Items
         Write-JsonFile $AppliedPath $applied
     }
     , $errors
+}
+
+# ---------------------------------------------------------------- your own skills and servers, and the lists
+
+# The JSON text with its top-level key $Name set to $Value (written compact) or, with $null, removed. Edited as
+# text, so the rest of a settings file keeps its formatting. The value it replaces must be flat (an object of plain
+# values, or an array of those). $null when the result would not parse.
+function Set-JsonKeyText([string]$Text, [string]$Name, $Value) {
+    if (-not $Text.Trim()) { $Text = '{}' }
+    $json = if ($null -eq $Value) { '' } else { ConvertTo-Json -InputObject $Value -Compress -Depth 4 }
+    $found = ([regex]('(\s*)"' + [regex]::Escape($Name) + '"\s*:\s*(\{[^{}]*\}|\[[^\[\]]*\])')).Match($Text)
+    if ($found.Success) {
+        $before = $Text.Substring(0, $found.Index)
+        $after = $Text.Substring($found.Index + $found.Length)
+        if ($json) { $new = $before + $found.Groups[1].Value + '"' + $Name + '": ' + $json + $after }
+        elseif ($after -match '^\s*,') { $new = $before + ($after -replace '^\s*,', '') }
+        else { $new = ($before -replace ',\s*$', '') + $after }
+    } elseif ($json) {
+        $open = $Text.IndexOf('{')
+        if ($open -lt 0) { return $null }
+        $rest = $Text.Substring($open + 1)
+        $new = $Text.Substring(0, $open + 1) + "`n  `"$Name`": " + $json + $(if ($rest -match '^\s*\}') { "`n" } else { ',' }) + $rest
+    } else { return $Text }
+    try { $null = $new | ConvertFrom-Json; $new } catch { $null }
+}
+
+function Write-SettingsText([string]$Path, [string]$Text) {
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding $false))
+}
+
+# The skills switched off in Siempre: the "off" entries of skillOverrides (also the ones set with /skills).
+function Get-CatalogSkillOff([string]$SettingsPath = $ClaudeSettingsFile) {
+    $saved = Read-JsonFile $SettingsPath
+    if (-not $saved -or $saved.skillOverrides -isnot [pscustomobject]) { return , [string[]]@() }
+    , [string[]]@($saved.skillOverrides.PSObject.Properties | Where-Object { $_.Value -eq 'off' } | ForEach-Object { $_.Name })
+}
+
+function Set-CatalogSkillOff([string]$Key, [bool]$Off, [string]$SettingsPath = $ClaudeSettingsFile) {
+    $text = if (Test-Path -LiteralPath $SettingsPath) { [IO.File]::ReadAllText($SettingsPath) } else { '{}' }
+    try { $saved = $text | ConvertFrom-Json } catch { throw "$SettingsPath is not valid JSON" }
+    $map = [ordered]@{}
+    if ($saved -and $saved.skillOverrides -is [pscustomobject]) { foreach ($p in $saved.skillOverrides.PSObject.Properties) { if ($p.Name -ne $Key) { $map[$p.Name] = $p.Value } } }
+    if ($Off) { $map[$Key] = 'off' }
+    $new = Set-JsonKeyText $text 'skillOverrides' $(if ($map.Count) { $map })
+    if ($null -eq $new) { throw "could not edit $SettingsPath" }
+    if ($new -ne $text) { Write-SettingsText $SettingsPath $new }
+}
+
+# One of your user-scope MCP servers switched off in Siempre: its config is kept in the stash and it counts as added
+# by ClaudeMaxxing, so the next catalog-mcp run removes it (claude mcp remove -s user) and can add it back later.
+function Save-CatalogStash([string]$Name, [string]$ClaudeJson = (Join-Path $env:USERPROFILE '.claude.json'), [string]$StashPath = $CatalogStashFile, [string]$AppliedPath = $CatalogAppliedFile) {
+    $config = Read-JsonFile $ClaudeJson
+    $server = if ($config -and $config.mcpServers) { $config.mcpServers.PSObject.Properties[$Name] } else { $null }
+    if (-not $server) { throw "$Name is not in your MCP servers" }
+    $stash = @{}
+    $saved = Read-JsonFile $StashPath
+    if ($saved -is [pscustomobject]) { foreach ($p in $saved.PSObject.Properties) { $stash[$p.Name] = $p.Value } }
+    $stash[$Name] = $server.Value
+    Write-JsonFile $StashPath $stash
+    $applied = Get-CatalogApplied $AppliedPath
+    $applied[$CatalogEverywhere] = [string[]](@(@($applied[$CatalogEverywhere]) | Where-Object { $_ -and $_ -ne $Name }) + $Name)
+    Write-JsonFile $AppliedPath $applied
+}
+
+# The Ambientes' lists in their folders. $SkillKeys and $McpKeys: everything Claude Code loads in every folder
+# (your skills, the plugins', claude.ai's, the catalog's on always; your user-scope servers and the plugins').
+# A limited Ambiente turns each of those skills off or on as its list says and blocks the servers not on it; an
+# entry of yours with the same key is left as it is. One that is no longer limited gets its entries taken out.
+function Sync-CatalogOverrides($Settings, $Targets, [string[]]$SkillKeys, [string[]]$McpKeys, [string]$OursPath = $CatalogOverridesFile) {
+    $ours = @{}
+    $saved = Read-JsonFile $OursPath
+    if ($saved -is [pscustomobject]) { foreach ($p in $saved.PSObject.Properties) { $ours[$p.Name] = $p.Value } }
+    $record = @{}
+    foreach ($id in @($ours.Keys)) { if (-not $Targets.Contains($id)) { $record[$id] = $ours[$id] } }
+    foreach ($target in @($Targets.Values | Where-Object { $_.Dir })) {
+        $id = $target.Id
+        $prevSkills = @($(if ($ours[$id]) { $ours[$id].skills }) | Where-Object { $_ })
+        $prevMcp = @($(if ($ours[$id]) { $ours[$id].mcp }) | Where-Object { $_ })
+        $limited = @($Settings.limited) -contains $id
+        if (-not $limited -and -not $prevSkills.Count -and -not $prevMcp.Count) { continue }
+        $file = Join-Path $target.Dir '.claude\settings.local.json'
+        $text = if (Test-Path -LiteralPath $file) { [IO.File]::ReadAllText($file) } else { '{}' }
+        try { $local = $text | ConvertFrom-Json } catch { $record[$id] = $ours[$id]; continue }
+        $overrides = [ordered]@{}
+        if ($local -and $local.skillOverrides -is [pscustomobject]) {
+            foreach ($p in $local.skillOverrides.PSObject.Properties) { if ($prevSkills -notcontains $p.Name) { $overrides[$p.Name] = $p.Value } }
+        }
+        $denied = @(@($(if ($local) { $local.deniedMcpServers })) | Where-Object { $_ -and $prevMcp -notcontains [string]$_.serverName })
+        $mineSkills = @(); $mineMcp = @()
+        if ($limited) {
+            foreach ($key in $SkillKeys) {
+                if ($overrides.Contains($key)) { continue }
+                $overrides[$key] = if (@($Settings.skills[$key]) -contains $id) { 'on' } else { 'off' }
+                $mineSkills += $key
+            }
+            foreach ($key in $McpKeys) {
+                if (@($Settings.mcp[$key]) -contains $id -or @($denied | Where-Object { [string]$_.serverName -eq $key }).Count) { continue }
+                $denied += [pscustomobject]@{ serverName = $key }
+                $mineMcp += $key
+            }
+        }
+        $new = Set-JsonKeyText $text 'skillOverrides' $(if ($overrides.Count) { $overrides })
+        if ($null -ne $new) { $new = Set-JsonKeyText $new 'deniedMcpServers' $(if ($denied.Count) { , $denied }) }
+        if ($null -eq $new) { $record[$id] = $ours[$id]; continue }
+        if ($new -ne $text) { Write-SettingsText $file $new }
+        if ($mineSkills.Count -or $mineMcp.Count) { $record[$id] = @{ skills = [string[]]$mineSkills; mcp = [string[]]$mineMcp } }
+    }
+    $json = ConvertTo-Json -InputObject $record -Depth 4
+    if (-not (Test-Path -LiteralPath $OursPath) -or [IO.File]::ReadAllText($OursPath) -ne $json) { Write-JsonFile $OursPath $record }
 }

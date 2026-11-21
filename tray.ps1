@@ -4,7 +4,7 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; skills-catalog, Skills y MCP on its Catalogo tab; <section>-full, that section in full screen on a 1920x1080 screen).
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, mobile (Celular), voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; skills-mcp, Skills y MCP on its MCP tab; envs-lists, Ambientes on its Skills y MCP tab; <section>-full, that section in full screen on a 1920x1080 screen).
 # -RenderEggsTo <folder> writes each session color's egg as <color>.png (the terminal tab icons; install.ps1) and
 # statusline.json, the egg as 8-bit text (still and thinking frames) for the Claude Code statusline.
 # -RenderSnipTo <png> draws Win+Alt+C and its boxes with a sample screen (lib\snipcapture.ps1; see the block below).
@@ -66,6 +66,8 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\snip.ps1')
 . (Join-Path $TrayRoot 'lib\snipcapture.ps1')
 . (Join-Path $TrayRoot 'lib\sniprecord.ps1')
+. (Join-Path $TrayRoot 'lib\mobile.ps1')
+. (Join-Path $TrayRoot 'lib\hubmobile.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 # Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.
 [void][ClaudeTray.Native]::SetCurrentProcessExplicitAppUserModelID('ClaudeMaxxing.Tray')
@@ -618,6 +620,9 @@ if ($RenderTo) {
 $timer.Start()
 # A company policy without Otros PCs: no SSH server and no discovery on this PC.
 if (Test-HubModule 'bridge') { $script:BridgeTimer.Start() }
+# The phone app (lib\mobile.ps1): its HTTPS server when Celular is on, and the queue its requests wait in.
+Start-MobileTimer
+Update-MobileServer
 Update-UsageBarsIcon $script:UsageBars $script:View
 # Right end first: Windows puts each new icon at the left end, so the bars line up left to right next to Claude,
 # and the eggs (shown next) go to their left.
@@ -643,6 +648,7 @@ try {
     $timer.Stop()
     $script:BridgeTimer.Stop()
     Stop-BridgeTray
+    Stop-MobileTimer
     Stop-SessionIcons
     Stop-SnipWatch
     Stop-UsageOverlay
