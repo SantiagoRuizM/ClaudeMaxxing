@@ -407,16 +407,26 @@ function Initialize-MobileHub {
     }
 }
 
+# After /clear a window holds a new conversation (new id, transcript and voice name), but sessions.json keeps the id
+# it was opened with. The voice's turn-<that key> (Save-SessionTurn) points at the current transcript, <id>.jsonl.
+function Get-MobileCurrentSessionId([string]$Id) {
+    $turn = Read-JsonFile (Join-Path $VoiceStateDir ('turn-' + (Get-HubSessionKey $Id)))
+    $current = if ($turn -and $turn.transcript) { [IO.Path]::GetFileNameWithoutExtension([string]$turn.transcript) } else { '' }
+    if (Test-MobileSessionId $current) { $current } else { $Id }
+}
+
 # The sessions open from the menu, as the phone swipes through them.
 function Get-MobileSessions {
     $eggs = Read-JsonFile (Join-Path $TrayHome 'eggs.json')
     $list = foreach ($r in @(Read-JsonFile $SessionsFile | Where-Object { $_ -and $_.sessionId })) {
         $hwnd = [long]$r.hwnd
         if (-not ($hwnd -ne 0 -and [ClaudeTray.Native]::IsWindow([IntPtr]$hwnd))) { continue }
-        $id = [string]$r.sessionId
+        $first = [string]$r.sessionId
+        $id = Get-MobileCurrentSessionId $first
         $voice = Read-JsonFile (Join-Path $VoiceStateDir ('name-' + (Get-HubSessionKey $id)))
-        $state = if ($eggs -and $eggs.PSObject.Properties[$id]) { [string]$eggs.$id } else { 'idle' }
-        [ordered]@{ id = $id; slot = [int]$r.slot; name = $(if ($r.name) { [string]$r.name } else { (L 'Ventana {0}') -f ([int]$r.slot + 1) })
+        $state = if ($eggs -and $eggs.PSObject.Properties[$first]) { [string]$eggs.$first } else { 'idle' }
+        $name = if ($voice -and $voice.name) { [string]$voice.name } elseif ($r.name) { [string]$r.name } else { (L 'Ventana {0}') -f ([int]$r.slot + 1) }
+        [ordered]@{ id = $id; slot = [int]$r.slot; name = $name
             role = $(if ($voice) { [string]$voice.role } else { '' }); color = (Get-HubSlotHex ([string]$r.color)); dir = [string]$r.dir
             folder = (Split-Path -Leaf ([string]$r.dir)); state = $state; canWrite = (Test-Path -LiteralPath (Join-Path $MobileInboxDir "$id.json")) }
     }
@@ -569,7 +579,7 @@ function ConvertFrom-MobileTranscriptLine([string]$Line) {
 
 function Get-MobileMessagesAnswer([string]$SessionId, [long]$After) {
     if (-not (Test-MobileSessionId $SessionId)) { return New-MobileAnswer 400 @{ error = 'bad session' } }
-    $record = @(Read-JsonFile $SessionsFile | Where-Object { $_ -and $_.sessionId -eq $SessionId })[0]
+    $record = @(Read-JsonFile $SessionsFile | Where-Object { $_ -and $_.sessionId -and (Get-MobileCurrentSessionId ([string]$_.sessionId)) -eq $SessionId })[0]
     if (-not $record) { return New-MobileAnswer 404 @{ error = 'unknown session' } }
     $path = Get-MobileTranscriptPath $SessionId ([string]$record.dir)
     if (-not $path) { return New-MobileAnswer 200 @{ offset = 0; reset = $true; items = @() } }

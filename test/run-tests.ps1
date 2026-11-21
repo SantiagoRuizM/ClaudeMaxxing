@@ -1978,6 +1978,16 @@ try {
 
     $q = ConvertFrom-MobileQuery 'session=abc&after=12&x=a%20b&y=c+d&flag'
     Assert-Equal 'abc|12|a b|c d|' ('{0}|{1}|{2}|{3}|{4}' -f $q['session'], $q['after'], $q['x'], $q['y'], $q['flag']) 'mobile: the query string is decoded'
+
+    $savedVoiceStateDir = $VoiceStateDir
+    $VoiceStateDir = $mobileRoot
+    try {
+        $firstId = '11111111-1111-1111-1111-111111111111'
+        $clearedId = '22222222-2222-2222-2222-222222222222'
+        Assert-Equal $firstId (Get-MobileCurrentSessionId $firstId) 'mobile: no turn yet, the id the window was opened with'
+        Write-JsonFile (Join-Path $mobileRoot "turn-$firstId") ([pscustomobject]@{ transcript = "C:\p\$clearedId.jsonl" })
+        Assert-Equal $clearedId (Get-MobileCurrentSessionId $firstId) 'mobile: after /clear, the current conversation of the window'
+    } finally { $VoiceStateDir = $savedVoiceStateDir }
     Assert-Equal 'cmx://pair?h=192.168.1.5,100.64.0.9&p=47830&f=ab&c=cd&n=MY%20PC' (Format-MobilePairUri @('192.168.1.5', '100.64.0.9') 47830 'ab' 'cd' 'MY PC') 'mobile: the pairing URI the QR carries'
 
     foreach ($case in @(@('192.168.1.2', $true), @('10.1.2.3', $true), @('172.20.0.1', $true), @('172.32.0.1', $false), @('8.8.8.8', $false),
