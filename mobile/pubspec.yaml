@@ -7,6 +7,7 @@ environment:
   sdk: ^3.5.3
 
 dependencies:
+  audioplayers: ^6.4.0
   crypto: ^3.0.8
   file_picker: 8.1.7
   flutter:
@@ -15,6 +16,7 @@ dependencies:
   flutter_secure_storage: ^10.3.4
   image_picker: ^1.1.2
   mobile_scanner: ^6.0.11
+  path_provider: ^2.1.5
   speech_to_text: 6.6.2
 
 dev_dependencies:

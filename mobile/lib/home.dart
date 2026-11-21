@@ -16,6 +16,7 @@ import 'items.dart';
 import 'logic.dart';
 import 'notify.dart';
 import 'strings.dart';
+import 'voices.dart';
 
 class HomePager extends StatefulWidget {
   const HomePager({super.key, required this.pc, required this.menu, required this.onRevoked});
@@ -42,6 +43,7 @@ class _HomePagerState extends State<HomePager> {
   void initState() {
     super.initState();
     SessionNotification.instance.update(_api, []);
+    VoiceStore.instance.open(widget.pc);
     _refresh();
     _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
   }
@@ -52,6 +54,7 @@ class _HomePagerState extends State<HomePager> {
     if (old.pc != widget.pc) {
       _api = Api(widget.pc);
       SessionNotification.instance.update(_api, []);
+      VoiceStore.instance.open(widget.pc);
       _state = null;
       _page = 0;
       if (_pages.hasClients) _pages.jumpToPage(0);
@@ -81,6 +84,8 @@ class _HomePagerState extends State<HomePager> {
         _page = page;
       });
       SessionNotification.instance.update(api, _sessions);
+      // The voice notes are saved on the phone as soon as the PC has them, whichever page is open.
+      unawaited(VoiceStore.instance.sync(api));
       if (_pages.hasClients && _pages.page?.round() != page) _pages.jumpToPage(page);
     } on ApiError catch (e) {
       if (!mounted || api != _api) return;
@@ -106,7 +111,15 @@ class _HomePagerState extends State<HomePager> {
           Text(current == null ? S.panel : '${current['folder']} · ${widget.pc.name}',
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ]),
-        actions: [widget.menu],
+        actions: [
+          IconButton(
+            tooltip: S.voiceNotes,
+            icon: const Icon(Icons.headphones_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => VoiceNotesPage(sessionColor: hexColor('${current?['color']}') ?? theme.colorScheme.primary))),
+          ),
+          widget.menu,
+        ],
       ),
       body: Column(children: [
         if (_error.isNotEmpty)
@@ -664,7 +677,15 @@ class _SessionPageState extends State<SessionPage> with AutomaticKeepAliveClient
         ]),
       ),
       Expanded(
-        child: ChatView(items: _items, controller: _scroll, sessionColor: color, emptyText: _offset < 0 ? '' : S.emptyChat),
+        child: ValueListenableBuilder<List<VoiceNote>>(
+          valueListenable: VoiceStore.instance.notes,
+          builder: (context, _, __) => ChatView(
+            items: withVoices(_items, [for (final n in VoiceStore.instance.of(_id)) {'role': 'voice', 'at': n.at, 'note': n}]),
+            controller: _scroll,
+            sessionColor: color,
+            emptyText: _offset < 0 ? '' : S.emptyChat,
+          ),
+        ),
       ),
       if (_uploading)
         LinearProgressIndicator(semanticsLabel: S.uploading),

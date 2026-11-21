@@ -104,4 +104,20 @@ void main() {
     final back = Pc.fromJson(pc.toJson());
     expect([back.name, back.hosts, back.port, back.pin, back.token, back.lastHost], [pc.name, pc.hosts, pc.port, pc.pin, pc.token, pc.lastHost]);
   });
+
+  test('withVoices puts each voice note before the first message said after it', () {
+    final items = [
+      {'role': 'user', 'text': 'hola', 'at': '2026-11-21T14:00:00Z'},
+      {'role': 'assistant', 'text': 'listo', 'at': '2026-11-21T14:01:00Z'},
+      {'role': 'user', 'text': 'sigue', 'at': '2026-11-21T14:05:00Z'},
+    ];
+    final voices = [
+      {'role': 'voice', 'at': '2026-11-21T09:06:00-05:00'}, // 14:06 UTC: after everything
+      {'role': 'voice', 'at': '2026-11-21T09:01:30-05:00'}, // 14:01:30 UTC: between listo and sigue
+    ];
+    final merged = withVoices(items, voices);
+    expect(merged.map((m) => m['text'] ?? m['at']).toList(),
+        ['hola', 'listo', '2026-11-21T09:01:30-05:00', 'sigue', '2026-11-21T09:06:00-05:00']);
+    expect(withVoices(items, []), same(items));
+  });
 }

@@ -2080,6 +2080,20 @@ try {
     $other = ConvertFrom-MobileTranscriptLine $peerLine.Replace("(ClaudeMaxxing app, from the user's phone) ", '')
     Assert-Equal 'tool' $other.role 'mobile: another session''s message is a side line'
 
+    # the voice's history for the phone: lines with audio only, newer than the last one it has, and their mp3
+    $voiceDir = Join-Path $mobileRoot 'history'
+    $sid = '3cd075fb-fe1c-4104-a081-3c1699aa6a6e'
+    foreach ($v in @(@('20261121-093306-695', 'uno', $true), @('20261121-093453-400', 'dos', $true), @('20261121-094000-001', 'sapi', $false))) {
+        Write-JsonFile (Join-Path $voiceDir "$($v[0])-$sid.json") ([ordered]@{ time = '2026-11-21T09:34:53'; session = $sid; name = 'Ana'; text = $v[1]; audio = '' })
+        if ($v[2]) { [IO.File]::WriteAllBytes((Join-Path $voiceDir "$($v[0])-$sid.mp3"), [byte[]](1, 2, 3)) }
+    }
+    Assert-Equal 'uno,dos' (@(Get-MobileVoices '' $voiceDir | ForEach-Object { $_.text }) -join ',') 'mobile voices: oldest first, only lines with audio'
+    Assert-Equal 'dos' (@(Get-MobileVoices "20261121-093306-695-$sid" $voiceDir | ForEach-Object { $_.text }) -join ',') 'mobile voices: only the ones newer than the last the phone has'
+    Assert-Equal $true ((@(Get-MobileVoices '' $voiceDir))[0].at -match '^2026-11-21T09:34:53(\.0+)?[+-]\d\d:\d\d$') 'mobile voices: the time carries the PC offset'
+    Assert-Equal 'AQID' (Get-MobileVoiceAnswer "20261121-093453-400-$sid" $voiceDir).Body.audio 'mobile voices: the audio goes as base64'
+    Assert-Equal 400 (Get-MobileVoiceAnswer '..\..\secret' $voiceDir).Status 'mobile voices: an id that is not one is refused'
+    Assert-Equal 404 (Get-MobileVoiceAnswer "20261121-094000-001-$sid" $voiceDir).Status 'mobile voices: a line without audio has none to send'
+
     # uploads: a safe name on disk, the caption and the attachment line, refused without the session's inbox
     Assert-Equal 'foto_de_hoy.jpg' (Get-MobileSafeName 'C:\x\..\foto de hoy.jpg') 'mobile: an upload keeps only a safe file name'
     Assert-Equal 'file' (Get-MobileSafeName '...') 'mobile: a name of dots becomes file'

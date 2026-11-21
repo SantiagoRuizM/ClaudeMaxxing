@@ -10,7 +10,7 @@
   "sessionActiveHours": 12,
   "announceFormat": "Soy {name}, {role}. {text}",
   "queueTimeoutSeconds": 90,
-  "historySize": 30,
+  "historySize": 100,
   "hotkeys": { "repeat": "O", "stop": "P" },
   "duck": {
     "enabled": true,

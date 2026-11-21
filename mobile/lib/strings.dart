@@ -49,6 +49,14 @@ class S {
   static String get audio => t('Audio', 'Audio');
   static String get caption => t('Añade un comentario', 'Add a caption');
   static String get cancel => t('Cancelar', 'Cancel');
+  static String get delete => t('Borrar', 'Delete');
+  static String get play => t('Reproducir', 'Play');
+  static String get pause => t('Pausar', 'Pause');
+  static String get voiceNotes => t('Audios', 'Voice notes');
+  static String get noVoiceNotes => t(
+      'Aquí quedan los audios de la voz de tus sesiones. Se guardan en el celular apenas el PC los dice, para escucharlos cuando quieras.',
+      'The voice notes of your sessions land here. They are saved on the phone as soon as the PC says them, to play whenever you want.');
+  static String get deleteVoiceNote => t('¿Borrar este audio del celular?', 'Delete this voice note from the phone?');
   static String get yes => t('Sí', 'Yes');
   static String get chatStyle => t('Estilo del chat', 'Chat style');
   static String get textSize => t('Tamaño del texto', 'Text size');

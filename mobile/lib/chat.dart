@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'chat_style.dart';
 import 'logic.dart';
 import 'strings.dart';
+import 'voices.dart';
 
 IconData attachmentIcon(String name) => switch (name.split('.').last.toLowerCase()) {
       'jpg' || 'jpeg' || 'png' || 'gif' || 'webp' || 'bmp' || 'heic' || 'heif' => Icons.image_outlined,
@@ -215,6 +216,8 @@ class _ChatViewState extends State<ChatView> {
                       if (e.tools) return _tools(e.items, p, size);
                       final before = i > 1 ? entries[i - 2] : null;
                       final first = before == null || before.day != null || before.tools || before.items.first['role'] != e.items.first['role'];
+                      final note = e.items.first['note'];
+                      if (note is VoiceNote) return VoiceBubble(note: note, palette: p, size: size, first: first);
                       return chatBubble(context, e.items.first, p, size, first: first);
                     },
                   ),

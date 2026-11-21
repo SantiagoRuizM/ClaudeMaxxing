@@ -161,4 +161,7 @@ class Api {
   Future<void> upload(String session, String name, List<int> bytes, String caption) =>
       call('POST', '/upload', query: {'session': session, 'name': name, 'caption': caption}, rawBody: bytes);
   Future<void> unpair() => call('POST', '/unpair');
+  Future<Map<String, dynamic>> voices(String after) async =>
+      (await call('GET', '/voices', query: {'after': after})) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> voice(String id) async => (await call('GET', '/voice', query: {'id': id})) as Map<String, dynamic>;
 }

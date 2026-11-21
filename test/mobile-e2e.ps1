@@ -74,6 +74,14 @@ try {
     $token = ($answer.Substring(4) | ConvertFrom-Json).token
     Assert-Equal $true ((Call 'GET' '/nope' $token) -like '404 *') 'e2e: a token reaches the routes'
     Assert-Equal $true ((Call 'POST' '/pair' '' ('{"code":"x","device":"e2e"}')) -like '401 *') 'e2e: no second pairing without a new code'
+    # The voice notes: the list, then one mp3 as base64, over the real server (a made-up history folder).
+    $MobileVoiceDir = Join-Path $root 'history'
+    $voiceId = '20261121-093453-400-3cd075fb-fe1c-4104-a081-3c1699aa6a6e'
+    Write-JsonFile (Join-Path $MobileVoiceDir "$voiceId.json") ([ordered]@{ time = '2026-11-21T09:34:53'; session = '3cd075fb-fe1c-4104-a081-3c1699aa6a6e'; name = 'Ana'; text = 'Listo.' })
+    [IO.File]::WriteAllBytes((Join-Path $MobileVoiceDir "$voiceId.mp3"), [byte[]](1, 2, 3))
+    Assert-Equal $true ((Call 'GET' '/voices?after=' $token) -like "200 *`"voices`":``[{*`"id`":`"$voiceId`"*") 'e2e: /voices lists the spoken lines'
+    Assert-Equal $true ((Call 'GET' "/voice?id=$voiceId" $token) -like '200 *"audio":"AQID"*') 'e2e: /voice sends the mp3'
+    Assert-Equal $true ((Call 'GET' '/voices' '') -like '401 *') 'e2e: the voice notes need a paired phone'
     $big = 'x' * (1024 * 1024 + 10)
     Assert-Equal $true ((Call 'POST' '/prompt' $token $big) -notlike '200 *') 'e2e: a body over 1 MB is refused'
 } finally {

@@ -319,6 +319,8 @@ function Invoke-MobileRequest($Request) {
             return Get-MobileMessagesAnswer ([string]$query['session']) $after
         }
         'POST /prompt'  { return Send-MobilePrompt ([string]$body.session) ([string]$body.text) }
+        'GET /voices'   { return New-MobileAnswer 200 @{ voices = @(Get-MobileVoices ([string]$query['after'])) } }
+        'GET /voice'    { return Get-MobileVoiceAnswer ([string]$query['id']) }
         'POST /unpair'  { Remove-MobileDevice $device.id; return New-MobileAnswer 200 @{ ok = $true } }
     }
     New-MobileAnswer 404 @{ error = 'unknown route' }
@@ -575,6 +577,36 @@ function Get-MobileMessagesAnswer([string]$SessionId, [long]$After) {
     $items = @(foreach ($line in $chunk.Lines) { ConvertFrom-MobileTranscriptLine $line })
     if ($chunk.Reset -and $items.Count -gt 80) { $items = @($items | Select-Object -Last 80) }
     New-MobileAnswer 200 @{ offset = $chunk.Offset; reset = $chunk.Reset; items = $items }
+}
+
+# ---------------------------------------------------------------- sessions: what the voice said
+
+# The voice's history (voice\hooks\common.ps1, Add-History): <yyyyMMdd-HHmmss-fff>-<session>.json and its .mp3, the
+# last 100 of all sessions (historySize). The phone keeps its own copy, so it can play them after the PC drops them.
+$MobileVoiceDir = Join-Path $env:TEMP 'claude-voice\history'  # $VoiceStateDir of lib\hub.ps1, which this file does not need
+$MobileVoiceIdPattern = '^\d{8}-\d{6}-\d{3}-[A-Za-z0-9-]{1,64}$'
+
+# The spoken lines with audio newer than $After (an id; the ids sort by time), oldest first: id, at (with the PC's
+# offset), session, name and text.
+function Get-MobileVoices([string]$After, [string]$Dir = $MobileVoiceDir) {
+    if (-not (Test-Path -LiteralPath $Dir)) { return }
+    foreach ($file in @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $id = $file.BaseName
+        if ($id -notmatch $MobileVoiceIdPattern -or ($After -and [string]::CompareOrdinal($id, $After) -le 0)) { continue }
+        if (-not (Test-Path -LiteralPath (Join-Path $Dir "$id.mp3"))) { continue }
+        $entry = Read-JsonFile $file.FullName
+        if (-not $entry) { continue }
+        $at = try { ([datetimeoffset][datetime]::Parse([string]$entry.time, [Globalization.CultureInfo]::InvariantCulture)).ToString("yyyy-MM-dd'T'HH:mm:sszzz") } catch { '' }
+        [ordered]@{ id = $id; at = $at; session = [string]$entry.session; name = [string]$entry.name; text = [string]$entry.text }
+    }
+}
+
+# One spoken line's audio, as base64 (an mp3 of a sentence is tens of KB).
+function Get-MobileVoiceAnswer([string]$Id, [string]$Dir = $MobileVoiceDir) {
+    if ($Id -notmatch $MobileVoiceIdPattern) { return New-MobileAnswer 400 @{ error = 'bad id' } }
+    $path = Join-Path $Dir "$Id.mp3"
+    if (-not (Test-Path -LiteralPath $path)) { return New-MobileAnswer 404 @{ error = 'gone' } }
+    New-MobileAnswer 200 @{ id = $Id; mime = 'audio/mpeg'; audio = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) }
 }
 
 # The two lines Claude Code's inbox takes: who is writing (the session's token), then the message.

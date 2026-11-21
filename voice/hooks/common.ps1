@@ -489,7 +489,7 @@ function Add-History($Item, [string]$Mp3, $Config) {
         time = (Get-Date).ToString('s'); session = $Item.session; name = $Item.name
         voice = $Item.voice; text = $Item.text; audio = $audio
     })
-    $keep = [int](Get-Opt $Config 'historySize' 30)
+    $keep = [int](Get-Opt $Config 'historySize' 100)
     Get-ChildItem $HistoryDir -Filter '*.json' | Sort-Object Name -Descending | Select-Object -Skip $keep |
         ForEach-Object { Remove-Item $_.FullName, ([IO.Path]::ChangeExtension($_.FullName, '.mp3')) -Force -ErrorAction SilentlyContinue }
 }

@@ -16,6 +16,25 @@ List<Map<String, dynamic>> mergeMessages(List<Map<String, dynamic>> current, Map
   return merged.length > max ? merged.sublist(merged.length - max) : merged;
 }
 
+/// The chat with the voice notes in their place by time: each [voices] item (role voice, with its at) goes before the
+/// first message said after it. Messages without a time keep their place.
+List<Map<String, dynamic>> withVoices(List<Map<String, dynamic>> items, List<Map<String, dynamic>> voices) {
+  if (voices.isEmpty) return items;
+  DateTime? at(Map<String, dynamic> m) => DateTime.tryParse('${m['at'] ?? ''}');
+  final pending = [...voices]..sort((a, b) => (at(a) ?? DateTime(0)).compareTo(at(b) ?? DateTime(0)));
+  final out = <Map<String, dynamic>>[];
+  var v = 0;
+  for (final item in items) {
+    final t = at(item);
+    while (t != null && v < pending.length && !(at(pending[v]) ?? DateTime(0)).isAfter(t)) {
+      out.add(pending[v++]);
+    }
+    out.add(item);
+  }
+  out.addAll(pending.skip(v));
+  return out;
+}
+
 /// The step a hub dropdown takes to go from [current] to [target] (lib\mobile.ps1 MChoice); for an absolute choice,
 /// the target's place in the list.
 int choiceStep(List<String> keys, String current, String target, {bool absolute = false}) {
