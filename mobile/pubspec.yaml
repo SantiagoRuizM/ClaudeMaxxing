@@ -1,0 +1,41 @@
+name: claudemaxxing
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.5.3
+
+dependencies:
+  crypto: ^3.0.8
+  file_picker: 8.1.7
+  flutter:
+    sdk: flutter
+  flutter_local_notifications: ^19.5.0
+  flutter_secure_storage: ^10.3.4
+  image_picker: ^1.1.2
+  mobile_scanner: ^6.0.11
+  speech_to_text: 6.6.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
+
+# dart run flutter_launcher_icons (the jellyfish of logo.png in grey, drawn by New-BrandMark in lib\theme.ps1)
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon.png
+  # Minimal, like a themed Android icon: the light grey jellyfish on dark grey, and the monochrome layer for themed icons.
+  adaptive_icon_background: "#303030"
+  adaptive_icon_foreground: assets/icon_foreground.png
+  adaptive_icon_monochrome: assets/icon_foreground.png
+  min_sdk_android: 23
+

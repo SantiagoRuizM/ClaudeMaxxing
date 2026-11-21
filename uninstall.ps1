@@ -18,6 +18,7 @@ $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Here 'lib\judge.ps1')
 . (Join-Path $Here 'lib\bridge.ps1')
 . (Join-Path $Here 'lib\bridgeinstall.ps1')
+. (Join-Path $Here 'lib\mobile.ps1')
 if (-not $InstallDir) { $InstallDir = $DefaultInstallDir }
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -51,7 +52,11 @@ if ($globalVoice) {
 # Otros PCs: the server stopped with the tray above; removing the firewall rules needs admin rights.
 Write-Host (Uninstall-SshInclude)
 $bridgeRules = @(Get-NetFirewallRule -Group $BridgeFirewallGroup -ErrorAction SilentlyContinue).Count
-$rulesScript = if ($bridgeRules) { Get-BridgeFirewallRemovalScript } else { '' }
+# Celular: its firewall rule goes in the same UAC prompt; its certificate (CurrentUser, no admin) goes now.
+$mobileRules = @(Get-NetFirewallRule -Group $MobileFirewallGroup -ErrorAction SilentlyContinue).Count
+$rulesScript = @(if ($bridgeRules) { Get-BridgeFirewallRemovalScript }; if ($mobileRules) { Get-MobileFirewallRemovalScript }) -join "`n"
+$mobileThumb = (Get-MobileSettings).Thumbprint
+if ($mobileThumb) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$mobileThumb" -ErrorAction SilentlyContinue; Write-Host 'Celular: certificate removed' }
 
 # Ambientes: the Chrome extension stays loaded until removed in chrome://extensions; without its host it does nothing.
 Unregister-HarnessHost
