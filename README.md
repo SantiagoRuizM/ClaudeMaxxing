@@ -30,6 +30,8 @@
   <a href="#phone-app"><img src="https://img.shields.io/badge/Android-companion%20app-000?labelColor=555" alt="Android companion app"></a>
 </p>
 
+> **Questions, concerns or a bug in ClaudeMaxxing?** Email [santiago.ruizm40@gmail.com](mailto:santiago.ruizm40@gmail.com) with a summary of what happened, or of the feature you would like.
+
 ---
 
 > **1.1.0** (8 November 2026) is the current version, for Windows 11 (x64); Windows 10 is untested. There is no packaged release yet, so the [installer](#install) gets the `main` branch, which also has the [unreleased changes](CHANGELOG.md#unreleased) merged so far.
