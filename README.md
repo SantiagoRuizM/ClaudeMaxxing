@@ -43,7 +43,7 @@ Optional:
 - **winget**, so the installer can add what the voice needs (Python for edge-tts, FFmpeg for `ffplay`). Without it, the voice uses the built-in Windows voice.
 - **A bash statusline script and `jq`**, so the tray updates on every Claude Code response. Without them, the tray asks the usage endpoint instead (see [Usage tray](#usage-tray)).
 - **Node.js**, for Environments (its Chrome extension and `env.js`).
-- **Python 3** (`python3` on `PATH`), for Claude Judge, and Python 3.11+ for the PDF plugin.
+- **Python 3** (`python3` on `PATH`), for Maxx Judge, and Python 3.11+ for the PDF plugin.
 
 ### Install
 
@@ -124,16 +124,16 @@ This removes everything listed below, including the menu entry, its certificate 
 | Startup folder | `ClaudeMaxxing.lnk` (tray) and `ClaudeMaxxing atajos.lnk` (voice hotkeys) |
 | Settings > Apps | A ClaudeMaxxing entry; uninstalling it there runs `uninstall.ps1` |
 | `~/.claude/statusline-command.sh` | A block that saves `rate_limits` to `~/.claude/usage-tray/usage.json` and each session's model, effort, folder, context, cost and start to `~/.claude/usage-tray/status` (for the phone; a backup is kept) |
-| `~/.claude/settings.json` (`env`) | `CLAUDE_CODE_PLUGIN_DIRS` lists the installed plugins (Peek, the theme, Claude Whip, PDF), so every Claude Code session loads them, and `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` turns on plugin mods (early access in Claude Code). The rest of the file is left as it was, and a backup is kept the first time (`settings.json.bak-claudemaxxing`). Uninstalling removes the folders from the list and leaves the switch, which other plugins' mods may need |
+| `~/.claude/settings.json` (`env`) | `CLAUDE_CODE_PLUGIN_DIRS` lists the installed plugins (Peek, the theme, Maxx Whip, PDF), so every Claude Code session loads them, and `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` turns on plugin mods (early access in Claude Code). The rest of the file is left as it was, and a backup is kept the first time (`settings.json.bak-claudemaxxing`). Uninstalling removes the folders from the list and leaves the switch, which other plugins' mods may need |
 | `~/.claude/settings.json` (`theme`) | Switched to the matching ClaudeMaxxing theme (`custom:maxx-theme:light` or `dark`), unless you use a custom theme of your own. Uninstalling gives back the exact theme you had |
 | `~/.claude/settings.json`, `~/.claude/plugins` | Only if you turn on **Context saving (context-mode)**: Claude Code installs and enables that plugin for your user (`enabledPlugins`, `extraKnownMarketplaces`), so it applies to every session. Turning the switch off disables it; uninstalling ClaudeMaxxing leaves it installed (`claude plugin uninstall context-mode@context-mode`) |
 | `%LOCALAPPDATA%\ClaudeMaxxing\ssh` | Other PCs, once turned on: the portable OpenSSH (`sshd`, `ssh`, `sftp`...) |
 | Windows Defender Firewall | Other PCs, once turned on: two inbound rules in the `ClaudeMaxxing` group, TCP 41022 for that `sshd.exe` and UDP 41021 for PowerShell, **Private networks only, from the local subnet only** |
 | `~/.ssh/config` | Other PCs, once turned on: a marked block at the top that includes `~/.claude/usage-tray/bridge/ssh_config` (a backup is kept the first time) |
 | `%LOCALAPPDATA%\Programs\freellmapi-desktop`, `%APPDATA%\FreeLLMAPI` | Only if you press **Install** in the FreeLLMAPI card: that app and its data. It has its own entry in Settings > Apps, and uninstalling ClaudeMaxxing leaves it in place |
-| `%LOCALAPPDATA%\ClaudeJudge` | Claude Judge: every trial in `.court`, the logs in `logs`, the last status in `status.json`. Removed with `-RemoveData` |
+| `%LOCALAPPDATA%\ClaudeJudge` | Maxx Judge: every trial in `.court`, the logs in `logs`, the last status in `status.json`. Removed with `-RemoveData` |
 | `~/.claude/usage-tray/edition.json`, `~/.claude/usage-tray/business` | The edition and, in the business edition, the user's policy, goals and seat calibration. `%ProgramData%\ClaudeMaxxing` (IT's policy and goals) is only read, never written |
-| `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, voice history, Other PCs keys and paired PCs (`bridge\`), Claude Whisper's settings and call history (`whisper\`), and the statistics cache (`stats.json`, `stats-cache.json`) |
+| `~/.claude/usage-tray`, `%TEMP%\claude-voice` | Data: usage snapshots, sessions, logs, voice history, Other PCs keys and paired PCs (`bridge\`), Maxx Whisper's settings and call history (`whisper\`), and the statistics cache (`stats.json`, `stats-cache.json`) |
 
 </details>
 
@@ -150,11 +150,11 @@ This removes everything listed below, including the menu entry, its certificate 
 | **[Voice](#voice)** | Each session reads a one-line summary of every answer aloud, with its own voice and a short musical signature. |
 | **[Peek](#peek)** | Every path Claude writes becomes a link: hover to preview it, click to show it in Explorer. |
 | **[PDF as Markdown](#pdf-as-markdown)** | Claude reads PDFs as Markdown instead of page images, for a fraction of the tokens. |
-| **[Claude Judge](#plan-session-claude-judge)** | Put the day's idea on trial before a jury of Claude agents before you spend the plan on it. |
+| **[Maxx Judge](#plan-session-maxx-judge)** | Put the day's idea on trial before a jury of Claude agents before you spend the plan on it. |
 | **[Environments](#environments)** | Work environments that close what doesn't belong and open what does, with focus tracking and a Chrome extension. |
-| **[Claude Whip](#claude-whip)** | When the plan runs low, Claude stops writing code and directs another agent (Codex, Antigravity, OpenCode or Copilot) that does. |
+| **[Maxx Whip](#maxx-whip)** | When the plan runs low, Claude stops writing code and directs another agent (Codex, Antigravity, OpenCode or Copilot) that does. |
 | **[Other PCs](#other-pcs)** | Pair PCs on the same network to open terminals or Claude Code on each other, or let both Claudes debate a decision. Off until you turn it on. |
-| **[Claude Whisper](#claude-whisper)** | A live copilot for calls: it transcribes, spots questions and suggests what to say. |
+| **[Maxx Whisper](#maxx-whisper)** | A live copilot for calls: it transcribes, spots questions and suggests what to say. |
 | **[Phone app](#phone-app)** | The ClaudeMaxxing panel on your Android phone: pair it with a QR, swipe through the sessions open on your PC and write to them. Off until you turn it on. |
 | **[Skills & MCP](#skills--mcp-catalog)** | Every skill and MCP server, yours and a catalog of about 430 skills and 16 servers, in one searchable list with a switch each, always or per environment (an environment can load exactly its own list), and Anthropic's official packages to create your own. |
 | **[Context saving](#context-saving) and [free models](#free-models-with-freellmapi)** | Optional add-ons that make the plan last longer. |
@@ -177,21 +177,21 @@ One window with every tool. It opens like a session, on the first half, quarter 
 
 | Group | Section | What it has |
 |---|---|---|
-| | **Home** | Session and weekly usage, the next scheduled session, a diagram of the PCs on your network, Claude Whisper's latest calls, the open sessions, the voice switches, and shortcuts to the sections you open most. |
+| | **Home** | Session and weekly usage, the next scheduled session, a diagram of the PCs on your network, Maxx Whisper's latest calls, the open sessions, the voice switches, and shortcuts to the sections you open most. |
 | | **Business** | Business edition only. See [Business edition](#business-edition). |
-| Plan | **Plan session** | [Claude Judge](#plan-session-claude-judge). |
+| Plan | **Plan session** | [Maxx Judge](#plan-session-maxx-judge). |
 | | **Usage & schedule** | Both limits, the [automatic schedule](#automatic-schedule), the scheduled sessions (automatic ones marked AUTO), **Schedule session...** and **Weekly plan...**. |
 | | **Statistics** | See [Statistics](#statistics). |
 | Focus | **Environments** | See [Environments](#environments). |
 | Sessions | **Claude Code** | The sessions opened from the menu (color, name, role, voice and slot), **Show** to bring one to the front, **New session...** in a folder you pick, **Per screen**, the screen order, whether the menu entry is installed, a link that explains Peek, and the [context-mode](#context-saving) and [FreeLLMAPI](#free-models-with-freellmapi) cards. |
-| | **Claude Whip** | See [Claude Whip](#claude-whip). |
+| | **Maxx Whip** | See [Maxx Whip](#maxx-whip). |
 | | **Skills & MCP** | One list of skills and one of MCP servers, with a switch each: the ones Claude Code loads (yours, your plugins', claude.ai's, your projects') and the [catalog's](#skills--mcp-catalog), with a search box. It also installs Anthropic's official packages to create them (skill-creator, mcp-server-dev, plugin-dev), each with a button that opens a Claude Code session that starts using it. |
 | | **Voice** | Voice on or off for every session, the global hotkeys, **Test voice**, **Repeat the last one** and **Stop audio**, and the sessions that spoke in the last 12 hours, each with its own switch. |
 | Connections | **Other PCs** | This PC's status, the **Accepts connections** switch and the paired PCs, with Terminal, Claude Code and **Disconnect**. Pairing happens in the Other PCs window (**Pair or find a PC...**), because pairing is only accepted while that window is open. |
-| | **Claude Whisper** | Open or show it, **Context...**, language, model, answer, microphone and call-notice options, the hotkeys, and the call history (click a call to open its Markdown file). While Whisper is open, its settings are read-only here. |
+| | **Maxx Whisper** | Open or show it, **Context...**, language, model, answer, microphone and call-notice options, the hotkeys, and the call history (click a call to open its Markdown file). While Whisper is open, its settings are read-only here. |
 | | **Settings** | The **language** of the window, the tray and its notifications (English, the default, or Spanish), **Screenshots** (Snip on or off, and which hotkey it got), and the **gender of the voices and names** for new sessions. |
 
-The language changes at once; Claude Whisper and the other windows take it the next time they open. Numbers and dates follow it. The choice is saved in `~/.claude/usage-tray/language.json`.
+The language changes at once; Maxx Whisper and the other windows take it the next time they open. Numbers and dates follow it. The choice is saved in `~/.claude/usage-tray/language.json`.
 
 ### Sessions from the Explorer menu
 
@@ -234,9 +234,9 @@ When your busiest hours fall in the middle of one window, that single window car
 - Tasks scheduled by hand over the next 2 weeks that would open a window off the plan are listed. **Clear** removes exactly those, only when you click it and confirm. Hand-made tasks within 30 minutes of a planned start fit the chain and are kept.
 - A window only starts when none is running. If you start one at another time, the chain picks up again at the next planned start after it ends.
 
-#### Plan session (Claude Judge)
+#### Plan session (Maxx Judge)
 
-**Plan session** (also **Plan session...** in the tray menu) puts what you plan to do today on trial before **Claude Judge**, the [court skill](https://github.com/alexyc9381/court-skill) (MIT, by Alex Chen), before you spend the plan on it.
+**Plan session** (also **Plan session...** in the tray menu) puts what you plan to do today on trial before **Maxx Judge**, the [court skill](https://github.com/alexyc9381/court-skill) (MIT, by Alex Chen), before you spend the plan on it.
 
 - **New idea** opens a box to write the idea (6 jurors, or 12 with the full trial). A hidden `claude -p` (Sonnet, your plan) runs the trial: a prosecutor, a defense, their rebuttals, the jury voting alone and a judge. It takes about 6 minutes for 3 jurors (measured), so roughly 10 for 6 and 15 for 12, and keeps going if you close the window.
 - **Earlier ideas** lists the ideas already judged with their verdict. Click one to read every juror's vote and what would flip it, and the judge's charges, strengths and conditions for acquittal. **Judge again with changes...** retries with the idea edited.
@@ -283,7 +283,7 @@ Hover over a bar or a cell to read its value. Time is active time: the gaps betw
 
 ### Voice
 
-Each session opened from the menu reads a one-line summary of every answer aloud, with its own voice and a short musical signature. Engines: Edge neural voices (the default, Latin American Spanish voices), ElevenLabs and Gemini with automatic fallback, or the built-in Windows voice. The voice stays quiet while Claude Whisper listens, and says when the plan ran out and when it comes back. Full documentation in [`voice/README.md`](voice/README.md) (in Spanish).
+Each session opened from the menu reads a one-line summary of every answer aloud, with its own voice and a short musical signature. Engines: Edge neural voices (the default, Latin American Spanish voices), ElevenLabs and Gemini with automatic fallback, or the built-in Windows voice. The voice stays quiet while Maxx Whisper listens, and says when the plan ran out and when it comes back. Full documentation in [`voice/README.md`](voice/README.md) (in Spanish).
 
 ### Peek
 
@@ -305,11 +305,11 @@ An environment says what to close and what to open to work on one thing. For exa
 - **The Chrome extension** shows a badge with how many tabs the environment would close, a small bar when you load something off focus, and a popup with the plan's usage, the environment that is on and a switcher. `install.ps1` registers its native host (needs Node.js); load it once per Chrome profile from `chrome://extensions` > Developer mode > **Load unpacked** > `%LOCALAPPDATA%\ClaudeMaxxing\harness\extension`.
 - **Detection** is off until you turn it on in **Switch notice**, and never runs without environments. Every 3 minutes the tray compares what is open with each environment and, only when that changed, asks `claude -p` (Haiku, your plan). **Judge: Jev** asks Jev first (TypeSafe's decision model, needs `TYPESAFE_API_KEY` in `.env`). When the answer is another environment with 60 % confidence or more, a message box asks whether to switch; **No** is remembered until what is open changes. Tab titles are sent to TypeSafe or Anthropic for that question.
 
-### Claude Whip
+### Maxx Whip
 
 When the plan runs low, Claude Code stops writing code itself and directs another agent that does. Each agent spends its own quota, not your Claude plan.
 
-- **Setup.** The Claude Whip section has a switch, the threshold (70 % to 95 %, or always) and the agents you have installed: Codex, Antigravity CLI (`agy`), OpenCode and Copilot CLI, each with its account, plan and renewal date.
+- **Setup.** The Maxx Whip section has a switch, the threshold (70 % to 95 %, or always) and the agents you have installed: Codex, Antigravity CLI (`agy`), OpenCode and Copilot CLI, each with its account, plan and renewal date.
 - **When it acts.** At the threshold. With **Before the threshold, if it will run out** on (off by default), also earlier when the open 5-hour window is past half and on pace to run out before it resets; the tray recomputes that forecast every 5 minutes, and the session says when the limit would come.
 - **What it does.** In every session, including open ones, Claude can no longer edit, write, start subagents or run shell commands other than git, read-only ones, the agents and the check. Claude plans and writes the task, an agent writes the code (`whip\bin\whip-run.sh`), and Claude reviews git, runs the tests (`whip-check.sh`) and sends back what failed, for at most 3 rounds.
 - **What it is not.** The shell rule is a guard on your plan, not a sandbox, and most agents run without one (see [Privacy, risks and permissions](#privacy-risks-and-permissions)).
@@ -366,9 +366,9 @@ When you and the person at a paired PC are deciding something (an implementation
 - **Cost.** It runs on Sonnet: four calls on your plan (three turns and the moderator) and three on theirs.
 - **Only text crosses.** Each message is a JSON of at most 16 KB that the other PC's gate drops in that debate's folder; it runs nothing. Each turn is `claude -p --restricted` with only Read, Glob and Grep, confined to the folder you picked: no shell, no web, no MCP servers, and `.env*`, `*.pem`, `*.key` and SSH keys can't be read. A drive root or your whole user folder is refused as the folder. Before sending, each turn is scanned for API keys, JWTs, private keys and passwords, which are masked. The other side's words reach your Claude as data, between tags it is told not to obey.
 
-### Claude Whisper
+### Maxx Whisper
 
-A live copilot for calls: job interviews, meetings, sales calls. Open **Claude Whisper** from the tray menu and press **Listen** when the call starts. The window stays on top of the call app.
+A live copilot for calls: job interviews, meetings, sales calls. Open **Maxx Whisper** from the tray menu and press **Listen** when the call starts. The window stays on top of the call app.
 
 - **Transcript.** Everything the PC plays shows as **Them** (the other side in any app: Teams, Zoom, Meet in a browser... but also videos and music), and your microphone shows as **You**. Words appear as they are spoken, in whatever language is being spoken.
 - **Answers.** When a question is heard, Claude writes what you could say: one or two sentences, then a few short points, in the language of the question, with a translation into your language when it differs. It uses what you put in **Context** (your CV, the conversation's goal, your instructions) and never makes up experience: where a detail is missing it leaves a gap like `[years]`. Earlier answers stay one click away (‹ ›).
@@ -462,11 +462,11 @@ What each module lets in or sends out:
 
 | Module | What to know |
 |---|---|
-| Claude Whip | Antigravity runs with `--dangerously-skip-permissions`, Copilot with `--allow-all-tools` and OpenCode with `--auto`: they can run any command as you, so a prompt injection in the repo reaches your PC. Only Codex runs in a sandbox (`workspace-write`). Enable only the agents you trust with the repo |
+| Maxx Whip | Antigravity runs with `--dangerously-skip-permissions`, Copilot with `--allow-all-tools` and OpenCode with `--auto`: they can run any command as you, so a prompt injection in the repo reaches your PC. Only Codex runs in a sandbox (`workspace-write`). Enable only the agents you trust with the repo |
 | Other PCs | An allowed connection is a shell as your Windows user. **Allow 1 hour** lets that PC run commands with no question for an hour, including ones a Claude Code on that PC decides to run |
 | Phone app | A paired phone reads your sessions' conversations, changes the settings the window has and writes to the sessions, from your network or Tailscale. It cannot approve a permission. Revoke a lost phone in **Phone** |
 | Environments | The Chrome extension reads every tab of the profiles where you load it. Detection, off by default, sends tab titles to TypeSafe (Jev) or Anthropic (Haiku, your plan) |
-| Claude Whisper | The call's audio, both sides, goes to Anthropic through an undocumented service; you are asked once before the first listen |
+| Maxx Whisper | The call's audio, both sides, goes to Anthropic through an undocumented service; you are asked once before the first listen |
 | Voice | The Edge voice (the default) sends each spoken summary to Microsoft; ElevenLabs and Gemini send it to them. The Windows voice stays on the PC |
 | FreeLLMAPI | The prompts of the sessions it serves go to free third-party providers, some of which train on them |
 | Skills & MCP catalog | A skill is instructions Claude follows: the catalog's were checked when copied (text only, no scripts, hooks or tool grants) but are third-party. An MCP server you switch on reaches that vendor with your login; the local ones download their npm package the first time |
@@ -491,7 +491,7 @@ A JSON file; [`business/policy.example.json`](business/policy.example.json) has 
 | Field | Meaning |
 |---|---|
 | `company` | The name shown in the Business section |
-| `disabled` | Modules turned off: `freellm`, `bridge` (Other PCs), `whisper`, `whip`, `ambientes` (Environments), `judge` (Claude Judge). Default: all but `judge`, because FreeLLMAPI sends prompts to free third-party providers, Other PCs gives a shell over SSH, Claude Whisper sends calls to an undocumented service, Claude Whip hands the code to other companies' agents and Environments reads every Chrome tab. `[]` allows all. A change applies within 5 minutes with the tray running |
+| `disabled` | Modules turned off: `freellm`, `bridge` (Other PCs), `whisper`, `whip`, `ambientes` (Environments), `judge` (Maxx Judge). Default: all but `judge`, because FreeLLMAPI sends prompts to free third-party providers, Other PCs gives a shell over SSH, Maxx Whisper sends calls to an undocumented service, Maxx Whip hands the code to other companies' agents and Environments reads every Chrome tab. `[]` allows all. A change applies within 5 minutes with the tray running |
 | `seatName`, `seatMonthlyUsd` | The seat and what it costs per month, for the return on it |
 | `reportDir` | A folder the team shares (`\\server\share\...`, environment variables allowed) for the reports. Empty: `Documents\ClaudeMaxxing\informes` |
 | `autoReport` | `true` sends the report there every 7 days, without asking |
@@ -505,7 +505,7 @@ The policy is read from `%ProgramData%\ClaudeMaxxing\policy.json` when IT puts o
 
 - **The seat**: hours in the last 30 days, the API-equivalent cost, the return on the seat (that cost over `seatMonthlyUsd`), and whether the seat **falls short**, **fits** or **has room**. It falls short when a quarter or more of the last 30 windows reach 90 % of the plan, or the weekly limit reaches 95 %, and it has room when 9 of 10 windows use under 35 %. Until the open window reaches 10 %, it says **Not calibrated**.
 - **Reports**: **Export my report** writes `<date>_<PC>_<user>.json` (hours, active days, prompts, sessions, cost, seat, return, the recommendation and the top 10 projects; never prompts or paths) to `reportDir`, after asking when that is a shared folder. **Team report** reads everyone's newest report and opens a CSV in Excel, one row per person.
-- **Company goals**: a Markdown file, IT's `%ProgramData%\ClaudeMaxxing\objetivos.md` or the user's `business\objetivos.md` (**Edit** creates it from a template). Claude Judge weighs every idea against them.
+- **Company goals**: a Markdown file, IT's `%ProgramData%\ClaudeMaxxing\objetivos.md` or the user's `business\objetivos.md` (**Edit** creates it from a template). Maxx Judge weighs every idea against them.
 - **Team kit**: the policy's plugins, each marked installed or not; **Install what is missing** adds the marketplaces and installs the plugins with `claude plugin`.
 - **Team**: with `reportPresence`, who is connected, their tokens and when they were last seen.
 
@@ -520,7 +520,7 @@ npm test                                                                        
 powershell -NoProfile -ExecutionPolicy Bypass -File test\run-tests.ps1         # tray, slots, installer, menu package, Other PCs helpers and gate; every .ps1 is ASCII and parses
 powershell -NoProfile -ExecutionPolicy Bypass -File voice\test\run-tests.ps1   # voice, no audio
 node --test peek\test\paths.test.mjs                                            # Peek's path finding
-node --test whip\test\rules.test.mjs                                            # Claude Whip's rules
+node --test whip\test\rules.test.mjs                                            # Maxx Whip's rules
 node harness\test.js                                                            # Environments
 powershell -NoProfile -ExecutionPolicy Bypass -File test\bridge-e2e.ps1        # Other PCs on loopback: two fake PCs pair, log in with every ssh client and hold a debate
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File test\bridge-tray-e2e.ps1   # the same through the tray functions
@@ -529,7 +529,7 @@ cd mobile; flutter analyze; flutter test; flutter build apk --release           
 # Release signing: mobile\android\key.properties (storePassword, keyPassword, keyAlias, storeFile: the .jks), kept
 # out of git like the key itself. Without it the release build is signed with the debug key.
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draw the popup to an image (-RenderHubTo x.png -HubSection <id> draws a section of the window)
-powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Claude Whisper with sample data
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Maxx Whisper with sample data
 ```
 
 The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and are not part of CI.
@@ -544,6 +544,6 @@ The two `bridge-*` checks need the installed OpenSSH (or `-SshDir <folder>`) and
 
 ClaudeMaxxing is released under the [MIT License](LICENSE).
 
-Third-party code keeps its own license: the catalog's skills ([anthropics/skills](catalog/skills/anthropic) Apache-2.0, [obra/superpowers](catalog/skills/superpowers/LICENSE), [wshobson/agents](catalog/skills/wshobson/LICENSE) and [affaan-m/ECC](catalog/skills/ecc/LICENSE), MIT), Claude Judge's [court skill](claudeJudge/.claude/skills/court/LICENSE) (MIT, Alex Chen) and [Peek](peek/LICENSE), derived from midudev's Quick Peek (MIT). PyMuPDF (AGPL-3.0), Win32-OpenSSH, context-mode (Elastic License 2.0) and FreeLLMAPI (MIT) are downloaded on your PC when needed and never bundled.
+Third-party code keeps its own license: the catalog's skills ([anthropics/skills](catalog/skills/anthropic) Apache-2.0, [obra/superpowers](catalog/skills/superpowers/LICENSE), [wshobson/agents](catalog/skills/wshobson/LICENSE) and [affaan-m/ECC](catalog/skills/ecc/LICENSE), MIT), Maxx Judge's [court skill](claudeJudge/.claude/skills/court/LICENSE) (MIT, Alex Chen) and [Peek](peek/LICENSE), derived from midudev's Quick Peek (MIT). PyMuPDF (AGPL-3.0), Win32-OpenSSH, context-mode (Elastic License 2.0) and FreeLLMAPI (MIT) are downloaded on your PC when needed and never bundled.
 
 ClaudeMaxxing is an independent project, not affiliated with or endorsed by Anthropic.

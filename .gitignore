@@ -1,4 +1,4 @@
-# Claude app icons: install.ps1 copies them from the installed Claude app into the install folder
+# Claude app icons that older installers copied here: never commit them
 /assets/
 *.stackdump
 .claude/settings.local.json

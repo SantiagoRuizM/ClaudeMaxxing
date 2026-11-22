@@ -1,13 +1,13 @@
 ---
 name: claude-whip
-description: Director mode for when the Claude plan runs low (ClaudeMaxxing > Claude Whip). An agent (Codex, Antigravity, OpenCode or Copilot) writes the code; Claude plans, watches git, runs the tests and sends the agent feedback until the tests pass. Use when a prompt carries the [Claude Whip] note, when a tool call is denied by Claude Whip, or when the user asks to delegate the work to other agents.
+description: Director mode for when the Claude plan runs low (ClaudeMaxxing > Maxx Whip). An agent (Codex, Antigravity, OpenCode or Copilot) writes the code; Claude plans, watches git, runs the tests and sends the agent feedback until the tests pass. Use when a prompt carries the [Maxx Whip] note, when a tool call is denied by Maxx Whip, or when the user asks to delegate the work to other agents.
 ---
 
-# Claude Whip
+# Maxx Whip
 
-The Claude plan is nearly spent, so you direct and an agent writes the code. Every token you read or write costs the plan; the agent's do not. While Claude Whip is on, Edit, Write, subagents and shell commands other than git, reading, the agents and the check are blocked.
+The Claude plan is nearly spent, so you direct and an agent writes the code. Every token you read or write costs the plan; the agent's do not. While Maxx Whip is on, Edit, Write, subagents and shell commands other than git, reading, the agents and the check are blocked.
 
-Two scripts sit in `bin/`, two folders above this skill's base directory (the `[Claude Whip]` note on each prompt gives their full paths and the agents that are on):
+Two scripts sit in `bin/`, two folders above this skill's base directory (the `[Maxx Whip]` note on each prompt gives their full paths and the agents that are on):
 
 - `whip-run.sh <agent> [--resume]`: hands the task or feedback on stdin to the agent. It prints the agent's last answer, `git status` and `git diff --stat`. `--resume` continues the agent's last conversation, so it remembers what it did.
 - `whip-check.sh "<test command>"`: prints `git status`, `git diff --stat` and the test result. On failure it prints the last 60 lines of the test output; the whole output goes to a log.

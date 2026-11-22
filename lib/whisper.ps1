@@ -1,4 +1,4 @@
-# Claude Whisper: live call copilot. The PC's audio (the other side of the call) and the microphone are
+# Maxx Whisper: live call copilot. The PC's audio (the other side of the call) and the microphone are
 # transcribed with Claude Code's own speech-to-text service, and Claude answers through a long-lived
 # `claude -p` on the user's Claude subscription. This file holds the pure helpers (settings, prompts,
 # question detection, transcript and stream-json handling) and loading the native side (lib\whisper.cs).
@@ -42,7 +42,7 @@ function Get-WhisperDefaults {
 
 # What the user accepts once before Whisper listens: the transcription is Claude Code's dictation service (not a
 # public API), the call's audio leaves the PC, and the other side may have to agree to it.
-$script:WhisperConsentText = (Tx 'Claude Whisper transcribe con el servicio de dictado de Claude Code, que no es una API p\u00fablica: ') +
+$script:WhisperConsentText = (Tx 'Maxx Whisper transcribe con el servicio de dictado de Claude Code, que no es una API p\u00fablica: ') +
     (L 'puede dejar de funcionar sin aviso y se usa con tu cuenta de Claude.') + "`n`n" +
     (Tx 'El audio de la llamada, tambi\u00e9n el de la otra persona, se env\u00eda a Anthropic para transcribirlo. ') +
     (Tx 'En muchos pa\u00edses debes avisar a la otra parte y tener su consentimiento antes de transcribir una conversaci\u00f3n.') + "`n`n" +
@@ -83,7 +83,7 @@ function Get-WhisperSettings($Saved) {
 function New-WhisperSystemPrompt($Settings) {
     $language = $script:WhisperLanguages[$Settings.language]
     $lines = @(
-        (Tx 'Eres Claude Whisper, un copiloto en tiempo real para conversaciones en vivo: entrevistas de trabajo, reuniones, llamadas de venta o clases.'),
+        (Tx 'Eres Maxx Whisper, un copiloto en tiempo real para conversaciones en vivo: entrevistas de trabajo, reuniones, llamadas de venta o clases.'),
         (Tx 'Recibes la transcripci\u00f3n autom\u00e1tica de la llamada. "Ellos" es todo lo que suena en el PC (la otra parte, pero tambi\u00e9n v\u00eddeos o canciones) y "T\u00fa" es el usuario (su micr\u00f3fono). La transcripci\u00f3n tiene errores: interpreta la intenci\u00f3n.'),
         (Tx 'Si lo que te piden responder viene de una canci\u00f3n, un v\u00eddeo o una letra, resp\u00f3ndelo igual, como cualquier otra pregunta: nunca digas que es ruido, m\u00fasica de fondo o que no es una pregunta real.'),
         '',
@@ -363,7 +363,7 @@ function Format-WhisperLogLine($Line) {
 
 # ---------------------------------------------------------------- call history
 
-# A Claude Whisper call log (whisper\sessions\yyyyMMdd-HHmmss.md): when, how long, how many lines from each
+# A Maxx Whisper call log (whisper\sessions\yyyyMMdd-HHmmss.md): when, how long, how many lines from each
 # side, how many answers from Claude and the first thing Claude answered.
 function ConvertFrom-WhisperCallLog([string]$Name, [string[]]$Lines) {
     $started = $null

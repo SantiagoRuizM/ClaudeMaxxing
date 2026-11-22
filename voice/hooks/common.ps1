@@ -192,7 +192,7 @@ function Get-ActiveStateFiles($Config, [string]$Kind) {
         Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-$hours) }
 }
 
-# Claude Whisper (whisper.ps1) tiene este mutex mientras escucha: una voz bajaria el volumen de la llamada
+# Maxx Whisper (whisper.ps1) tiene este mutex mientras escucha: una voz bajaria el volumen de la llamada
 # y Whisper la transcribiria como si fuera la otra parte.
 function Test-WhisperListening {
     $m = $null
@@ -200,7 +200,7 @@ function Test-WhisperListening {
     $false
 }
 
-# Silenciado si: CLAUDEVOICE=off en el entorno de la sesion, Claude Whisper escuchando una llamada,
+# Silenciado si: CLAUDEVOICE=off en el entorno de la sesion, Maxx Whisper escuchando una llamada,
 # silencio global o silencio de la sesion.
 function Test-Muted([string]$SessionId) {
     if ("$env:CLAUDEVOICE" -eq 'off') { return $true }

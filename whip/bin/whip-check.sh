@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Whip check: what the director looks at after each agent round, in a few lines: git status, diff --stat and,
+# Maxx Whip check: what the director looks at after each agent round, in a few lines: git status, diff --stat and,
 # given a test command, its result. The whole test output stays in a log; on failure the last 60 lines are printed
 # (where test runners put the failures), which is what goes back to the agent as feedback.
 #   bash whip-check.sh "npm test"

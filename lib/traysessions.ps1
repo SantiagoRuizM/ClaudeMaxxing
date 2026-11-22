@@ -513,7 +513,7 @@ function Step-SessionIconAnimation {
 # entry some time after the icon first shows, so ids not found yet are retried on the next tick.
 $script:SessionIconsPromoted = @{}
 function Set-SessionIconsPromoted {
-    # The Claude icon and the usage bars (tray.ps1) get the same treatment as the eggs.
+    # The jellyfish icon and the usage bars (tray.ps1) get the same treatment as the eggs.
     $pending = @(@($script:SessionIcons) + @(@($script:Notify) + @($script:UsageBars) | Where-Object { $_ }) | Where-Object { $_.Visible } |
         ForEach-Object { Get-NotifyIconId $_ } | Where-Object { -not $script:SessionIconsPromoted[$_] })
     if (-not $pending.Count) { return }
@@ -859,7 +859,7 @@ function Start-SessionIcons {
         })
         $script:SessionIcons += $notify
     }
-    # First run with these ids: every egg shows right after the Claude icon and the usage bars (tray.ps1 shows those
+    # First run with these ids: every egg shows right after the jellyfish icon and the usage bars (tray.ps1 shows those
     # before this), so Windows lays them out together. Later runs find their places remembered.
     $script:TrayIconsShownAt = Get-Date
     if (-not (Test-TrayIconsPlaced)) { foreach ($notify in $script:SessionIcons) { $notify.Visible = $true } }

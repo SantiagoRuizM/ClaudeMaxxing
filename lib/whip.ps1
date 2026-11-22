@@ -1,4 +1,4 @@
-# Claude Whip: when the Claude plan runs low, Claude Code only reads, plans and hands the work to other agents (Codex,
+# Maxx Whip: when the Claude plan runs low, Claude Code only reads, plans and hands the work to other agents (Codex,
 # Antigravity CLI, OpenCode, Copilot CLI), so the plan lasts. The tray keeps the switch, the threshold and the agents in
 # whip.json; the whip\ plugin (loaded in every session through CLAUDE_CODE_PLUGIN_DIRS) reads it with usage.json on
 # each prompt and tool call: past the threshold it blocks editing and adds the director note to each prompt.

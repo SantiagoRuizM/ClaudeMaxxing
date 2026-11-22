@@ -2,7 +2,7 @@
 # "Abrir con Claude Code" Explorer entry (package, certificate and launcher), Otros PCs (its SSH server, firewall
 # rules and ~/.ssh/config block; the rules go in the same UAC prompt as the menu certificate), scheduled sessions,
 # the statusline block, the voice hooks if they were installed for every session, the Settings > Apps entry and
-# the install folder. Usage data (~/.claude/usage-tray), voice state (%TEMP%\claude-voice) and Claude Judge's trials
+# the install folder. Usage data (~/.claude/usage-tray), voice state (%TEMP%\claude-voice) and Maxx Judge's trials
 # (%LOCALAPPDATA%\ClaudeJudge) are kept unless
 # -RemoveData. -KeepMenu leaves the Explorer entry, which then opens plain Windows Terminal.
 # Runs from the repo or from the install folder (Settings > Apps uses the installed copy, with -Pause so its
@@ -26,7 +26,7 @@ $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.
 $stopped = Stop-RecordedTray
 if ($stopped) { Write-Host "tray stopped (PID $stopped)" }
 $stopped = Stop-RecordedWhisper
-if ($stopped) { Write-Host "Claude Whisper stopped (PID $stopped)" }
+if ($stopped) { Write-Host "Maxx Whisper stopped (PID $stopped)" }
 # Hidden workers started from the install folder (a trial, a debate, the FreeLLMAPI download): they hold files in it.
 $workerPattern = [regex]::Escape((Join-Path $InstallDir 'lib') + '\') + '(judge-worker|debate-worker|maxx-worker|freellm-install)\.ps1'
 foreach ($proc in @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { "$($_.CommandLine)" -match $workerPattern })) {
@@ -86,7 +86,7 @@ Write-Host (Uninstall-TerminalProfiles)
 Write-Host (Uninstall-EggFont)
 Write-Host "Peek: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'peek'))"
 Write-Host "Theme: $(Uninstall-ThemeSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'theme'))"
-Write-Host "Claude Whip: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip'))"
+Write-Host "Maxx Whip: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip'))"
 Write-Host "PDF: $(Uninstall-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'pdf'))"
 # The catalog: the skill copies it made (marked) and the MCP servers it added (catalog-applied.json); yours stay.
 $none = @{ skills = @{}; mcp = @{} }

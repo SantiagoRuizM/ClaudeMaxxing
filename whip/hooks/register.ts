@@ -1,4 +1,4 @@
-// Claude Whip (ClaudeMaxxing): when the plan runs low, the session only reads, plans and runs other agents.
+// Maxx Whip (ClaudeMaxxing): when the plan runs low, the session only reads, plans and runs other agents.
 // Off, or under its threshold, every hook just passes through. The settings come from the tray's whip.json, the
 // plan use from the statusline's usage.json and the window's forecast from the tray's whip-forecast.json, all read
 // on each event (small files, read in process).

@@ -85,7 +85,7 @@ $F = $script:Fonts
 $script:View = $null
 # Personal or business edition and the company policy (lib\business.ps1); Otros PCs and Whisper follow it from start.
 $script:Business = Get-BusinessState
-# Claude Whip: a policy that turns it off also turns off a switch left on (its plugin only reads whip.json).
+# Maxx Whip: a policy that turns it off also turns off a switch left on (its plugin only reads whip.json).
 if (-not $Rendering) { try { [void](Sync-WhipPolicy (Test-ModuleAllowed $script:Business 'whip')) } catch { } }
 $script:Extras = [pscustomobject]@{ ExtraUsage = $null; LimitReset = $null }
 $script:Plan = Get-PlanName $CredsFile
@@ -106,7 +106,7 @@ function Update-UsageState {
     # Until Windows has placed the tray's icons they keep their first tooltip (lib\traysessions.ps1).
     if ($Rendering -or (Test-TrayIconsPlaced)) {
         $script:Notify.Text = $tip
-        # Not the same text as the Claude icon: the bars say only the two windows.
+        # Not the same text as the jellyfish icon: the bars say only the two windows.
         foreach ($bar in @($script:UsageBars)) { if ($bar) { $bar.Text = $tip -replace '^[^-]*- ', '' } }
     }
     if ($script:UsageBars -and -not $Rendering) { Update-UsageOverlay }
@@ -228,7 +228,7 @@ $Popup.ClientSize = New-Object System.Drawing.Size((Px $PopupWidth), (Px 288))
 Enable-DoubleBuffer $Popup
 $Popup.Tag = New-HitMap
 Register-HitMap $Popup
-$script:PopupLogo = New-TintedLogo $P.Accent (Px 20)
+$script:PopupLogo = New-BrandMark $P.Accent (Px 20)
 $script:HubButtonMark = New-BrandMark $P.AccentText (Px 22)
 
 function Draw-Window($G, [string]$Label, $Window, [int]$Top, [string]$IdleText) {
@@ -262,7 +262,7 @@ $Popup.Add_Paint({
     $h = $sender.ClientSize.Height
     $view = $script:View
 
-    # header: spark + serif title, plan pill and status dot on the right
+    # header: jellyfish + serif title, plan pill and status dot on the right
     if ($script:PopupLogo) { $g.DrawImage($script:PopupLogo, (Px 18), (Px 19)) }
     Draw-Text $g 'Claude' $F.Title $P.Text (Px 46) (Px 13) (Px 160) (Px 32)
     $dotSize = Px 8
@@ -401,7 +401,7 @@ $Notify.Visible = -not $Rendering
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 # Grouped like the ClaudeMaxxing window: the window, usage, scheduling, the other tools. Names match its sections.
 [void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
-# Planear sesion is the automatic agenda's tab now; Claude Judge (the policy's 'judge') is a link inside it.
+# Planear sesion is the automatic agenda's tab now; Maxx Judge (the policy's 'judge') is a link inside it.
 [void]$menu.Items.Add((Ux 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' })
 [void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
@@ -411,8 +411,8 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add((Ux 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
 [void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
 [void]$menu.Items.Add('-')
-# Claude Whisper: live call copilot in its own process (whisper.ps1).
-if (Test-HubModule 'whisper') { [void]$menu.Items.Add('Claude Whisper...', $null, { Start-WhisperWindow $TrayRoot }) }
+# Maxx Whisper: live call copilot in its own process (whisper.ps1).
+if (Test-HubModule 'whisper') { [void]$menu.Items.Add('Maxx Whisper...', $null, { Start-WhisperWindow $TrayRoot }) }
 # Otros PCs: terminals on paired PCs and the incoming sessions, rebuilt each time the submenu opens.
 $script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PCs')
 [void]$script:BridgeMenu.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
@@ -436,8 +436,8 @@ $Notify.Add_MouseClick({
     param($sender, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Switch-Popup }
 })
-# The 5-hour and weekly windows as two long bars between the eggs and the Claude icon, always in sight, drawn across
-# $UsageBarSegments icons (lib\traysessions.ps1). Same click and menu as the Claude icon.
+# The 5-hour and weekly windows as two long bars between the eggs and the jellyfish icon, always in sight, drawn across
+# $UsageBarSegments icons (lib\traysessions.ps1). Same click and menu as the jellyfish icon.
 $script:UsageBars = @(for ($i = 0; $i -lt $script:UsageBarSegments; $i++) {
     $bar = New-Object System.Windows.Forms.NotifyIcon
     Set-NotifyIconId $bar ($script:TrayIconIds.Bars + $i)
@@ -453,8 +453,8 @@ $Notify.Add_BalloonTipClicked({
     elseif ($script:BridgeBalloonAction -eq 'whisper') { Start-WhisperWindow $TrayRoot }
 })
 
-# Like a meeting assistant: when a call app starts using the microphone, offer Claude Whisper. Only once
-# Claude Whisper has been used on this PC (its settings exist), and not while it is open.
+# Like a meeting assistant: when a call app starts using the microphone, offer Maxx Whisper. Only once
+# Maxx Whisper has been used on this PC (its settings exist), and not while it is open.
 $script:MeetingAppsSeen = @()
 function Test-MeetingStarted {
     if (-not (Test-HubModule 'whisper')) { return }
@@ -465,7 +465,7 @@ function Test-MeetingStarted {
     $script:MeetingAppsSeen = $apps
     if ($new.Count -eq 0 -or -not $script:Notify.Visible) { return }
     $script:BridgeBalloonAction = 'whisper'
-    $script:Notify.ShowBalloonTip(6000, 'Claude Whisper', ((Tx '{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir Claude Whisper.') -f $new[0]),
+    $script:Notify.ShowBalloonTip(6000, 'Maxx Whisper', ((Tx '{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir Maxx Whisper.') -f $new[0]),
         [System.Windows.Forms.ToolTipIcon]::Info)
 }
 
@@ -483,7 +483,7 @@ $timer.Add_Tick({
     if (Test-HubModule 'ambientes') { try { Invoke-HarnessWatch } catch { } }
     # Business edition (lib\hubbusiness.ps1): calibrate the seat and send the weekly report, every 5 minutes.
     if ($script:Ticks % 20 -eq 1) { try { Update-PolicyAtRuntime; Invoke-BusinessTick } catch { } }
-    # Claude Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
+    # Maxx Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
     if ($script:Ticks % 20 -eq 2) { try { Update-WhipForecast } catch { } }
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }

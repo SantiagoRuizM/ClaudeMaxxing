@@ -1,4 +1,4 @@
-# Stand-in for `claude -p` in the Claude Judge worker tests (test\run-tests.ps1): costs nothing and needs no
+# Stand-in for `claude -p` in the Maxx Judge worker tests (test\run-tests.ps1): costs nothing and needs no
 # network. $env:FAKE_CLAUDE_MODE picks what a real run could leave behind:
 #   verdict  a finished trial in .court and a success answer (with an accented word, to check UTF-8 decoding)
 #   deny     the answer of a run whose writes were refused (what happens under ~/.claude)

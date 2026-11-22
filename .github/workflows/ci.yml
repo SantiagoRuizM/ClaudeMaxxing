@@ -36,7 +36,7 @@ jobs:
         shell: cmd
         run: node harness\test.js
 
-      - name: Claude Whip rules (the shell guard)
+      - name: Maxx Whip rules (the shell guard)
         shell: cmd
         run: node --test whip\test\rules.test.mjs
 

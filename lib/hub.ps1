@@ -1,6 +1,6 @@
 # ClaudeMaxxing window: every tool in one place, opened from the popup's "Entrar a ClaudeMaxxing" button.
 # Sections: Inicio (overview, with the diagram of nearby PCs and the latest calls), Planear sesion (lib\hubplan.ps1:
-# an idea on trial before Claude Judge), Ambientes (lib\harness.ps1: a graph of the harness\ environments, click
+# an idea on trial before Maxx Judge), Ambientes (lib\harness.ps1: a graph of the harness\ environments, click
 # to turn it on or off), Uso y agenda, Claude Code
 # (sessions opened from the Explorer menu), Otros PCs (diagram of nearby PCs and their connection), Claude
 # Whisper (settings and call history) and Voz. The longer flows keep their own windows: the schedule dialog,
@@ -47,11 +47,11 @@ $script:HubSections = @(
     @{ Id = 'self'; Label = 'SelfHarness'; Glyph = '\ue83d'; Module = 'ambientes'; Nav = $false },
     @{ Id = 'code'; Label = 'Claude Code'; Glyph = '\ue943'; Group = 'SESIONES' },
     # Icon: drawn instead of a Segoe MDL2 glyph (there is no whip among them).
-    @{ Id = 'whip'; Label = 'Claude Whip'; Icon = 'Draw-HubWhipIcon'; Module = 'whip'; Group = 'SESIONES' },
+    @{ Id = 'whip'; Label = 'Maxx Whip'; Icon = 'Draw-HubWhipIcon'; Module = 'whip'; Group = 'SESIONES' },
     @{ Id = 'skills'; Label = 'Skills y MCP'; Glyph ='\uea86'; Group = 'SESIONES' },
     @{ Id = 'voice'; Label = 'Voz'; Glyph = '\ue767'; Group = 'SESIONES' },
     @{ Id = 'pcs'; Label = 'Otros PCs'; Glyph = '\ue968'; Module = 'bridge'; Group = 'CONEXIONES' },
-    @{ Id = 'whisper'; Label = 'Claude Whisper'; Glyph = '\ue720'; Module = 'whisper'; Group = 'CONEXIONES' },
+    @{ Id = 'whisper'; Label = 'Maxx Whisper'; Glyph = '\ue720'; Module = 'whisper'; Group = 'CONEXIONES' },
     @{ Id = 'mobile'; Label = 'Celular'; Glyph = '\ue8ea'; Module = 'mobile'; Group = 'CONEXIONES' },
     @{ Id = 'settings'; Label = (Ux 'Configuraci\u00f3n'); Glyph = '\ue713'; Group = ' ' }
 )
@@ -491,7 +491,7 @@ function Stop-HubPeerSessions([string]$PeerId) {
 # writes the whole file when anything changes there.
 function Set-HubWhisperSetting([string]$Key, [int]$Delta = 0) {
     if ($script:Hub.Preview) { return }
-    if (Test-WhisperRunning) { Set-HubMessage (Tx 'Claude Whisper est\u00e1 abierto: cambia sus ajustes desde su ventana.'); return }
+    if (Test-WhisperRunning) { Set-HubMessage (Tx 'Maxx Whisper est\u00e1 abierto: cambia sus ajustes desde su ventana.'); return }
     $settings = Get-WhisperSettings (Read-JsonFile $WhisperSettingsFile)
     switch ($Key) {
         'language' { $keys = @($script:WhisperLanguages.Keys) }
@@ -513,7 +513,7 @@ function Edit-HubWhisperContext {
     if ($script:Hub.Preview) { return }
     if (Test-WhisperRunning) {
         Start-WhisperWindow $TrayRoot
-        Set-HubMessage (Tx 'Claude Whisper est\u00e1 abierto: usa Contexto en su ventana.')
+        Set-HubMessage (Tx 'Maxx Whisper est\u00e1 abierto: usa Contexto en su ventana.')
         return
     }
     $settings = Get-WhisperSettings (Read-JsonFile $WhisperSettingsFile)
@@ -526,7 +526,7 @@ function Edit-HubWhisperContext {
 function Open-HubWhisper {
     if ($script:Hub.Preview) { return }
     Start-WhisperWindow $TrayRoot
-    Set-HubMessage 'Abriendo Claude Whisper...'
+    Set-HubMessage 'Abriendo Maxx Whisper...'
 }
 
 function Open-HubCall([int]$Index) {
@@ -614,7 +614,7 @@ function Set-HubVoiceKey([string]$Engine) {
 
 # A box to paste the ElevenLabs or Gemini key (prefilled from the clipboard when it holds one). Saving checks the
 # key with the service; on failure the window stays open with the whole error. Returns Save-VoiceKey's result or $null.
-# Reuses the Claude Judge dialog helpers (hubplan.ps1).
+# Reuses the Maxx Judge dialog helpers (hubplan.ps1).
 function Show-VoiceKeyDialog([string]$Engine, $Palette, $Owner) {
     $P = $Palette
     $name = if ($Engine -eq 'elevenlabs') { 'ElevenLabs' } else { 'Gemini' }
@@ -909,7 +909,7 @@ function Show-HubDialog([string]$Section = 'home', [string]$RenderPath) {
 
 function Draw-HubCard($G, [System.Drawing.Rectangle]$Rect) { Fill-Round $G $Rect (Px 10) $script:Palette.Surface }
 
-# Claude Whip's icon, a whip the size of a nav glyph centred in Rect: a thick handle and a lash that curls back and
+# Maxx Whip's icon, a whip the size of a nav glyph centred in Rect: a thick handle and a lash that curls back and
 # thins out to its tip. Points on a 16-unit grid.
 function Draw-HubWhipIcon($G, [System.Drawing.Rectangle]$Rect, [System.Drawing.Color]$Color) {
     $u = (Px 16) / 16.0
@@ -1983,7 +1983,7 @@ function Draw-HubHome($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         if ($linked.Count) { $rows += @{ Id = 'pcs'; Dot = $P.Ok; Text = (L '{0} conectado a este PC') -f $linked[0].Name } }
         elseif ($online.Count) { $rows += @{ Id = 'pcs'; Dot = $P.Ok; Text = $(if ($online.Count -eq 1) { (Tx '{0} en l\u00ednea') -f $online[0].Name } else { (Tx '{0} PCs en l\u00ednea') -f $online.Count }) } }
     }
-    if ((Test-HubModule 'whisper') -and $c.WhisperRunning) { $rows += @{ Id = 'whisper'; Dot = $P.Ok; Text = (Tx 'Claude Whisper est\u00e1 abierto') } }
+    if ((Test-HubModule 'whisper') -and $c.WhisperRunning) { $rows += @{ Id = 'whisper'; Dot = $P.Ok; Text = (Tx 'Maxx Whisper est\u00e1 abierto') } }
     if ($c.VoiceMuted) { $rows += @{ Id = 'voice'; Dot = $P.Faint; Text = (Tx 'La voz de las sesiones est\u00e1 apagada') } }
 
     Draw-HubCaption $G 'HOY' $X0 $y $Inner ''
@@ -2389,7 +2389,7 @@ function Draw-HubFreeLlmCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) 
     if ($line3) { Draw-Text $G $line3 $F.Small $line3Color $tx ($Card.Y + (Px 60)) ($Card.Width - (Px 32)) (Px 18) }
 }
 
-# ---------------------------------------------------------------- Claude Whip (lib\whip.ps1)
+# ---------------------------------------------------------------- Maxx Whip (lib\whip.ps1)
 
 # The plan's highest window, as the whip plugin reads it from usage.json.
 function Get-HubPlanPercent {
@@ -2421,12 +2421,12 @@ function Update-HubWhip([scriptblock]$Change, [string]$Message) {
     if ($script:Hub.Preview -or -not (Test-HubModule 'whip')) { return }
     $settings = Get-WhipSettings
     & $Change $settings
-    try { Save-WhipSettings $settings; Set-HubMessage $Message } catch { Set-HubMessage 'No se pudo guardar Claude Whip.' }
+    try { Save-WhipSettings $settings; Set-HubMessage $Message } catch { Set-HubMessage 'No se pudo guardar Maxx Whip.' }
     Update-HubNow
 }
 
 function Set-HubWhipEnabled([bool]$On) {
-    Update-HubWhip { param($s) $s.Enabled = $On } $(if ($On) { 'Claude Whip activado.' } else { 'Claude Whip apagado.' })
+    Update-HubWhip { param($s) $s.Enabled = $On } $(if ($On) { 'Maxx Whip activado.' } else { 'Maxx Whip apagado.' })
 }
 
 function Set-HubWhipAgent([string]$Id, [bool]$On) {
@@ -2434,11 +2434,11 @@ function Set-HubWhipAgent([string]$Id, [bool]$On) {
 }
 
 function Set-HubWhipForecast([bool]$On) {
-    Update-HubWhip { param($s) $s.Forecast = $On } $(if ($On) { 'Claude Whip entra antes del umbral si el plan va a agotarse.' } else { 'Claude Whip entra solo desde el umbral.' })
+    Update-HubWhip { param($s) $s.Forecast = $On } $(if ($On) { 'Maxx Whip entra antes del umbral si el plan va a agotarse.' } else { 'Maxx Whip entra solo desde el umbral.' })
 }
 
 function Step-HubWhipThreshold([int]$Delta) {
-    Update-HubWhip { param($s) $s.Threshold = Step-WhipThreshold $s.Threshold $Delta } 'Umbral de Claude Whip cambiado.'
+    Update-HubWhip { param($s) $s.Threshold = Step-WhipThreshold $s.Threshold $Delta } 'Umbral de Maxx Whip cambiado.'
 }
 
 function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
@@ -2459,10 +2459,10 @@ function Draw-HubWhipSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $tx = $card.X + (Px 16)
     $tw = $card.Width - (Px 84)
     Draw-HubSwitch $G $Map 'whip-switch' ($card.Right - (Px 52)) ($card.Y + (Px 14)) ([bool]$s.Enabled) ([scriptblock]::Create("Set-HubWhipEnabled `$$(-not $s.Enabled)"))
-    Draw-Text $G 'Claude Whip' $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) $tw (Px 22)
+    Draw-Text $G 'Maxx Whip' $F.BodyStrong $P.Text $tx ($card.Y + (Px 12)) $tw (Px 22)
     $status, $color = switch ($mode) {
         'off'     { (Tx 'Apagado. Cuando el plan llegue al umbral, un agente programa y Claude revisa el git, ejecuta los tests y le devuelve lo que falle.'), $P.Muted }
-        'noagent' { (Tx 'Activa al menos un agente abajo: sin agentes, Claude Whip no entra en acci\u00f3n.'), $P.Warn }
+        'noagent' { (Tx 'Activa al menos un agente abajo: sin agentes, Maxx Whip no entra en acci\u00f3n.'), $P.Warn }
         'armed'   { $(if ($s.Forecast) { (Tx 'Listo: entra en acci\u00f3n cuando el plan llegue al {0}% (ahora {1}%) o vaya a agotarse antes de reiniciarse.') } else { (Tx 'Listo: entra en acci\u00f3n cuando el plan llegue al {0}% (ahora {1}%).') }) -f $s.Threshold, $pct; $P.Muted }
         'forecast' { ((Tx '\u2713 En acci\u00f3n antes del umbral: a este ritmo el plan ({0}%) se agota a las {1}. Programa {2}.') -f $pct, $forecast.limitAt, $names), $P.Ok }
         default   { ((Tx '\u2713 En acci\u00f3n (plan al {0}%): programa {1}; Claude revisa el git y los tests.') -f $pct, $names), $P.Ok }
@@ -2583,7 +2583,7 @@ function Draw-HubPcsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     Draw-Wrapped $G (Tx 'El otro PC tambi\u00e9n debe tener abierta Otros PCs mientras emparejas. Cada conexi\u00f3n entrante te pide permiso.') $F.Small $P.Muted ($X0 + $bw + (Px 14)) ($by - (Px 2)) ($Inner - $bw - (Px 14)) (Px 34)
 }
 
-# ---------------------------------------------------------------- Claude Whisper
+# ---------------------------------------------------------------- Maxx Whisper
 
 # A few options side by side with the current one highlighted. A click on another runs "$Command <steps>", the same
 # step command the pickers use, so the setting is saved the same way. Returns the control's rectangle.
@@ -2715,7 +2715,7 @@ function Draw-HubWhisperSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $icon = New-Rect ($card.X + (Px 14)) ($card.Y + (Px 15)) (Px 40) (Px 40)
     Draw-HubDot $G $icon.X $icon.Y $icon.Width $(if ($running) { $P.AccentTint } else { $P.Back })
     Draw-Text $G (Tx '\ue720') $HF.NodeLarge $(if ($running) { $P.Accent } else { $P.Muted }) $icon.X $icon.Y $icon.Width $icon.Height 'Center'
-    $label = if ($running) { 'Mostrar ventana' } else { 'Abrir Claude Whisper' }
+    $label = if ($running) { 'Mostrar ventana' } else { 'Abrir Maxx Whisper' }
     $bw = (Get-PillWidth $label) + (Px 8)
     $open = New-Rect ($card.Right - (Px 16) - $bw) ($card.Y + (Px 21)) $bw (Px 28)
     Draw-PillButton $G $Map $Hover 'whisper-open' $open $label { Open-HubWhisper } -Accent
@@ -2805,7 +2805,7 @@ function Draw-HubWhisperSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     if (-not $calls.Count) {
         $row = New-Rect $rx $y $rw (Px 60)
         Fill-Round $G $row (Px 8) $P.Surface
-        Draw-Wrapped $G (Tx 'A\u00fan no hay llamadas. Abre Claude Whisper durante una llamada y pulsa Escuchar: cada llamada se guarda aqu\u00ed.') $F.Small $P.Muted ($rx + (Px 14)) ($y + (Px 10)) ($rw - (Px 28)) (Px 44)
+        Draw-Wrapped $G (Tx 'A\u00fan no hay llamadas. Abre Maxx Whisper durante una llamada y pulsa Escuchar: cada llamada se guarda aqu\u00ed.') $F.Small $P.Muted ($rx + (Px 14)) ($y + (Px 10)) ($rw - (Px 28)) (Px 44)
     }
     $now = Get-Date
     for ($i = 0; $i -lt [Math]::Min(3, $calls.Count); $i++) {
@@ -2967,7 +2967,7 @@ function Draw-HubSettingsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $card = New-Rect $X0 (Px 96) $Inner (Px 96)
     Draw-HubCard $G $card
     Draw-HubDropdown $G $Map $Hover 'language' (New-Rect ($card.X + (Px 8)) ($card.Y + (Px 12)) ($card.Width - (Px 16)) (Px 30)) 'Idioma' $script:Hub.Languages $script:UiLanguage 'Step-HubLanguage'
-    Draw-Wrapped $G (Tx 'El de esta ventana, la bandeja y sus avisos. Claude Whisper y las dem\u00e1s ventanas lo toman al abrirse de nuevo.') $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 52)) ($card.Width - (Px 36)) (Px 36)
+    Draw-Wrapped $G (Tx 'El de esta ventana, la bandeja y sus avisos. Maxx Whisper y las dem\u00e1s ventanas lo toman al abrirse de nuevo.') $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 52)) ($card.Width - (Px 36)) (Px 36)
 
     # Captura a Claude Code (lib\snip.ps1).
     Draw-HubCaption $G 'CAPTURAS' $X0 (Px 210) $Inner ''

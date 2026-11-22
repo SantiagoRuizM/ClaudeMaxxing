@@ -99,7 +99,7 @@ Write-JsonFile $EditionFile ([ordered]@{ edition = $edition; at = (Get-Date).ToS
 $businessState = Get-BusinessState
 Write-Host "edition: $edition"
 if ($businessState.Business) {
-    Write-Host "policy: $(if ($businessState.Source) { $businessState.Source } else { 'defaults (FreeLLMAPI, Otros PCs and Claude Whisper off)' })"
+    Write-Host "policy: $(if ($businessState.Source) { $businessState.Source } else { 'defaults (FreeLLMAPI, Otros PCs and Maxx Whisper off)' })"
     $off = @($businessState.Policy.disabled)
     Write-Host "turned off by the policy: $(if ($off.Count) { $off -join ', ' } else { 'nothing' })"
 }
@@ -109,7 +109,7 @@ Write-Step 'Stopping the running tray'
 $stopped = Stop-RecordedTray
 if ($stopped) { Write-Host "tray stopped (PID $stopped)" } else { Write-Host 'no tray running' }
 $stopped = Stop-RecordedWhisper
-if ($stopped) { Write-Host "Claude Whisper stopped (PID $stopped)" }
+if ($stopped) { Write-Host "Maxx Whisper stopped (PID $stopped)" }
 
 # ---------------------------------------------------------------- 3. runtime files
 Write-Step 'Copying the runtime'
@@ -120,16 +120,8 @@ try {
     $conflicts = Sync-CatalogSkills (Get-CatalogSettings) (Get-CatalogTargets) (Join-Path $InstallDir 'catalog') -Refresh
     if ($conflicts.Count) { Add-Warning ('Catalog skills left alone, a folder of yours has the name: ' + ($conflicts -join ', ')) }
 } catch { Add-Warning "Catalog skills not refreshed: $($_.Exception.Message)" }
-# Tray icons: taken from the installed Claude app (not redistributed here); without it the tray uses a stock icon.
-$assets = Join-Path $InstallDir 'assets'
-$claudeApp = Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($claudeApp) {
-    if (-not (Test-Path -LiteralPath $assets)) { New-Item -ItemType Directory -Force -Path $assets | Out-Null }
-    foreach ($icon in 'Tray-Win32.ico', 'Tray-Win32-Dark.ico') {
-        $src = Join-Path $claudeApp.InstallLocation "app\resources\$icon"
-        if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination $assets -Force }
-    }
-}
+# Older installs copied the Claude app's tray icons here; the tray now draws the ClaudeMaxxing jellyfish.
+Remove-Item -LiteralPath (Join-Path $InstallDir 'assets') -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------- 4. statusline
 Write-Step 'Statusline'
@@ -154,10 +146,10 @@ $themeState = Install-ThemeSettings (Join-Path $env:USERPROFILE '.claude\setting
 Write-Host "Theme: $themeState"
 if ($themeState -like 'skipped*') { Add-Warning "Theme $themeState" }
 
-# Claude Whip: loaded in every session, idle until switched on in the window (ClaudeMaxxing > Claude Whip).
+# Maxx Whip: loaded in every session, idle until switched on in the window (ClaudeMaxxing > Maxx Whip).
 $whipState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'whip')
-Write-Host "Claude Whip: $whipState"
-if ($whipState -like 'skipped*') { Add-Warning "Claude Whip $whipState" }
+Write-Host "Maxx Whip: $whipState"
+if ($whipState -like 'skipped*') { Add-Warning "Maxx Whip $whipState" }
 
 # PDF: Claude reads PDFs as Markdown (PyMuPDF4LLM) instead of page images, in every session.
 $pdfState = Install-PeekSettings (Join-Path $env:USERPROFILE '.claude\settings.json') (Join-Path $InstallDir 'pdf')
@@ -274,7 +266,7 @@ if ($warnings.Count) {
 }
 Write-Host "Everything runs from $InstallDir; this repo is no longer needed (run install.ps1 again from a newer copy to update)."
 if (-not $NoStart) {
-    Write-Host 'Next: find the Claude icon in the notification area (it may be under the ^ arrow with the hidden icons).'
+    Write-Host 'Next: find the ClaudeMaxxing jellyfish in the notification area (it may be under the ^ arrow with the hidden icons).'
     Write-Host '  Left-click shows your usage; "Entrar a ClaudeMaxxing" opens the window with every tool.'
     if ($businessState.Business) { Write-Host '  Business edition: its Empresa section has the seat report, team reports, objectives and the team kit.' }
 }

@@ -13,7 +13,7 @@ $script:RuntimeFiles = @(
     'peek\LICENSE', 'peek\.claude-plugin\plugin.json', 'peek\hooks\hooks.json', 'peek\hooks\register.tsx', 'peek\hooks\paths.ts',
     'peek\hooks\code.ts', 'peek\hooks\markdown.ts', 'peek\hooks\link.tsx', 'peek\hooks\window.ts', 'peek\windows\preview.ps1',
     'peek\windows\reveal.ps1',
-    # Claude Whip: the plugin that holds a session to reading and planning when the plan runs low (lib\whip.ps1).
+    # Maxx Whip: the plugin that holds a session to reading and planning when the plan runs low (lib\whip.ps1).
     'whip\.claude-plugin\plugin.json', 'whip\hooks\hooks.json', 'whip\hooks\register.ts', 'whip\hooks\rules.ts',
     'whip\skills\claude-whip\SKILL.md', 'whip\bin\whip-run.sh', 'whip\bin\whip-check.sh',
     # PDF: the plugin whose skill has Claude read PDFs as Markdown (PyMuPDF goes in pdf\venv, Install-PdfDependencies).
@@ -26,9 +26,9 @@ $script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates',
     # The catalog of Skills y MCP (lib\catalog.ps1): third-party skills copied as text, and the MCP servers it can add.
     'catalog')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
-# the Python environment for edge-tts, the icons copied from the Claude app and the native host files that
+# the Python environment for edge-tts and the native host files that
 # Register-HarnessHost writes (Chrome may be running that launcher) and the extension's icons (install.ps1 draws them).
-$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets',
+$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude',
     'harness\host\yourharness-host.bat', 'harness\host\com.yourharness.bridge.json', 'harness\extension\icons')
 
 # Relative paths of every runtime file in $Root.
@@ -107,7 +107,7 @@ function Stop-RecordedTray {
     $trayPid
 }
 
-# Stops the Claude Whisper window recorded in whisper.pid, after checking it really is whisper.ps1, with its
+# Stops the Maxx Whisper window recorded in whisper.pid, after checking it really is whisper.ps1, with its
 # claude process (the tree of that one PID).
 function Stop-RecordedWhisper {
     $pidFile = Join-Path $TrayHome 'whisper\whisper.pid'

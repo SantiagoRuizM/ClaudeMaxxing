@@ -101,7 +101,7 @@ function Set-UiLanguage([string]$Code) {
         else { try { [Globalization.CultureInfo]::GetCultureInfo($(if ($catalog -and $catalog['culture']) { [string]$catalog['culture'] } else { 'es-ES' })) } catch { [Globalization.CultureInfo]::GetCultureInfo('es-ES') } }
 }
 
-# Saves the choice and applies it in this process; the other windows (Claude Whisper...) take it when they open.
+# Saves the choice and applies it in this process; the other windows (Maxx Whisper...) take it when they open.
 function Save-UiLanguage([string]$Code) {
     Write-JsonFile $LanguageFile @{ language = $Code }
     Set-UiLanguage $Code

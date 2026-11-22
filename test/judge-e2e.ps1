@@ -1,4 +1,4 @@
-# End-to-end check of Claude Judge ("Planear sesion del dia") with the real claude and python: one small trial,
+# End-to-end check of Maxx Judge ("Planear sesion del dia") with the real claude and python: one small trial,
 # run by the worker exactly as the window starts it. Uses the Claude plan (Haiku, 3 jurors: about 8 calls and
 # 5-10 minutes), so it is not in the CI; test\run-tests.ps1 covers the worker with a fake claude.
 # It runs next to the real trials folder (%LOCALAPPDATA%), not in %TEMP%, so a folder Claude Code refuses to write
@@ -51,4 +51,4 @@ if ($status.state -eq 'done') {
 # A failed run keeps its folder: the log is in it.
 if (-not $Keep -and -not $failures) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue } else { Write-Host "kept: $dir" }
 if ($failures) { Write-Host "$failures checks failed (see the log above)" -ForegroundColor Red; exit 1 }
-Write-Host 'Claude Judge works end to end' -ForegroundColor Green
+Write-Host 'Maxx Judge works end to end' -ForegroundColor Green

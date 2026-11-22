@@ -772,7 +772,7 @@ try {
     Assert-Equal $true (Get-ContextModeState $cmHome).Enabled 'context-mode: enabled'
 } finally { Remove-Item -LiteralPath $cmHome -Recurse -Force -ErrorAction SilentlyContinue }
 
-# --- Claude Whip (lib\whip.ps1): settings, threshold steps, mode and the company policy switch
+# --- Maxx Whip (lib\whip.ps1): settings, threshold steps, mode and the company policy switch
 . (Join-Path $TrayRoot 'lib\whip.ps1')
 $whipFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-whip-{0}.json' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
 try {
@@ -1325,7 +1325,7 @@ foreach ($needed in 'tray.ps1', 'open-session.ps1', 'uninstall.ps1', 'lib\instal
     Assert-Equal $true ($manifest -contains $needed) "runtime includes $needed"
 }
 Assert-Equal 0 @($manifest | Where-Object { $_ -like 'voice\plugin\skills\*' -or $_ -like 'test\*' -or $_ -like 'menu\src\*' }).Count 'runtime skips generated, test and source files'
-$stale = Get-StaleFiles @('lib\old.ps1', 'lib\common.ps1', 'voice\config.local.json', 'voice\venv\Scripts\edge-tts.exe', 'voice\plugin\skills\voz\SKILL.md', 'assets\Tray-Win32.ico') @('lib\common.ps1')
+$stale = Get-StaleFiles @('lib\old.ps1', 'lib\common.ps1', 'voice\config.local.json', 'voice\venv\Scripts\edge-tts.exe', 'voice\plugin\skills\voz\SKILL.md') @('lib\common.ps1')
 Assert-Equal 'lib\old.ps1' ($stale -join ',') 'update deletes only files dropped from the repo, never user or generated ones'
 Assert-Equal 0 @(Get-StaleFiles @('LIB\Common.ps1') @('lib\common.ps1')).Count 'stale check ignores case'
 Assert-Equal $false ([bool]($manifest | Where-Object { $_ -like '*.stackdump' })) 'runtime never includes Git Bash crash dumps'
@@ -1465,7 +1465,7 @@ try {
 $source = [IO.File]::ReadAllText((Join-Path $TrayRoot 'menu\package\AppxManifest.xml'))
 Assert-Equal ($source.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") ($packed.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") 'MSIX manifest matches menu\package\AppxManifest.xml (run menu\package.ps1 after editing it)'
 
-# --- Claude Whisper: settings, questions, echo, keyterms, transcript, stream-json, hotkeys, claude arguments
+# --- Maxx Whisper: settings, questions, echo, keyterms, transcript, stream-json, hotkeys, claude arguments
 Add-Type -AssemblyName System.Windows.Forms
 $ws = Get-WhisperSettings $null
 Assert-Equal 'es' $ws.language 'whisper: default language'
@@ -1508,7 +1508,7 @@ Assert-Equal $false (Test-WhisperQuestion (Tx 'Cuando empec\u00e9 en la empresa 
 
 # Call history, as the ClaudeMaxxing window lists it.
 $callLog = @(
-    (Tx '# Claude Whisper \u00b7 2026-10-17 23:58'), '',
+    (Tx '# Maxx Whisper \u00b7 2026-10-17 23:58'), '',
     '**Ellos** 23:58:04 Buenos dias.', (Tx '**Ellos** 23:58:10 \u00bfCu\u00e1l es tu experiencia con Python?'),
     (Tx '### Claude \u00b7 \u00bfCu\u00e1l es tu experiencia con Python?'), '', 'Llevo cuatro anos con Python.', '',
     (Tx '**T\u00fa** 00:03:30 Llevo cuatro a\u00f1os.'), (Tx '### Claude \u00b7 Pantalla')

@@ -78,43 +78,14 @@ $script:Fonts = @{
     Refresh    = New-UiFont 'Segoe UI Symbol' 11
 }
 
-function Get-ClaudeIconPath([string]$Name) {
-    $package = Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($package) {
-        $path = Join-Path $package.InstallLocation "app\resources\$Name"
-        if (Test-Path -LiteralPath $path) { return $path }
-    }
-    $fallback = Join-Path $TrayRoot "assets\$Name"
-    if (Test-Path -LiteralPath $fallback) { return $fallback }
-    $null
-}
-
-# Taskbar icon: white glyph on dark taskbars, black on light ones.
+# Taskbar icon: the ClaudeMaxxing jellyfish in its own orange, readable on light and dark taskbars.
 function Get-TrayIcon {
-    $lightTaskbar = $false
-    try {
-        $theme = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction Stop
-        $lightTaskbar = ($theme.SystemUsesLightTheme -eq 1)
-    } catch { }
-    $name = if ($lightTaskbar) { 'Tray-Win32.ico' } else { 'Tray-Win32-Dark.ico' }
-    $path = Get-ClaudeIconPath $name
-    if ($path) {
-        try { return New-Object System.Drawing.Icon($path, (Px 16), (Px 16)) } catch { }
-    }
-    [System.Drawing.SystemIcons]::Information
-}
-
-# The Claude spark recolored to a solid color (RGB replaced, alpha kept); only the usage popup's "Claude" header.
-function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
-    $path = Get-ClaudeIconPath 'Tray-Win32.ico'
-    if (-not $path) { return $null }
-    # The .ico frame closest to the size asked for (at least 64): a 128 px logo is not scaled up from 64.
-    $frame = [Math]::Max(64, $Size)
-    $icon = New-Object System.Drawing.Icon($path, $frame, $frame)
-    $source = $icon.ToBitmap()
-    $bitmap = ConvertTo-TintedBitmap $source $Color $Size
-    $source.Dispose(); $icon.Dispose()
-    $bitmap
+    $bitmap = New-AppLogoBitmap (Px 16)
+    if (-not $bitmap) { return [System.Drawing.SystemIcons]::Information }
+    # shortcut: the HICON from GetHicon is never destroyed; fine for one tray icon per process.
+    $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+    $bitmap.Dispose()
+    $icon
 }
 
 # $Source scaled to a $Size square in a solid color (RGB replaced, alpha kept).

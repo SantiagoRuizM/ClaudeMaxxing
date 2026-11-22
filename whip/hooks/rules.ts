@@ -1,5 +1,5 @@
-// Claude Whip rules, pure so node --test can cover them (whip/test/rules.test.mjs).
-// The tray (ClaudeMaxxing > Claude Whip) writes whip.json; the statusline keeps usage.json up to date.
+// Maxx Whip rules, pure so node --test can cover them (whip/test/rules.test.mjs).
+// The tray (ClaudeMaxxing > Maxx Whip) writes whip.json; the statusline keeps usage.json up to date.
 
 // forecast: also on before the threshold when the window is on pace to run out (off unless switched on).
 export type Settings = { enabled?: boolean; threshold?: number; agents?: string[]; forecast?: boolean }
@@ -142,7 +142,7 @@ function allowedLine(raw: string, agents: string[], runnerDir?: string): boolean
 const checkOf = (runner: string) => runner.replace(/whip-run\.sh$/, 'whip-check.sh')
 
 export function denyText(percent: number, runner: string, agents: string[], limitAt?: string): string {
-  return `Claude Whip is on (${planText(percent, limitAt)}): an agent writes the code, you watch git, run the tests and send it ` +
+  return `Maxx Whip is on (${planText(percent, limitAt)}): an agent writes the code, you watch git, run the tests and send it ` +
     `feedback. Editing, subagents and shell commands other than git, reading, the agents and the check are blocked. ` +
     `Hand it a task: bash "${runner}" <${agents.join('|')}> [--resume] <<'EOF' ... EOF (Bash, run_in_background: true); ` +
     `run tests with: bash "${checkOf(runner)}" "<test command>". The claude-whip skill has the loop.`
@@ -150,7 +150,7 @@ export function denyText(percent: number, runner: string, agents: string[], limi
 
 export function contextText(percent: number, threshold: number, runner: string, agents: string[], limitAt?: string): string {
   const why = limitAt ? `at ${percent}% and on pace to hit its limit at ${limitAt}` : `at ${percent}% (threshold ${threshold}%)`
-  return `[Claude Whip] The Claude plan is ${why}, so this session directs a feedback ` +
+  return `[Maxx Whip] The Claude plan is ${why}, so this session directs a feedback ` +
     `loop with an agent: plan and brief -> the agent writes the code -> you check git and run the tests -> you send the ` +
     `agent what failed (--resume keeps its conversation) -> repeat until green, at most 3 rounds, then report. ` +
     `Agents on: ${agents.join(', ')}. Agent: bash "${runner}" <agent> [--resume] <<'EOF' <task or feedback> EOF ` +

@@ -1,4 +1,4 @@
-# "Planear sesion del dia" in the ClaudeMaxxing window: an idea goes on trial before Claude Judge, the court skill
+# "Planear sesion del dia" in the ClaudeMaxxing window: an idea goes on trial before Maxx Judge, the court skill
 # (github.com/alexyc9381/court-skill, MIT) shipped in claudeJudge\.claude\skills\court. lib\judge-worker.ps1 runs the
 # trial hidden with claude -p in $JudgeHome and reports in its status.json; every trial stays in $JudgeHome\.court.
 # Each run writes a log in $JudgeHome\logs (checks, the exact command, Claude's JSON answer, stderr, files made).

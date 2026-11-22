@@ -23,7 +23,7 @@ test('past the threshold: Edit is denied and git passes', async ($, on) => {
   world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(90) })
   const edit = await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'a', new_string: 'b' })
   // The test's own $.tool.call gets a plugin's deny as { deny } (a session's model reads it as the error text).
-  expect(String(edit.deny)).toMatch(/Claude Whip is on \(plan at 90%\).*whip-run\.sh/)
+  expect(String(edit.deny)).toMatch(/Maxx Whip is on \(plan at 90%\).*whip-run\.sh/)
   const npm = await $.tool.call({ tool: 'Bash', command: 'npm test' })
   expect(npm.deny).toBeDefined()
   const agent = await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'x' })
@@ -37,7 +37,7 @@ test('past the threshold: Edit is denied and git passes', async ($, on) => {
 test('past the threshold: each prompt carries the director note', async ($, on) => {
   world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(90) })
   const sent = await $.prompt.submit({ text: 'arregla el login' })
-  expect((sent as { context?: string[] }).context?.join('\n') ?? '').toMatch(/\[Claude Whip\].*90%.*whip-run\.sh/s)
+  expect((sent as { context?: string[] }).context?.join('\n') ?? '').toMatch(/\[Maxx Whip\].*90%.*whip-run\.sh/s)
 })
 
 test('under the threshold: nothing changes', async ($, on) => {

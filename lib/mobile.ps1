@@ -798,7 +798,7 @@ function Get-MobileHomeItems {
     MRow $(if ($live -eq 1) { Tx '1 sesi\u00f3n de Claude Code abierta' } elseif ($live) { (Tx '{0} sesiones de Claude Code abiertas') -f $live } else { Tx 'Ninguna sesi\u00f3n de Claude Code abierta' }) '' '' '' $(if ($live) { 'ok' } else { 'faint' })
     $hs = $c.Harness
     if ((Test-HubModule 'ambientes') -and $hs -and $hs.Active) { MRow ((L 'Ambiente {0}, desde las {1}') -f $hs.Active.name, (Format-HubHarnessTime $hs.Active.since)) '' '' '' 'ok' }
-    if ((Test-HubModule 'whisper') -and $c.WhisperRunning) { MRow (Tx 'Claude Whisper est\u00e1 abierto') '' '' '' 'ok' }
+    if ((Test-HubModule 'whisper') -and $c.WhisperRunning) { MRow (Tx 'Maxx Whisper est\u00e1 abierto') '' '' '' 'ok' }
     if ($c.VoiceMuted) { MRow (Tx 'La voz de las sesiones est\u00e1 apagada') '' '' '' 'faint' }
 }
 
@@ -859,7 +859,7 @@ function Get-MobileAutoItems {
 function Get-MobilePlanItems {
     Get-MobileAutoItems
     $c = $script:Hub.Cache
-    MCaption 'CLAUDE JUDGE'
+    MCaption 'MAXX JUDGE'
     $status = $c.JudgeStatus
     if ($status -and $status.state -eq 'running') { MText ((L 'Juicio en curso') + $(if ($c.JudgeProgress) { ': ' + $c.JudgeProgress } else { '' })) 'ok' }
     $trials = @($c.JudgeTrials)
@@ -938,12 +938,12 @@ function Get-MobileWhipItems {
     $names = @($agents | Where-Object { $s.Agents -contains $_.Id } | ForEach-Object { $_.Label }) -join ', '
     $status, $tone = switch ($mode) {
         'off'      { (Tx 'Apagado. Cuando el plan llegue al umbral, un agente programa y Claude revisa el git, ejecuta los tests y le devuelve lo que falle.'), 'muted' }
-        'noagent'  { (Tx 'Activa al menos un agente abajo: sin agentes, Claude Whip no entra en acci\u00f3n.'), 'warn' }
+        'noagent'  { (Tx 'Activa al menos un agente abajo: sin agentes, Maxx Whip no entra en acci\u00f3n.'), 'warn' }
         'armed'    { ((Tx 'Listo: entra en acci\u00f3n cuando el plan llegue al {0}% (ahora {1}%) o vaya a agotarse antes de reiniciarse.') -f $s.Threshold, $pct), 'muted' }
         'forecast' { ((Tx '\u2713 En acci\u00f3n antes del umbral: a este ritmo el plan ({0}%) se agota a las {1}. Programa {2}.') -f $pct, $forecast.limitAt, $names), 'ok' }
         default    { ((Tx '\u2713 En acci\u00f3n (plan al {0}%): programa {1}; Claude revisa el git y los tests.') -f $pct, $names), 'ok' }
     }
-    MSwitch 'whip-switch' 'Claude Whip' $status ([bool]$s.Enabled) ([scriptblock]::Create("Set-HubWhipEnabled `$$(-not $s.Enabled)"))
+    MSwitch 'whip-switch' 'Maxx Whip' $status ([bool]$s.Enabled) ([scriptblock]::Create("Set-HubWhipEnabled `$$(-not $s.Enabled)"))
     [ordered]@{ t = 'stepper'; id = (Register-MobileAction 'whip-threshold' { param([int]$Step) Step-HubWhipThreshold $Step }); label = (L 'Se activa'); value = (Format-WhipThreshold $s.Threshold) }
     MCaption 'AGENTES' (L 'Cada uno gasta su propia cuota')
     foreach ($agent in $agents) {
@@ -999,7 +999,7 @@ function Get-MobilePcsItems {
 function Get-MobileWhisperItems {
     $c = $script:Hub.Cache
     $settings = $c.WhisperSettings
-    MText $(if ($c.WhisperRunning) { Tx 'Claude Whisper est\u00e1 abierto' } else { L 'Cerrado' }) $(if ($c.WhisperRunning) { 'ok' } else { 'muted' })
+    MText $(if ($c.WhisperRunning) { Tx 'Maxx Whisper est\u00e1 abierto' } else { L 'Cerrado' }) $(if ($c.WhisperRunning) { 'ok' } else { 'muted' })
     if ($settings) {
         $enabled = -not $c.WhisperRunning
         MChoice 'wl' (L 'Idioma') $script:WhisperLanguages ([string]$settings.language) "Set-HubWhisperSetting 'language'" $enabled
