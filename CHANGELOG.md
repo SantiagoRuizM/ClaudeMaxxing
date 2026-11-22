@@ -4,6 +4,7 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
 
 ## Unreleased
 
+- **Call a session from the phone**: each session's page has a call button. With the phone locked and headphones on you talk, Claude checks it and says its proposal, two taps accept it, three answer, and it speaks again when it finishes or asks something. It writes through the same inbox as the chat, so permission prompts stay on the PC.
 - **The phone app takes only the certificate its QR pinned**, also when another one comes from an authority the phone trusts. Update the app; nobody has to pair again.
 - **Your account in the window and on the phone**: name, plan, email and organization, at the top of Home and of the phone's panel, read from Claude Code's `~/.claude.json`.
 - **The session's status line on the phone**: under each session's name, the folder, the branch (with the worktree when it is in one) and the environment, then the model with its effort, the context used, the cost and the time it has run. The statusline block saves them per session, only when they change.

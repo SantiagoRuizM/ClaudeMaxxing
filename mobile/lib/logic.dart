@@ -191,3 +191,27 @@ String? apkUpdate(Object? release, String current) {
   }
   return null;
 }
+
+/// What a call reads out of one of Claude's texts: its last 🔊 line, without Markdown, and whether it is a proposal
+/// to accept or a question to answer. Null when the text has no such line: the turn is still going.
+({String text, bool proposal, bool question})? callReply(String message) {
+  final found = RegExp(r'^[ \t>*_]*🔊[ \t:*_]*(.+)$', multiLine: true, unicode: true).allMatches(message);
+  if (found.isEmpty) return null;
+  final text = speakable(found.last.group(1)!);
+  if (text.isEmpty) return null;
+  return (
+    text: text,
+    proposal: RegExp(r'^(propuesta|proposal)\s*:', caseSensitive: false).hasMatch(text),
+    question: text.endsWith('?'),
+  );
+}
+
+/// Text to be heard: no link addresses or Markdown marks, on one line, cut at [max].
+String speakable(String text, [int max = 700]) {
+  final plain = text
+      .replaceAllMapped(RegExp(r'\[([^\]]*)\]\([^)]*\)'), (m) => m.group(1)!)
+      .replaceAll(RegExp(r'[`*#|>]'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return plain.length <= max ? plain : '${plain.substring(0, max)}…';
+}
