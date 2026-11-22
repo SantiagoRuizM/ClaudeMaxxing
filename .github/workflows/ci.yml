@@ -1,8 +1,7 @@
 name: CI
 
-# Also called by release.yml, so a release runs exactly these tests.
+# On pull requests, not on each push. Also called by release.yml, so a release runs exactly these tests.
 on:
-  push:
   pull_request:
   workflow_call:
 

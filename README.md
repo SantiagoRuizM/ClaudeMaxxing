@@ -24,7 +24,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-000?labelColor=555" alt="MIT licence"></a>
   <a href="CHANGELOG.md"><img src="https://img.shields.io/github/package-json/v/SantiagoRuizM/ClaudeMaxxing?label=version&amp;labelColor=555&amp;color=000" alt="Current version"></a>
-  <a href="https://github.com/SantiagoRuizM/ClaudeMaxxing/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SantiagoRuizM/ClaudeMaxxing/ci.yml?branch=main&amp;label=CI&amp;labelColor=555&amp;color=000" alt="CI status"></a>
+  <a href="https://github.com/SantiagoRuizM/ClaudeMaxxing/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SantiagoRuizM/ClaudeMaxxing/ci.yml?event=pull_request&amp;label=CI&amp;labelColor=555&amp;color=000" alt="CI status"></a>
   <br>
   <a href="#requirements"><img src="https://img.shields.io/badge/Windows%2011-x64-000?labelColor=555" alt="Windows 11, x64"></a>
   <a href="#phone-app"><img src="https://img.shields.io/badge/Android-companion%20app-000?labelColor=555" alt="Android companion app"></a>

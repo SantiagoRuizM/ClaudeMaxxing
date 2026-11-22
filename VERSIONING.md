@@ -47,14 +47,14 @@ The internal identifiers listed in `CLAUDE.md` (`ClaudeTrayWin`, the `Local\Clau
 
 ## Day to day
 
-- Work on a branch. `main` must always be releasable: every merge to `main` passes CI.
+- Work on a branch. `main` must always be releasable: changes reach it through a pull request, merged once its CI passes. CI runs on pull requests only, so before one is open run the tests locally.
 - Every change a user would notice adds a line under `## Unreleased` in `CHANGELOG.md`, in the same commit. Refactors, tests and CI changes don't.
 - Pick the number when you release, not with each commit. The biggest kind of change listed under `## Unreleased` decides it: any breaking change makes it a major, otherwise anything new makes it a minor.
 - To try something before a release, install the branch with `get.ps1 -Ref <branch>`, or run `install.ps1` from a clone. There are no pre-release tags: `get.ps1` and the version checks only accept `X.Y.Z`.
 
 ## Releasing
 
-1. On `main`, up to date and with CI green, make one commit, `chore(release): vX.Y.Z`. It:
+1. On `main`, up to date, with the CI of the last merged pull request green, make one commit, `chore(release): vX.Y.Z`. It:
    - renames `## Unreleased` to `## X.Y.Z - YYYY-MM-DD` and adds a new, empty `## Unreleased` above it;
    - sets `$AppVersion` in `lib/common.ps1` and `version` in `package.json`.
 2. Run `test\run-tests.ps1`.
