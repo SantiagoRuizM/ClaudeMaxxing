@@ -120,4 +120,14 @@ void main() {
         ['hola', 'listo', '2026-11-21T09:01:30-05:00', 'sigue', '2026-11-21T09:06:00-05:00']);
     expect(withVoices(items, []), same(items));
   });
+  test('statusParts: place with the worktree only when there is one, and the run', () {
+    final p = statusParts({'model': 'Opus 5.5', 'effort': 'high', 'folder': 'ClaudeMaxxing', 'branch': 'feat/ambientes',
+      'worktree': '', 'env': 'StartDay', 'context': 34, 'cost': 1.842, 'elapsed': '1h12m'})!;
+    expect(p.place, 'ClaudeMaxxing · feat/ambientes · ◆ StartDay');
+    expect((p.model, p.effort, p.run), ('Opus 5.5', 'high', '34% · \$1.84 · 1h12m'));
+    final w = statusParts({'folder': 'ClaudeMaxxing', 'branch': 'fix/x', 'worktree': 'whip-umbral', 'context': null, 'cost': null})!;
+    expect(w.place, 'ClaudeMaxxing · fix/x (whip-umbral)');
+    expect(w.run, '');
+    expect(statusParts(null), isNull);
+  });
 }

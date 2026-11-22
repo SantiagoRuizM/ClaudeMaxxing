@@ -415,9 +415,75 @@ function Get-MobileCurrentSessionId([string]$Id) {
     if (Test-MobileSessionId $current) { $current } else { $Id }
 }
 
+# ---------------------------------------------------------------- sessions: the status line
+
+# One file per session that the statusline block writes (lib\statusline.ps1): model, effort, folder, context, cost
+# and start as Claude Code reports them. Files of sessions gone for days are pruned once an hour.
+$MobileStatusDir = Join-Path $TrayHome 'status'
+
+# Folder, branch and worktree of a folder, read from .git as the statusline does (no git process). In a linked
+# worktree (.git is a file pointing at <repo>/.git/worktrees/<name>) the folder is the repository's.
+function Get-MobileGitPlace([string]$Dir) {
+    $d = ($Dir -replace '/', '\').TrimEnd('\')
+    $place = [ordered]@{ folder = (Split-Path -Leaf $d); branch = ''; worktree = '' }
+    while ($d) {
+        $git = Join-Path $d '.git'
+        $head = $null
+        if (Test-Path -LiteralPath $git -PathType Container) { $head = Join-Path $git 'HEAD' }
+        elseif (Test-Path -LiteralPath $git -PathType Leaf) {
+            $gitdir = ([string](Get-Content -LiteralPath $git -TotalCount 1) -replace '^gitdir:\s*', '').Trim()
+            if ($gitdir -and -not [IO.Path]::IsPathRooted($gitdir)) { $gitdir = Join-Path $d $gitdir }
+            if ($gitdir) { $head = Join-Path $gitdir 'HEAD' }
+            $m = [regex]::Match(($gitdir -replace '\\', '/'), '^(.*)/\.git/worktrees/([^/]+)$')
+            if ($m.Success) { $place.worktree = $m.Groups[2].Value; $place.folder = Split-Path -Leaf ($m.Groups[1].Value -replace '/', '\') }
+        }
+        if ($head -and (Test-Path -LiteralPath $head)) {
+            $ref = [string](Get-Content -LiteralPath $head -TotalCount 1)
+            $place.branch = if ($ref -match '^ref: refs/heads/(.+)$') { $Matches[1] } else { $ref.Substring(0, [Math]::Min(7, $ref.Length)) }
+            break
+        }
+        $parent = Split-Path -Parent $d
+        if (-not $parent -or $parent -eq $d) { break }
+        $d = $parent
+    }
+    $place
+}
+
+# How long a session has run, as the statusline writes it: 1h12m, or 12m under an hour.
+function Format-MobileElapsed([long]$Start, [long]$Now) {
+    $s = [Math]::Max(0, $Now - $Start)
+    $h = [int][Math]::Floor($s / 3600)
+    $m = [int][Math]::Floor(($s % 3600) / 60)
+    if ($h -gt 0) { '{0}h{1:00}m' -f $h, $m } else { '{0}m' -f $m }
+}
+
+function Get-MobileSessionStatus([string]$Id, [string]$EnvName, [long]$Now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) {
+    if (-not (Test-MobileSessionId $Id)) { return $null }
+    $line = Read-JsonFile (Join-Path $MobileStatusDir "$Id.json")
+    if (-not $line) { return $null }
+    $place = if ($line.dir) { Get-MobileGitPlace ([string]$line.dir) } else { [ordered]@{ folder = ''; branch = ''; worktree = '' } }
+    [ordered]@{ model = [string]$line.model; effort = [string]$line.effort
+        folder = $place.folder; branch = $place.branch; worktree = $place.worktree; env = $EnvName
+        context = $(if ($null -ne $line.context) { [int]$line.context } else { $null })
+        cost = $(if ($null -ne $line.cost) { [double]$line.cost } else { $null })
+        elapsed = $(if ($line.start) { Format-MobileElapsed ([long]$line.start) $Now } else { '' }) }
+}
+
+function Remove-MobileStaleStatus {
+    if ($script:MobileStatusPrunedAt -and ((Get-Date) - $script:MobileStatusPrunedAt).TotalHours -lt 1) { return }
+    $script:MobileStatusPrunedAt = Get-Date
+    $cutoff = (Get-Date).AddDays(-3)
+    Get-ChildItem -LiteralPath $MobileStatusDir -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt $cutoff } | Remove-Item -ErrorAction SilentlyContinue
+}
+
 # The sessions open from the menu, as the phone swipes through them.
 function Get-MobileSessions {
     $eggs = Read-JsonFile (Join-Path $TrayHome 'eggs.json')
+    Remove-MobileStaleStatus
+    # The environment on (Ambientes), as the statusline shows it: one for the whole PC.
+    $active = Read-JsonFile (Join-Path $TrayHome 'harness\run\active.json')
+    $envName = if ($active -and $active.name) { [string]$active.name } elseif ($active -and $active.id) { [string]$active.id } else { '' }
     $list = foreach ($r in @(Read-JsonFile $SessionsFile | Where-Object { $_ -and $_.sessionId })) {
         $hwnd = [long]$r.hwnd
         if (-not ($hwnd -ne 0 -and [ClaudeTray.Native]::IsWindow([IntPtr]$hwnd))) { continue }
@@ -428,7 +494,8 @@ function Get-MobileSessions {
         $name = if ($voice -and $voice.name) { [string]$voice.name } elseif ($r.name) { [string]$r.name } else { (L 'Ventana {0}') -f ([int]$r.slot + 1) }
         [ordered]@{ id = $id; slot = [int]$r.slot; name = $name
             role = $(if ($voice) { [string]$voice.role } else { '' }); color = (Get-HubSlotHex ([string]$r.color)); dir = [string]$r.dir
-            folder = (Split-Path -Leaf ([string]$r.dir)); state = $state; canWrite = (Test-Path -LiteralPath (Join-Path $MobileInboxDir "$id.json")) }
+            folder = (Split-Path -Leaf ([string]$r.dir)); state = $state; canWrite = (Test-Path -LiteralPath (Join-Path $MobileInboxDir "$id.json"))
+            status = (Get-MobileSessionStatus $id $envName) }
     }
     , @($list | Sort-Object { $_.slot })
 }

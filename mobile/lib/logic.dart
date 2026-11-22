@@ -154,3 +154,21 @@ List<({String text, bool bold, bool code})> inlineMarks(String line) {
   if (at < line.length) out.add((text: line.substring(at), bold: false, code: false));
   return out;
 }
+
+/// The session's status line under its name, from what the PC read off its statusline: where it runs (folder, branch
+/// with its worktree when it is in one, the environment on) and how it runs (model, effort apart, context, cost,
+/// time). Null when the PC sent none (no statusline block, or no reply yet).
+({String place, String model, String effort, String run})? statusParts(Object? status) {
+  if (status is! Map) return null;
+  String s(String k) => '${status[k] ?? ''}';
+  final branch = s('branch').isEmpty ? '' : s('worktree').isEmpty ? s('branch') : '${s('branch')} (${s('worktree')})';
+  final place = [s('folder'), branch, if (s('env').isNotEmpty) '◆ ${s('env')}'].where((p) => p.isNotEmpty).join(' · ');
+  final context = status['context'];
+  final cost = status['cost'];
+  final run = [
+    if (context is num) '${context.round()}%',
+    if (cost is num) '\$${cost.toStringAsFixed(2)}',
+    if (s('elapsed').isNotEmpty) s('elapsed'),
+  ].join(' · ');
+  return (place: place, model: s('model'), effort: s('effort'), run: run);
+}

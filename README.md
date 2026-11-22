@@ -123,7 +123,7 @@ This removes everything listed below, including the menu entry, its certificate 
 | `HKCU\Software\ClaudeCodeMenu\Launcher` | The command the menu entry runs |
 | Startup folder | `ClaudeMaxxing.lnk` (tray) and `ClaudeMaxxing atajos.lnk` (voice hotkeys) |
 | Settings > Apps | A ClaudeMaxxing entry; uninstalling it there runs `uninstall.ps1` |
-| `~/.claude/statusline-command.sh` | A block that saves `rate_limits` to `~/.claude/usage-tray/usage.json` (a backup is kept) |
+| `~/.claude/statusline-command.sh` | A block that saves `rate_limits` to `~/.claude/usage-tray/usage.json` and each session's model, effort, folder, context, cost and start to `~/.claude/usage-tray/status` (for the phone; a backup is kept) |
 | `~/.claude/settings.json` (`env`) | `CLAUDE_CODE_PLUGIN_DIRS` lists the installed plugins (Peek, the theme, Claude Whip, PDF), so every Claude Code session loads them, and `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` turns on plugin mods (early access in Claude Code). The rest of the file is left as it was, and a backup is kept the first time (`settings.json.bak-claudemaxxing`). Uninstalling removes the folders from the list and leaves the switch, which other plugins' mods may need |
 | `~/.claude/settings.json` (`theme`) | Switched to the matching ClaudeMaxxing theme (`custom:maxx-theme:light` or `dark`), unless you use a custom theme of your own. Uninstalling gives back the exact theme you had |
 | `~/.claude/settings.json`, `~/.claude/plugins` | Only if you turn on **Context saving (context-mode)**: Claude Code installs and enables that plugin for your user (`enabledPlugins`, `extraKnownMarketplaces`), so it applies to every session. Turning the switch off disables it; uninstalling ClaudeMaxxing leaves it installed (`claude plugin uninstall context-mode@context-mode`) |
@@ -407,6 +407,7 @@ The ClaudeMaxxing app for Android shows the panel of the ClaudeMaxxing window an
 - Swipe sideways to go through the open sessions, one page each, with the session's color. Each page shows the conversation as it happens and has a box to write to the session.
 - Attach photos, documents and audio to a session (the PC keeps them in ~/.claude/usage-tray/mobile/uploads and sends their path), dictate a voice note, and keep the sessions' eggs in the notification shade, moving and speaking as in the tray.
 - **Voice notes**: what each session's voice says arrives on the phone as a voice note in its chat, as in WhatsApp: play and pause, drag the bar, 1×, 1.5× or 2×, and what it said underneath. The phone downloads each one as soon as the PC has it, whichever page is open, and keeps it. The headphones icon lists them all, newest first, also after their session closed; a long press deletes one from the phone. The PC keeps only its last 100 (`historySize` in the voice settings), so a phone away for longer misses the older ones. Lines read by Windows' own voice (SAPI, when no engine made an mp3) have no audio to send.
+- Under each session's name, its status line as on the PC: the folder, the branch (and the worktree when it is in one) and the environment on, then the model with its effort in subtle italics, the context used, the cost and how long it has run.
 - One app can hold several PCs: switch between them with the computer icon.
 - **Phone** lists the paired phones, with the last time each one connected. **Revoke** cuts one off.
 

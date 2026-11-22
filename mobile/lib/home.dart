@@ -104,12 +104,34 @@ class _HomePagerState extends State<HomePager> {
     final sessions = _sessions;
     final current = _page > 0 && _page <= sessions.length ? sessions[_page - 1] : null;
     final theme = Theme.of(context);
+    final small = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    // The session's statusline under its name: where it runs, then model (effort in subtle italics), context, cost, time.
+    final status = current == null ? null : statusParts(current['status']);
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: status == null ? null : 76,
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(current == null ? widget.pc.name : '${current['name']}', overflow: TextOverflow.ellipsis),
-          Text(current == null ? S.panel : '${current['folder']} · ${widget.pc.name}',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          if (status == null)
+            Text(current == null ? S.panel : '${current['folder']} · ${widget.pc.name}', style: small)
+          else ...[
+            Row(children: [
+              Icon(Icons.folder_outlined, size: 14, color: small?.color),
+              const SizedBox(width: 4),
+              Flexible(child: Text(status.place, style: small, maxLines: 1, overflow: TextOverflow.ellipsis)),
+            ]),
+            Text.rich(
+              TextSpan(style: small, children: [
+                TextSpan(text: status.model),
+                if (status.effort.isNotEmpty)
+                  TextSpan(text: '${status.model.isEmpty ? '' : ' '}${status.effort}',
+                      style: TextStyle(fontStyle: FontStyle.italic, color: small?.color?.withOpacity(0.65))),
+                if (status.run.isNotEmpty) TextSpan(text: '${status.model.isEmpty && status.effort.isEmpty ? '' : ' · '}${status.run}'),
+              ]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ]),
         actions: [
           IconButton(

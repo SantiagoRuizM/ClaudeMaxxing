@@ -3,14 +3,21 @@
 $script:BlockStart = '# >>> ClaudeTray'
 $script:BlockEnd = '# <<< ClaudeTray'
 
-# Bash block: writes only to the snapshot file (never stdout) and skips when jq or rate_limits is missing.
+# Bash block: writes only to its files (never stdout): the plan snapshot when rate_limits come, and each session's line.
 $script:StatuslineBlock = @'
 # >>> ClaudeTray: snapshot plan rate limits for the tray widget (file only, never stdout)
 tray_jq="${JQ_BIN:-$(command -v jq 2>/dev/null)}"
 if [ -n "$tray_jq" ]; then
   tray_dir="$HOME/.claude/usage-tray"
   mkdir -p "$tray_dir" 2>/dev/null
-  tray_snap=$(printf '%s' "$input" | "$tray_jq" -c 'select(.rate_limits != null) | {rate_limits: .rate_limits, updated_at: now}' 2>/dev/null)
+  # One jq for both lines: the plan's rate limits (empty without them) and this session's line for the phone.
+  tray_out=$(printf '%s' "$input" | "$tray_jq" -r '(if .rate_limits != null then ({rate_limits: .rate_limits, updated_at: now} | tojson) else "" end),
+    ({id: (.session_id // ""), model: (.model.display_name // ""), effort: (.effort.level // ""), dir: (.workspace.current_dir // .cwd // ""),
+      context: (.context_window.used_percentage // null | if . == null then null else floor end),
+      cost: (.cost.total_cost_usd // null | if . == null then null else (. * 100 | round) / 100 end),
+      start: (.cost.total_duration_ms // null | if . == null then null else ((now - . / 1000) / 60 | floor) * 60 end)} | tojson)' 2>/dev/null)
+  tray_snap="${tray_out%%$'\n'*}"
+  tray_line="${tray_out#*$'\n'}"; [ "$tray_line" = "$tray_out" ] && tray_line=""
   if [ -n "$tray_snap" ]; then
     # Rewritten only when the limits change or the copy is a minute old: a statusline can run every second in
     # every session and each write is a Defender scan (a pile of them can hang Defender, and PowerShell with it).
@@ -35,6 +42,16 @@ if [ -n "$tray_jq" ]; then
       :
     elif [ "${tray_old%,\"updated_at\"*}" != "${tray_snap%,\"updated_at\"*}" ] || (( tray_now - tray_at >= 60 )); then
       printf '%s' "$tray_snap" > "$tray_dir/usage.json.tmp.$$" 2>/dev/null && mv -f "$tray_dir/usage.json.tmp.$$" "$tray_dir/usage.json" 2>/dev/null
+    fi
+  fi
+  # This session's line (model, effort, folder, context, cost, start), shown on the phone (lib\mobile.ps1): one small
+  # file per session, rewritten only when it changes (the start is kept to the minute, so not on every run).
+  tray_sid="${tray_line#*\"id\":\"}"; tray_sid="${tray_sid%%\"*}"; tray_sid="${tray_sid//[^A-Za-z0-9-]/}"
+  if [ -n "$tray_line" ] && [ -n "$tray_sid" ]; then
+    mkdir -p "$tray_dir/status" 2>/dev/null
+    tray_old=""; [ -f "$tray_dir/status/$tray_sid.json" ] && IFS= read -r -d '' tray_old < "$tray_dir/status/$tray_sid.json"
+    if [ "$tray_old" != "$tray_line" ]; then
+      printf '%s' "$tray_line" > "$tray_dir/status/$tray_sid.json.tmp.$$" 2>/dev/null && mv -f "$tray_dir/status/$tray_sid.json.tmp.$$" "$tray_dir/status/$tray_sid.json" 2>/dev/null
     fi
   fi
 fi

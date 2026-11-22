@@ -231,6 +231,13 @@ if ((Test-Path -LiteralPath $slBash) -and (Test-Path -LiteralPath $slJq)) {
         Assert-Equal 60 (Invoke-SlBlock 40 $slReset) 'statusline: stale against the tray refresh copy'
         Assert-Equal 70 (Invoke-SlBlock 70 $slReset) 'statusline: higher in the same window is written'
         Assert-Equal 0 @(Get-ChildItem -LiteralPath (Split-Path $slFile) -Filter '*.tmp*').Count 'statusline and Write-JsonFile leave no temporary file'
+        # Each session's line for the phone: one file per session id, written even without rate limits.
+        $slSid = '0d9c3f1e-1111-4222-8333-944455556666'
+        ('{"session_id":"' + $slSid + '","model":{"display_name":"Opus 5.5"},"effort":{"level":"high"},"workspace":{"current_dir":"C:/repo"},"context_window":{"used_percentage":34.6},"cost":{"total_cost_usd":1.8449,"total_duration_ms":4320000}}') | & $slBash "$slHome/sl.sh"
+        $slLine = Read-JsonFile (Join-Path $slHome ".claude\usage-tray\status\$slSid.json")
+        Assert-Equal 'Opus 5.5|high|C:/repo|34|1.84' (($slLine.model, $slLine.effort, $slLine.dir, [string]$slLine.context, [string]$slLine.cost) -join '|') 'statusline: the session line keeps model, effort, folder, context and cost'
+        Assert-Equal 0 ([long]$slLine.start % 60) 'statusline: the session start is kept to the minute (not rewritten on every run)'
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath (Join-Path $slHome '.claude\usage-tray\status') -Filter '*.tmp*').Count 'statusline: the session line leaves no temporary file'
     } finally {
         $env:HOME = $slSaved[0]; $env:JQ_BIN = $slSaved[1]
         Remove-Item -LiteralPath $slHome -Recurse -Force -ErrorAction SilentlyContinue
@@ -1965,6 +1972,26 @@ $MobileLogFile = Join-Path $mobileRoot 'mobile.log'
 $MobileDevicesFile = Join-Path $mobileRoot 'devices.json'
 $MobileSettingsFile = Join-Path $mobileRoot 'settings.json'
 try {
+    # The session's status line: folder, branch and worktree read from .git, the rest from the statusline's file.
+    $repo = Join-Path $mobileRoot 'ClaudeMaxxing'
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo '.git\worktrees\whip-umbral'), (Join-Path $repo 'lib'), (Join-Path $repo '.claude\worktrees\whip-umbral') | Out-Null
+    [IO.File]::WriteAllText((Join-Path $repo '.git\HEAD'), "ref: refs/heads/feat/ambientes`n")
+    [IO.File]::WriteAllText((Join-Path $repo '.git\worktrees\whip-umbral\HEAD'), "ref: refs/heads/fix/whip-threshold`n")
+    [IO.File]::WriteAllText((Join-Path $repo '.claude\worktrees\whip-umbral\.git'), ('gitdir: ' + ((Join-Path $repo '.git\worktrees\whip-umbral') -replace '\\', '/') + "`n"))
+    $place = Get-MobileGitPlace $repo
+    Assert-Equal 'ClaudeMaxxing|feat/ambientes|' ('{0}|{1}|{2}' -f $place.folder, $place.branch, $place.worktree) 'mobile status: the repo, its branch and no worktree'
+    Assert-Equal 'lib|feat/ambientes' $(($sub = Get-MobileGitPlace (Join-Path $repo 'lib')).folder + '|' + $sub.branch) 'mobile status: a subfolder shows itself, as the statusline does, with the branch found above it'
+    $place = Get-MobileGitPlace ((Join-Path $repo '.claude\worktrees\whip-umbral') -replace '\\', '/')
+    Assert-Equal 'ClaudeMaxxing|fix/whip-threshold|whip-umbral' ('{0}|{1}|{2}' -f $place.folder, $place.branch, $place.worktree) 'mobile status: in a worktree, the repo folder, its branch and the worktree'
+    Assert-Equal '1h12m|12m|0m' (((Format-MobileElapsed 0 4320), (Format-MobileElapsed 0 720), (Format-MobileElapsed 100 50)) -join '|') 'mobile status: elapsed like the statusline'
+    $MobileStatusDir = Join-Path $mobileRoot 'status'
+    New-Item -ItemType Directory -Force -Path $MobileStatusDir | Out-Null
+    $sid = '0d9c3f1e-1111-4222-8333-944455556666'
+    Write-JsonFile (Join-Path $MobileStatusDir "$sid.json") ([ordered]@{ id = $sid; model = 'Opus 5.5'; effort = 'high'; dir = ($repo -replace '\\', '/'); context = 34; cost = 1.84; start = 1000 })
+    $st = Get-MobileSessionStatus $sid 'StartDay' 5320
+    Assert-Equal 'Opus 5.5|high|ClaudeMaxxing|feat/ambientes||StartDay|34|1.84|1h12m' (($st.model, $st.effort, $st.folder, $st.branch, $st.worktree, $st.env, [string]$st.context, [string]$st.cost, $st.elapsed) -join '|') 'mobile status: what the phone shows under the session name'
+    Assert-Equal $null (Get-MobileSessionStatus 'f00dfeed-0000-4000-8000-000000000000' '') 'mobile status: no file, no status line (the app keeps the old subtitle)'
+    Assert-Equal $null (Get-MobileSessionStatus '..\x' '') 'mobile status: only session ids name a file'
     $pairing = New-MobilePairing $now
     Assert-Equal 16 $pairing.Code.Length 'mobile: the pairing code is 16 hex characters'
     Assert-Equal 'none' (Test-MobilePairCode $null 'x' $now) 'mobile: no pairing open refuses every code'
