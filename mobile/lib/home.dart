@@ -9,6 +9,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import 'api.dart';
+import 'call.dart';
+import 'call_page.dart';
 import 'chat.dart';
 import 'chat_style.dart';
 import 'eggs.dart';
@@ -577,6 +579,23 @@ class _SessionPageState extends State<SessionPage> with AutomaticKeepAliveClient
     }
   }
 
+  Future<void> _call(Color color) async {
+    final call = Call.instance;
+    final navigator = Navigator.of(context);
+    // One call at a time: with one under way, any session's button shows it.
+    if (!call.active) {
+      if (_dictating == this) {
+        _cancelDictation();
+        setState(() {});
+      }
+      if (!await call.start(widget.api, _id, '${widget.session['name']}')) {
+        _showMessage(S.callFailed);
+        return;
+      }
+    }
+    if (mounted) await navigator.push(MaterialPageRoute<void>(builder: (_) => CallPage(color: color)));
+  }
+
   void _cancelDictation() {
     if (_dictating != this) return;
     _dictating = null;
@@ -667,6 +686,19 @@ class _SessionPageState extends State<SessionPage> with AutomaticKeepAliveClient
               style: theme.textTheme.bodyMedium,
               overflow: TextOverflow.ellipsis,
             ),
+          ),
+          ListenableBuilder(
+            listenable: Call.instance,
+            builder: (context, _) {
+              final call = Call.instance;
+              final here = call.active && call.session == _id;
+              return IconButton(
+                tooltip: here ? S.backToCall : canWrite ? S.callSession : S.cannotWrite,
+                onPressed: canWrite || here ? () => _call(color) : null,
+                icon: Icon(here ? Icons.phone_in_talk : Icons.call_outlined),
+                color: here ? color : null,
+              );
+            },
           ),
           IconButton(
             tooltip: S.chatStyle,
