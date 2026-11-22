@@ -4,6 +4,7 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
 
 ## Unreleased
 
+- **The phone app takes only the certificate its QR pinned**, also when another one comes from an authority the phone trusts. Update the app; nobody has to pair again.
 - **The session's status line on the phone**: under each session's name, the folder, the branch (with the worktree when it is in one) and the environment, then the model with its effort, the context used, the cost and the time it has run. The statusline block saves them per session, only when they change.
 - **Its own names and logo, not Anthropic's**: Claude Whip, Claude Whisper and Claude Judge are now **Maxx Whip**, **Maxx Whisper** and **Maxx Judge**; the tray icon, the usage popup and the Explorer menu (now listed as *ClaudeMaxxing*) show the ClaudeMaxxing jellyfish instead of the Claude logo, and the installer no longer copies icons from the Claude app (it deletes the ones older versions copied). The menu still says *Abrir con Claude Code*, because that is what it opens.
 - **Claude Whip respects its threshold**: the forecast no longer turns it on before "From 85%" unless you switch on **Before the threshold, if it will run out** (new, off by default) in its section.

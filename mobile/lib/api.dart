@@ -64,10 +64,10 @@ class ApiError implements Exception {
 String fingerprint(List<int> der) => sha256.convert(der).toString();
 
 HttpClient _client(String pin) {
-  final c = HttpClient()
+  // No trusted roots: Dart asks the callback only about certificates it does not trust, so it must trust none.
+  final c = HttpClient(context: SecurityContext(withTrustedRoots: false))
     ..connectionTimeout = const Duration(seconds: 4)
     ..idleTimeout = const Duration(seconds: 2);
-  // A self-signed certificate always fails the normal check: it is taken only when it is the one the QR pinned.
   c.badCertificateCallback = (cert, host, port) => fingerprint(cert.der) == pin;
   return c;
 }
