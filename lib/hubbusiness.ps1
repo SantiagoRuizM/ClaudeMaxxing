@@ -1,6 +1,6 @@
 # "Empresa" in the ClaudeMaxxing window, only in the business edition (lib\business.ps1): the seat report, the reports
-# for the team's shared folder, the company's objectives for Claude Judge and the team kit of plugins. Also the card
-# that takes the place of Otros PCs and Claude Whisper in Inicio, and the tray's tick (calibration and weekly report).
+# for the team's shared folder, the company's objectives for Maxx Judge and the team kit of plugins. Also the card
+# that takes the place of Otros PCs and Maxx Whisper in Inicio, and the tray's tick (calibration and weekly report).
 # Needs theme.ps1, hub.ps1, hubstats.ps1, hubskills.ps1, forecast.ps1, maxx.ps1 and business.ps1. Keep this file ASCII.
 
 $script:Business = $null
@@ -213,7 +213,7 @@ function Get-HubDisabledText {
     (Tx 'Apagado por la pol\u00edtica: ') + $list + '.'
 }
 
-# Inicio in the business edition: the tiles and the objectives, where Otros PCs and Claude Whisper go otherwise.
+# Inicio in the business edition: the tiles and the objectives, where Otros PCs and Maxx Whisper go otherwise.
 function Draw-HubBusinessHome($G, $Map, $Hover, [System.Drawing.Rectangle]$Area) {
     $P = $script:Palette
     $F = $script:Fonts
@@ -225,7 +225,7 @@ function Draw-HubBusinessHome($G, $Map, $Hover, [System.Drawing.Rectangle]$Area)
     $tw = $card.Width - (Px 28)
     $company = [string]$script:Business.Policy.company
     Draw-Text $G ('EMPRESA' + $(if ($company) { (Tx ' \u00b7 ') + $company.ToUpper() } else { '' })) $F.Caps $P.Muted $tx ($card.Y + (Px 10)) $tw (Px 18)
-    Draw-Text $G 'Objetivos para Claude Judge' $F.BodyStrong $P.Text $tx ($card.Y + (Px 30)) $tw (Px 20)
+    Draw-Text $G 'Objetivos para Maxx Judge' $F.BodyStrong $P.Text $tx ($card.Y + (Px 30)) $tw (Px 20)
     $objectives = [string]$c.BusinessObjectives
     if ($objectives) {
         $lines = @($objectives -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch '^#' } | Select-Object -First 4)

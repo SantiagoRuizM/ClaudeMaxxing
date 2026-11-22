@@ -42,7 +42,7 @@ function Get-SigningCertificate {
     $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $subject -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) } |
         Sort-Object NotAfter -Descending | Select-Object -First 1
     if (-not $cert) {
-        $cert = New-SelfSignedCertificate -Type Custom -Subject $subject -KeyUsage DigitalSignature -FriendlyName 'Claude Code Context Menu' `
+        $cert = New-SelfSignedCertificate -Type Custom -Subject $subject -KeyUsage DigitalSignature -FriendlyName 'ClaudeMaxxing menu' `
             -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(20) `
             -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
         Write-Host "created signing certificate $($cert.Thumbprint)"

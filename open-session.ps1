@@ -14,6 +14,7 @@ param([string]$Dir, [string]$Run = 'claude', [string]$StatePath, [string]$Prompt
 $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\common.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\symbols.ps1')
 . (Join-Path $TrayRoot 'lib\winapi.ps1')
 . (Join-Path $TrayRoot 'lib\freellm.ps1')
 . (Join-Path $TrayRoot 'lib\business.ps1')
@@ -109,8 +110,8 @@ try {
     $before = [long[]]@([ClaudeTrayWin]::GetVisibleWindows($TerminalClasses))
     # With the voice plugin its hooks write the tab's title ("name - role", no spark or spinner before it).
     if ($pluginDir) { $command = 'set CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1&& ' + $command }
-    # The tab shows the session's egg once install.ps1 has written the terminal profiles.
-    $wtProfile = if (Test-Path -LiteralPath $TerminalFragmentFile) { Get-SessionProfileName $color.Name } else { '' }
+    # The tab shows the symbol chosen now once install.ps1 has written the terminal profiles; it keeps it for good.
+    $wtProfile = if (Test-Path -LiteralPath $TerminalFragmentFile) { Get-SessionProfileName $color.Name (Get-SavedSymbol $TrayRoot) } else { '' }
     # That profile's font has the egg glyphs: the statusline draws the egg with them only where this is set.
     if ($wtProfile) { $command = 'set CLAUDEMAXXING_EGG_FONT=1&& ' + $command }
     try {

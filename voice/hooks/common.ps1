@@ -192,7 +192,7 @@ function Get-ActiveStateFiles($Config, [string]$Kind) {
         Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-$hours) }
 }
 
-# Claude Whisper (whisper.ps1) tiene este mutex mientras escucha: una voz bajaria el volumen de la llamada
+# Maxx Whisper (whisper.ps1) tiene este mutex mientras escucha: una voz bajaria el volumen de la llamada
 # y Whisper la transcribiria como si fuera la otra parte.
 function Test-WhisperListening {
     $m = $null
@@ -200,7 +200,7 @@ function Test-WhisperListening {
     $false
 }
 
-# Silenciado si: CLAUDEVOICE=off en el entorno de la sesion, Claude Whisper escuchando una llamada,
+# Silenciado si: CLAUDEVOICE=off en el entorno de la sesion, Maxx Whisper escuchando una llamada,
 # silencio global o silencio de la sesion.
 function Test-Muted([string]$SessionId) {
     if ("$env:CLAUDEVOICE" -eq 'off') { return $true }
@@ -489,7 +489,7 @@ function Add-History($Item, [string]$Mp3, $Config) {
         time = (Get-Date).ToString('s'); session = $Item.session; name = $Item.name
         voice = $Item.voice; text = $Item.text; audio = $audio
     })
-    $keep = [int](Get-Opt $Config 'historySize' 30)
+    $keep = [int](Get-Opt $Config 'historySize' 100)
     Get-ChildItem $HistoryDir -Filter '*.json' | Sort-Object Name -Descending | Select-Object -Skip $keep |
         ForEach-Object { Remove-Item $_.FullName, ([IO.Path]::ChangeExtension($_.FullName, '.mp3')) -Force -ErrorAction SilentlyContinue }
 }

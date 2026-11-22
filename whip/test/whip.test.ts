@@ -23,7 +23,7 @@ test('past the threshold: Edit is denied and git passes', async ($, on) => {
   world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(90) })
   const edit = await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'a', new_string: 'b' })
   // The test's own $.tool.call gets a plugin's deny as { deny } (a session's model reads it as the error text).
-  expect(String(edit.deny)).toMatch(/Claude Whip is on \(plan at 90%\).*whip-run\.sh/)
+  expect(String(edit.deny)).toMatch(/Maxx Whip is on \(plan at 90%\).*whip-run\.sh/)
   const npm = await $.tool.call({ tool: 'Bash', command: 'npm test' })
   expect(npm.deny).toBeDefined()
   const agent = await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'x' })
@@ -37,7 +37,7 @@ test('past the threshold: Edit is denied and git passes', async ($, on) => {
 test('past the threshold: each prompt carries the director note', async ($, on) => {
   world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(90) })
   const sent = await $.prompt.submit({ text: 'arregla el login' })
-  expect((sent as { context?: string[] }).context?.join('\n') ?? '').toMatch(/\[Claude Whip\].*90%.*whip-run\.sh/s)
+  expect((sent as { context?: string[] }).context?.join('\n') ?? '').toMatch(/\[Maxx Whip\].*90%.*whip-run\.sh/s)
 })
 
 test('under the threshold: nothing changes', async ($, on) => {
@@ -54,9 +54,16 @@ test('no whip.json at all: nothing changes', async ($, on) => {
   expect(write.deny).toBeUndefined()
 })
 
-test('under the threshold but on pace to hit the limit: on, and it says when', async ($, on) => {
+test('under the threshold but on pace to hit the limit, its switch off: nothing changes', async ($, on) => {
   const forecast = JSON.stringify({ projectedPercent: 130, limitAt: '15:40', at: NOW_MS / 1000 - 60 })
   world(on, { [`${DIR}/whip.json`]: ON, [`${DIR}/usage.json`]: usage(62), [`${DIR}/whip-forecast.json`]: forecast })
+  const edit = await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'a', new_string: 'b' })
+  expect(edit.deny).toBeUndefined()
+})
+
+test('under the threshold but on pace to hit the limit, its switch on: on, and it says when', async ($, on) => {
+  const forecast = JSON.stringify({ projectedPercent: 130, limitAt: '15:40', at: NOW_MS / 1000 - 60 })
+  world(on, { [`${DIR}/whip.json`]: JSON.stringify({ enabled: true, threshold: 85, agents: ['codex'], forecast: true }), [`${DIR}/usage.json`]: usage(62), [`${DIR}/whip-forecast.json`]: forecast })
   const edit = await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'a', new_string: 'b' })
   expect(String(edit.deny)).toMatch(/plan at 62%, on pace to hit the limit at 15:40/)
 })

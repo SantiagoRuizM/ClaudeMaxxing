@@ -1,5 +1,5 @@
 # "Planear sesion del dia" section of the ClaudeMaxxing window: before the day's sessions, an idea goes on trial
-# before Claude Judge (lib\judge.ps1). Two ways in: Nueva idea (write it and start a trial) and Flujo previo (the
+# before Maxx Judge (lib\judge.ps1). Two ways in: Nueva idea (write it and start a trial) and Flujo previo (the
 # ideas already judged: read the feedback or judge it again with changes). The idea and the feedback use their
 # own windows (a text box does not fit the owner-drawn hub).
 # Needs hub.ps1, judge.ps1, bridgeui.ps1 (pills, wrapped text) and whisperui.ps1 (buttons, title bar).
@@ -38,7 +38,7 @@ function Open-HubJudgeIdea([string]$Text = '') {
         # Business edition: the jury also weighs the company's objectives (lib\business.ps1).
         $idea = if (Test-HubBusiness) { Add-JudgeObjectives $request.Idea (Get-BusinessObjectives) } else { $request.Idea }
         if (Test-HubModule 'judge') { Start-JudgeJob $idea $request.Jury }
-        Set-HubMessage ((Tx 'Claude Judge est\u00e1 deliberando...'))
+        Set-HubMessage ((Tx 'Maxx Judge est\u00e1 deliberando...'))
     } catch { Set-HubMessage ((L 'No se pudo empezar: ') + $_.Exception.Message) }
     Update-HubNow
 }
@@ -70,14 +70,14 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $status = $c.JudgeStatus
     $running = [bool]($status -and $status.state -eq 'running')
 
-    Draw-Wrapped $G (Tx 'Antes de abrir sesiones, pon a prueba lo que vas a hacer hoy. Claude Judge lo lleva a juicio: un fiscal, una defensa y un jurado de Claudes votan, y un juez te dice qu\u00e9 cambiar.') $F.Small $P.Muted $X0 (Px 68) $Inner (Px 34)
+    Draw-Wrapped $G (Tx 'Antes de abrir sesiones, pon a prueba lo que vas a hacer hoy. Maxx Judge lo lleva a juicio: un fiscal, una defensa y un jurado de Claudes votan, y un juez te dice qu\u00e9 cambiar.') $F.Small $P.Muted $X0 (Px 68) $Inner (Px 34)
 
     # the two ways in
     $y = Px 108
     $cw = [int](($Inner - $gap) / 2)
     $options = @(
         @{ Id = 'plan-new'; Glyph = '\uea80'; Title = 'Nueva idea'; Action = { Open-HubJudgeIdea }
-           Sub = (Tx 'Escribe lo que quieres hacer hoy y recibe el feedback de Claude Judge.'); Button = 'Escribir idea...' },
+           Sub = (Tx 'Escribe lo que quieres hacer hoy y recibe el feedback de Maxx Judge.'); Button = 'Escribir idea...' },
         @{ Id = 'plan-previous'; Glyph = '\ue81c'; Title = 'Flujo previo'; Action = { Open-HubJudgeTrial 0 }
            Sub = (Tx 'Retoma una idea ya juzgada: revisa su veredicto o vuelve a juzgarla con cambios.'); Button = $(if ($trials.Count) { (Tx 'Retomar la \u00faltima') } else { '' }) }
     )
@@ -115,7 +115,7 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
             # Three dots that move with the hub's 2-second refresh.
             $phase = [int]((Get-Date).Second / 2) % 3
             for ($d = 0; $d -lt 3; $d++) { Draw-HubDot $G ($tx + $d * (Px 12)) ($card.Y + (Px 18)) (Px 8) $(if ($d -eq $phase) { $P.Accent } else { $P.Faint }) }
-            Draw-Text $G (Tx 'Claude Judge est\u00e1 deliberando') $F.BodyStrong $P.Text ($tx + (Px 44)) ($card.Y + (Px 10)) ($card.Width - (Px 200)) (Px 22)
+            Draw-Text $G (Tx 'Maxx Judge est\u00e1 deliberando') $F.BodyStrong $P.Text ($tx + (Px 44)) ($card.Y + (Px 10)) ($card.Width - (Px 200)) (Px 22)
             Draw-Text $G $c.JudgeProgress $F.Small $P.Muted ($tx + (Px 44)) ($card.Y + (Px 34)) ($card.Width - (Px 200)) (Px 18)
             $minutes = 0
             try { $minutes = [int]((Get-Date) - [datetime]$status.at).TotalMinutes } catch { }
@@ -164,7 +164,7 @@ function Draw-HubPlanSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
 function New-JudgeForm([string]$Title, $Palette, [int]$Width, [int]$Height) {
     $P = $Palette
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = (L 'Claude Judge ') + [char]0x00B7 + ' ' + (L $Title)
+    $dlg.Text = (L 'Maxx Judge ') + [char]0x00B7 + ' ' + (L $Title)
     $dlg.StartPosition = 'CenterScreen'
     $dlg.FormBorderStyle = 'Sizable'
     $dlg.MinimizeBox = $false
@@ -218,7 +218,7 @@ function New-JudgeBox([string]$Text, $Palette, [bool]$ReadOnly) {
 function Show-JudgeIdeaDialog([string]$Text, $Palette, $Owner) {
     $P = $Palette
     $dlg = New-JudgeForm 'Nueva idea' $P 560 480
-    Add-JudgeRow $dlg (New-JudgeLabel (Tx 'Describe la idea o el plan de hoy con todo lo que importa: para qui\u00e9n es, n\u00fameros, tiempo, presupuesto y lo que ya probaste. Claude Judge solo sabe lo que escribas aqu\u00ed.') $P.Muted)
+    Add-JudgeRow $dlg (New-JudgeLabel (Tx 'Describe la idea o el plan de hoy con todo lo que importa: para qui\u00e9n es, n\u00fameros, tiempo, presupuesto y lo que ya probaste. Maxx Judge solo sabe lo que escribas aqu\u00ed.') $P.Muted)
     Add-JudgeRow $dlg (New-JudgeLabel 'TU IDEA' $P.Muted $script:Fonts.Caps)
     $box = New-JudgeBox $Text $P $false
     Add-JudgeRow $dlg $box 100

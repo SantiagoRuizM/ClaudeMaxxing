@@ -113,7 +113,7 @@ test('tools: MCP tools that run code or write are blocked, readers pass', () => 
 
 
 test('forecast: on pace to hit the limit turns it on under the threshold, from half the plan, while fresh', () => {
-  const on = { enabled: true, threshold: 85, agents: ['codex'] }
+  const on = { enabled: true, threshold: 85, agents: ['codex'], forecast: true }
   const fc = { projectedPercent: 120, limitAt: '15:40', at: NOW - 60 }
   assert.equal(forecastHit(fc, 62, NOW), true)
   assert.equal(isActive(on, 62, forecastHit(fc, 62, NOW)), true)
@@ -122,6 +122,7 @@ test('forecast: on pace to hit the limit turns it on under the threshold, from h
   assert.equal(forecastHit({ ...fc, at: NOW - 3600 }, 62, NOW), false, 'stale: the tray stopped writing it')
   assert.equal(forecastHit(undefined, 99, NOW), false)
   assert.equal(isActive({ ...on, enabled: false }, 62, true), false, 'off stays off')
+  assert.equal(isActive({ ...on, forecast: undefined }, 62, true), false, 'without its switch the threshold rules')
 })
 
 test('policy: an IT policy that turns the whip off wins over whip.json', () => {

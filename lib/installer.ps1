@@ -4,16 +4,16 @@
 # Everything the installed tray, menu launcher and voice need; nothing else from the repo is copied.
 $script:RuntimeFiles = @(
     'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1', 'logo.png',
-    # The egg of each session in the notification area (lib\traysessions.ps1): still, and the thinking animation.
-    'egg_logo.png', 'egg_logo_gift_thinking.gif',
     'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js',
     # Ambientes' format and one example (invented data), for the agent that writes the user's environments.
     'harness\README.md', 'harness\test\environments\trabajo.json',
+    # The one-command installer, which the tray's update runs (lib\update.ps1).
+    'get.ps1',
     # Peek: the plugin Claude Code loads (its tests, README and the sample paths in them stay in the repo).
     'peek\LICENSE', 'peek\.claude-plugin\plugin.json', 'peek\hooks\hooks.json', 'peek\hooks\register.tsx', 'peek\hooks\paths.ts',
     'peek\hooks\code.ts', 'peek\hooks\markdown.ts', 'peek\hooks\link.tsx', 'peek\hooks\window.ts', 'peek\windows\preview.ps1',
     'peek\windows\reveal.ps1',
-    # Claude Whip: the plugin that holds a session to reading and planning when the plan runs low (lib\whip.ps1).
+    # Maxx Whip: the plugin that holds a session to reading and planning when the plan runs low (lib\whip.ps1).
     'whip\.claude-plugin\plugin.json', 'whip\hooks\hooks.json', 'whip\hooks\register.ts', 'whip\hooks\rules.ts',
     'whip\skills\claude-whip\SKILL.md', 'whip\bin\whip-run.sh', 'whip\bin\whip-check.sh',
     # PDF: the plugin whose skill has Claude read PDFs as Markdown (PyMuPDF goes in pdf\venv, Install-PdfDependencies).
@@ -22,11 +22,14 @@ $script:RuntimeFiles = @(
 # Folders copied whole. Files in them that are no longer in the repo are deleted from the install folder.
 # claudeJudge\.claude: the court skill that lib\judge-worker.ps1 copies next to each trial. harness\: Ambientes
 # (env.js, the Chrome extension loaded unpacked from the install folder and its native messaging host).
-$script:RuntimeDirs = @('lib', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension', 'theme')
+# symbols\: each session symbol's images and font (lib\symbols.ps1).
+$script:RuntimeDirs = @('lib', 'symbols', 'voice\hooks', 'voice\plugin', 'voice\templates', 'claudeJudge\.claude', 'harness\host', 'harness\extension', 'theme',
+    # The catalog of Skills y MCP (lib\catalog.ps1): third-party skills copied as text, and the MCP servers it can add.
+    'catalog')
 # Generated or user-owned, never deleted by an update: /voz of the plugin, the user's voice settings,
-# the Python environment for edge-tts, the icons copied from the Claude app and the native host files that
+# the Python environment for edge-tts and the native host files that
 # Register-HarnessHost writes (Chrome may be running that launcher) and the extension's icons (install.ps1 draws them).
-$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude', 'assets',
+$script:PreservedPaths = @('voice\plugin\skills', 'voice\config.local.json', 'voice\venv', 'voice\.claude',
     'harness\host\yourharness-host.bat', 'harness\host\com.yourharness.bridge.json', 'harness\extension\icons')
 
 # Relative paths of every runtime file in $Root.
@@ -105,7 +108,7 @@ function Stop-RecordedTray {
     $trayPid
 }
 
-# Stops the Claude Whisper window recorded in whisper.pid, after checking it really is whisper.ps1, with its
+# Stops the Maxx Whisper window recorded in whisper.pid, after checking it really is whisper.ps1, with its
 # claude process (the tree of that one PID).
 function Stop-RecordedWhisper {
     $pidFile = Join-Path $TrayHome 'whisper\whisper.pid'
@@ -355,56 +358,42 @@ function Add-HarnessManifestIcons([string]$InstallDir) {
     "extension icons: $(Join-Path $extension 'icons')"
 }
 
-# Windows Terminal profiles for the menu sessions: one per egg drawn in $EggDir (<color>.png, tray.ps1 -RenderEggsTo),
-# hidden from the new-tab menu, with that egg as the tab icon. Named like Get-SessionProfileName (lib\sessions.ps1).
-# A fragment: Windows Terminal reads it beside the user's settings.json, which stays untouched.
-function Install-TerminalProfiles([string]$EggDir) {
-    $eggs = @(Get-ChildItem -LiteralPath $EggDir -Filter '*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
-    if (-not $eggs.Count) { return 'terminal profiles: no eggs drawn (tabs keep the cmd icon)' }
-    $profiles = @($eggs | ForEach-Object {
-        # The eggs font after the main one: the statusline's egg glyphs (U+E100...) come from it (Install-EggFont).
-        # shortcut: assumes Windows Terminal's default face; a user who changed theirs gets Cascadia Mono in these tabs.
-        [ordered]@{ name = 'ClaudeMaxxing ' + $_.BaseName; commandline = '%SystemRoot%\System32\cmd.exe'; icon = $_.FullName; hidden = $true
-            font = [ordered]@{ face = 'Cascadia Mono, ' + $EggFontFamily } }
-    })
-    Write-JsonFile $TerminalFragmentFile ([ordered]@{ profiles = $profiles })
-    # A running Windows Terminal reads fragments only when it reloads its settings: a new timestamp (content
-    # untouched) makes it reload now, so the next menu session already finds its profile.
-    foreach ($settings in @(Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal*\LocalState\settings.json') -ErrorAction SilentlyContinue)) {
-        try { $settings.LastWriteTime = Get-Date } catch { }
-    }
-    "terminal profiles: $TerminalFragmentFile"
-}
-
-# The eggs font (font\ClaudeMaxxingEggs.ttf, built by font\build_eggs_font.py): the session egg and its animation
+# The symbols' fonts (symbols\<id>\symbol.ttf, built by font\build_eggs_font.py): each symbol and its animation
 # frames as glyphs, for the statusline. Installed for this user only (no admin): copied under a name with its hash
 # (a running terminal may hold the previous file), registered in HKCU and announced to running programs.
-$script:EggFontFamily = 'ClaudeMaxxing Eggs'
-$script:EggFontValue = 'ClaudeMaxxing Eggs (TrueType)'
 $script:UserFontsKey = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
-function Install-EggFont([string]$Source) {
-    if (-not (Test-Path -LiteralPath $Source)) { return 'eggs font: not found' }
+function Install-SymbolFont([string]$Source, [string]$Id) {
+    if (-not (Test-Path -LiteralPath $Source)) { return "symbol font ${Id}: not found" }
     $fonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
     if (-not (Test-Path -LiteralPath $fonts)) { New-Item -ItemType Directory -Force -Path $fonts | Out-Null }
+    # An id has no '-', so one symbol's pattern never takes another's file.
+    $prefix = if ($Id -eq $DefaultSymbol) { 'ClaudeMaxxingEggs' } else { "ClaudeMaxxingSymbol-$Id" }
     $hash = (Get-FileHash -LiteralPath $Source -Algorithm SHA1).Hash.Substring(0, 8)
-    $target = Join-Path $fonts "ClaudeMaxxingEggs-$hash.ttf"
+    $target = Join-Path $fonts "$prefix-$hash.ttf"
     if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $Source -Destination $target }
     if (-not (Test-Path -LiteralPath $script:UserFontsKey)) { New-Item -Path $script:UserFontsKey -Force | Out-Null }
-    New-ItemProperty -Path $script:UserFontsKey -Name $script:EggFontValue -Value $target -PropertyType String -Force | Out-Null
-    foreach ($old in @(Get-ChildItem -LiteralPath $fonts -Filter 'ClaudeMaxxingEggs-*.ttf' | Where-Object { $_.FullName -ne $target })) {
+    New-ItemProperty -Path $script:UserFontsKey -Name ((Get-SymbolFontFamily $Id) + ' (TrueType)') -Value $target -PropertyType String -Force | Out-Null
+    foreach ($old in @(Get-ChildItem -LiteralPath $fonts -Filter "$prefix-*.ttf" | Where-Object { $_.FullName -ne $target })) {
         try { Remove-Item -LiteralPath $old.FullName -Force -ErrorAction Stop } catch { }
     }
     Send-FontChange $target
-    "eggs font: $target"
+    "symbol font ${Id}: $target"
 }
 
-function Uninstall-EggFont {
-    Remove-ItemProperty -Path $script:UserFontsKey -Name $script:EggFontValue -ErrorAction SilentlyContinue
-    $fonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
-    foreach ($file in @(Get-ChildItem -LiteralPath $fonts -Filter 'ClaudeMaxxingEggs-*.ttf' -ErrorAction SilentlyContinue)) {
-        try { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop } catch { }
+function Uninstall-SymbolFonts {
+    $key = Get-Item -LiteralPath $script:UserFontsKey -ErrorAction SilentlyContinue
+    if ($key) {
+        foreach ($name in @($key.GetValueNames() | Where-Object { $_ -eq 'ClaudeMaxxing Eggs (TrueType)' -or $_ -like 'ClaudeMaxxing Symbol *' })) {
+            Remove-ItemProperty -LiteralPath $script:UserFontsKey -Name $name -ErrorAction SilentlyContinue
+        }
     }
-    'eggs font removed'
+    $fonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+    foreach ($pattern in 'ClaudeMaxxingEggs-*.ttf', 'ClaudeMaxxingSymbol-*.ttf') {
+        foreach ($file in @(Get-ChildItem -LiteralPath $fonts -Filter $pattern -ErrorAction SilentlyContinue)) {
+            try { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop } catch { }
+        }
+    }
+    'symbol fonts removed'
 }
 
 # Loads the font in this session and tells running programs (WM_FONTCHANGE), so a new terminal finds it at once.

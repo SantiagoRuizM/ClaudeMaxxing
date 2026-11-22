@@ -2,7 +2,7 @@
 # edition.json; a policy that IT puts in %ProgramData%\ClaudeMaxxing\policy.json makes the PC business whatever the
 # flag says. The business edition adds the Empresa section (lib\hubbusiness.ps1): the seat report (use, API-equivalent
 # cost against the seat price, and whether the seat fits), reports for a shared folder and the team's summary, the
-# company's objectives for Claude Judge, and the team kit of plugins. Its policy can switch modules off.
+# company's objectives for Maxx Judge, and the team kit of plugins. Its policy can switch modules off.
 # Needs common.ps1 only (tests); the tray, open-session.ps1, whisper.ps1 and lib\maxx-worker.ps1 load it.
 # Keep this file ASCII: non-ASCII text is written as \uXXXX and decoded with Tx.
 
@@ -15,19 +15,20 @@ $SeatStateFile      = Join-Path $BusinessHome 'seat.json'
 $MachinePolicyDir   = Join-Path $env:ProgramData $AppName
 
 # What a policy can switch off, with its name in the window.
-$script:BusinessModules = [ordered]@{ freellm = 'FreeLLMAPI'; bridge = 'Otros PCs'; whisper = 'Claude Whisper'; whip = 'Claude Whip'; ambientes = 'Ambientes'; judge = 'Claude Judge' }
+$script:BusinessModules = [ordered]@{ freellm = 'FreeLLMAPI'; bridge = 'Otros PCs'; whisper = 'Maxx Whisper'; whip = 'Maxx Whip'; ambientes = 'Ambientes'; judge = 'Maxx Judge' }
 $script:ObjectivesMarker = '--- Objetivos de la empresa ---'
 
 # ---------------------------------------------------------------- edition and policy
 
 # Off by default for a company: FreeLLMAPI sends prompts to free third-party providers (some train on them), Otros
-# PCs runs an SSH server that gives a shell as the user, Claude Whisper sends calls to an undocumented service and
-# Claude Whip hands the code to other companies' agents (Codex, Gemini...) and Ambientes reads every tab of Chrome and
-# sends their titles to TypeSafe or Anthropic. Claude Judge only spends the user's own plan: on.
+# PCs runs an SSH server that gives a shell as the user, Maxx Whisper sends calls to an undocumented service and
+# Maxx Whip hands the code to other companies' agents (Codex, Gemini...) and Ambientes reads every tab of Chrome and
+# sends their titles to TypeSafe or Anthropic, and Celular opens a port from which a paired phone writes to the
+# sessions. Maxx Judge only spends the user's own plan: on.
 function New-DefaultPolicy {
     [pscustomobject][ordered]@{
         company = ''
-        disabled = @('freellm', 'bridge', 'whisper', 'whip', 'ambientes')
+        disabled = @('freellm', 'bridge', 'whisper', 'whip', 'ambientes', 'mobile')
         seatName = ''
         seatMonthlyUsd = 0
         reportDir = ''
@@ -85,7 +86,7 @@ function Test-ModuleAllowed($State, [string]$Module) {
 function Test-PluginRef([string]$Ref) { $Ref -match '^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*$' }
 function Test-MarketplaceSource([string]$Source) { ($Source -match '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$') -or ($Source -match '^https://[^\s"]+$') }
 
-# ---------------------------------------------------------------- objectives for Claude Judge
+# ---------------------------------------------------------------- objectives for Maxx Judge
 
 # IT's objectives (ProgramData) first, else the user's; HTML comments (the template's hints) do not count.
 function Get-BusinessObjectives([string]$MachineDir = $MachinePolicyDir, [string]$UserFile = $UserObjectivesFile) {
@@ -113,7 +114,7 @@ function Get-ObjectivesTemplate {
     Tx @'
 # Objetivos de la empresa
 
-<!-- Claude Judge (Planear sesi\u00f3n) juzga cada idea tambi\u00e9n contra estos objetivos. Escribe uno por l\u00ednea,
+<!-- Maxx Judge (Planear sesi\u00f3n) juzga cada idea tambi\u00e9n contra estos objetivos. Escribe uno por l\u00ednea,
      con su resultado medible, debajo de esta nota (la nota no cuenta). Ejemplos:
 - Q1: bajar el tiempo de respuesta a clientes de 24 h a 4 h.
 - Q1: lanzar la app m\u00f3vil para el 31 de marzo.

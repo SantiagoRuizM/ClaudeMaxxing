@@ -9,6 +9,15 @@
 try {
     $evt = Read-HookInput
     if (-not $evt) { exit 0 }
+    # The phone app (lib\mobile.ps1) writes to this session through Claude Code's cross-session inbox: its pipe and
+    # token, which only this session's hooks see. Under the user's profile, like the rest of usage-tray.
+    $inboxPipe = $env:CLAUDE_CODE_MESSAGING_SOCKET
+    if ($inboxPipe -and $env:CLAUDE_CODE_MESSAGING_TOKEN -and "$($evt.session_id)" -match '^[0-9a-fA-F-]{36}$') {
+        $inboxDir = Join-Path $env:USERPROFILE '.claude\usage-tray\mobile\inbox'
+        if (-not (Test-Path -LiteralPath $inboxDir)) { New-Item -ItemType Directory -Force -Path $inboxDir | Out-Null }
+        $inboxJson = ConvertTo-Json -InputObject ([ordered]@{ socket = $inboxPipe; token = $env:CLAUDE_CODE_MESSAGING_TOKEN }) -Compress
+        [IO.File]::WriteAllText((Join-Path $inboxDir "$($evt.session_id).json"), $inboxJson, $Utf8)
+    }
     $cfg = Get-VoiceConfig
     if (-not (Get-Opt $cfg 'enabled' $true)) { exit 0 }
 

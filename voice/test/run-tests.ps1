@@ -98,7 +98,7 @@ $env:CLAUDEVOICE = 'off'
 Check 'CLAUDEVOICE=off silencia la sesion' (Test-Muted 'bbbb-2222') ''
 Remove-Item Env:\CLAUDEVOICE
 $listening = New-Object System.Threading.Mutex($false, 'Local\ClaudeWhisperListening')
-Check 'Claude Whisper escuchando silencia todas' ((Test-Muted 'bbbb-2222') -and (Test-WhisperListening)) ''
+Check 'Maxx Whisper escuchando silencia todas' ((Test-Muted 'bbbb-2222') -and (Test-WhisperListening)) ''
 $listening.Dispose()
 Check 'al dejar de escuchar vuelve la voz' (-not (Test-Muted 'bbbb-2222')) ''
 
@@ -169,6 +169,10 @@ Check 'segundo prompt: sin salida' ([string]::IsNullOrEmpty("$raw")) $raw
 $raw = '{"session_id":"pppp-2","prompt":"hola","session_title":"Mio"}' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hook
 $j = "$raw" | ConvertFrom-Json
 Check 'no pisa un titulo puesto por el usuario' (-not $j.hookSpecificOutput.sessionTitle -and $j.systemMessage) "$raw"
+$oldTitle = "$((Get-SessionName 'pppp-1').title)"
+$raw = (ConvertTo-Json -Compress @{ session_id = 'pppp-3'; prompt = 'implementa el login'; session_title = $oldTitle }) | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hook
+$j = "$raw" | ConvertFrom-Json
+Check 'tras /clear cambia el titulo que puso la voz por el nombre nuevo' ($j.hookSpecificOutput.sessionTitle -and $j.hookSpecificOutput.sessionTitle -ne $oldTitle) "$raw"
 
 'Sesiones abiertas desde el menu (reservadas)'
 $res = New-ReservedSession $cfgFile 'rrrr-1' 'orange'

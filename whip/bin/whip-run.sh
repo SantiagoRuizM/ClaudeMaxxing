@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Whip runner: hands one task (stdin, usually a heredoc) to an agent CLI in the current folder, keeps its
+# Maxx Whip runner: hands one task (stdin, usually a heredoc) to an agent CLI in the current folder, keeps its
 # whole output in a log and prints only what the director needs: the agent's last answer, git status and diff --stat.
 #   bash whip-run.sh codex <<'EOF'            a new task
 #   bash whip-run.sh codex --resume <<'EOF'   feedback in the agent's last conversation (it keeps what it did)

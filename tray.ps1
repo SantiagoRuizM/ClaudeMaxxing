@@ -4,9 +4,9 @@
 # -RenderTo / -RenderDialogTo <png> draw the popup / schedule dialog to an image and exit (layout check);
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
-# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; <section>-full, that section in full screen on a 1920x1080 screen).
-# -RenderEggsTo <folder> writes each session color's egg as <color>.png (the terminal tab icons; install.ps1) and
-# statusline.json, the egg as 8-bit text (still and thinking frames) for the Claude Code statusline.
+# -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, mobile (Celular), voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; skills-mcp, Skills y MCP on its MCP tab; envs-lists, Ambientes on its Skills y MCP tab; <section>-full, that section in full screen on a 1920x1080 screen).
+# -RenderEggsTo <folder> writes, for each symbol, <id>\<color>.png (the terminal tab icons; install.ps1) and
+# statusline.json, the symbol on as 8-bit text for the Claude Code statusline.
 # -RenderSnipTo <png> draws Win+Alt+C and its boxes with a sample screen (lib\snipcapture.ps1; see the block below).
 # -RenderLogoTo <folder> writes the ClaudeMaxxing jellyfish (logo.png) as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
@@ -23,12 +23,14 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
 . (Join-Path $TrayRoot 'lib\autoplan.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\symbols.ps1')
 . (Join-Path $TrayRoot 'lib\freellm.ps1')
 . (Join-Path $TrayRoot 'lib\harness.ps1')
 . (Join-Path $TrayRoot 'lib\voiceengine.ps1')
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
 . (Join-Path $TrayRoot 'lib\forecast.ps1')
 . (Join-Path $TrayRoot 'lib\business.ps1')
+. (Join-Path $TrayRoot 'lib\update.ps1')
 # Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
 # prompts) to everything it starts, including remote sessions on this PC.
 if ($env:CLAUDECODE) {
@@ -59,12 +61,15 @@ Add-Type -AssemblyName System.Drawing
 . (Join-Path $TrayRoot 'lib\debate.ps1')
 . (Join-Path $TrayRoot 'lib\debateui.ps1')
 . (Join-Path $TrayRoot 'lib\hubskills.ps1')
+. (Join-Path $TrayRoot 'lib\catalog.ps1')
 . (Join-Path $TrayRoot 'lib\whip.ps1')
 . (Join-Path $TrayRoot 'lib\hubbusiness.ps1')
 . (Join-Path $TrayRoot 'lib\traysessions.ps1')
 . (Join-Path $TrayRoot 'lib\snip.ps1')
 . (Join-Path $TrayRoot 'lib\snipcapture.ps1')
 . (Join-Path $TrayRoot 'lib\sniprecord.ps1')
+. (Join-Path $TrayRoot 'lib\mobile.ps1')
+. (Join-Path $TrayRoot 'lib\hubmobile.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 # Own taskbar identity before any window exists; otherwise the windows group under powershell.exe and show its icon.
 [void][ClaudeTray.Native]::SetCurrentProcessExplicitAppUserModelID('ClaudeMaxxing.Tray')
@@ -82,7 +87,7 @@ $F = $script:Fonts
 $script:View = $null
 # Personal or business edition and the company policy (lib\business.ps1); Otros PCs and Whisper follow it from start.
 $script:Business = Get-BusinessState
-# Claude Whip: a policy that turns it off also turns off a switch left on (its plugin only reads whip.json).
+# Maxx Whip: a policy that turns it off also turns off a switch left on (its plugin only reads whip.json).
 if (-not $Rendering) { try { [void](Sync-WhipPolicy (Test-ModuleAllowed $script:Business 'whip')) } catch { } }
 $script:Extras = [pscustomobject]@{ ExtraUsage = $null; LimitReset = $null }
 $script:Plan = Get-PlanName $CredsFile
@@ -103,7 +108,7 @@ function Update-UsageState {
     # Until Windows has placed the tray's icons they keep their first tooltip (lib\traysessions.ps1).
     if ($Rendering -or (Test-TrayIconsPlaced)) {
         $script:Notify.Text = $tip
-        # Not the same text as the Claude icon: the bars say only the two windows.
+        # Not the same text as the jellyfish icon: the bars say only the two windows.
         foreach ($bar in @($script:UsageBars)) { if ($bar) { $bar.Text = $tip -replace '^[^-]*- ', '' } }
     }
     if ($script:UsageBars -and -not $Rendering) { Update-UsageOverlay }
@@ -225,7 +230,7 @@ $Popup.ClientSize = New-Object System.Drawing.Size((Px $PopupWidth), (Px 288))
 Enable-DoubleBuffer $Popup
 $Popup.Tag = New-HitMap
 Register-HitMap $Popup
-$script:PopupLogo = New-TintedLogo $P.Accent (Px 20)
+$script:PopupLogo = New-BrandMark $P.Accent (Px 20)
 $script:HubButtonMark = New-BrandMark $P.AccentText (Px 22)
 
 function Draw-Window($G, [string]$Label, $Window, [int]$Top, [string]$IdleText) {
@@ -259,7 +264,7 @@ $Popup.Add_Paint({
     $h = $sender.ClientSize.Height
     $view = $script:View
 
-    # header: spark + serif title, plan pill and status dot on the right
+    # header: jellyfish + serif title, plan pill and status dot on the right
     if ($script:PopupLogo) { $g.DrawImage($script:PopupLogo, (Px 18), (Px 19)) }
     Draw-Text $g 'Claude' $F.Title $P.Text (Px 46) (Px 13) (Px 160) (Px 32)
     $dotSize = Px 8
@@ -398,7 +403,7 @@ $Notify.Visible = -not $Rendering
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 # Grouped like the ClaudeMaxxing window: the window, usage, scheduling, the other tools. Names match its sections.
 [void]$menu.Items.Add('Entrar a ClaudeMaxxing...', $null, { Show-HubDialog })
-# Planear sesion is the automatic agenda's tab now; Claude Judge (the policy's 'judge') is a link inside it.
+# Planear sesion is the automatic agenda's tab now; Maxx Judge (the policy's 'judge') is a link inside it.
 [void]$menu.Items.Add((Ux 'Planear sesi\u00f3n...'), $null, { Show-HubDialog 'plan' })
 [void]$menu.Items.Add('-')
 [void]$menu.Items.Add('Ver uso', $null, { Show-Popup })
@@ -408,14 +413,17 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add((Ux 'Agendar sesi\u00f3n...'), $null, { Show-ScheduleDialog; Update-ScheduleState })
 [void]$menu.Items.Add('Plan semanal...', $null, { Show-ScheduleDialog -Tab 'plan'; Update-ScheduleState })
 [void]$menu.Items.Add('-')
-# Claude Whisper: live call copilot in its own process (whisper.ps1).
-if (Test-HubModule 'whisper') { [void]$menu.Items.Add('Claude Whisper...', $null, { Start-WhisperWindow $TrayRoot }) }
+# Maxx Whisper: live call copilot in its own process (whisper.ps1).
+if (Test-HubModule 'whisper') { [void]$menu.Items.Add('Maxx Whisper...', $null, { Start-WhisperWindow $TrayRoot }) }
 # Otros PCs: terminals on paired PCs and the incoming sessions, rebuilt each time the submenu opens.
 $script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PCs')
 [void]$script:BridgeMenu.DropDownItems.Add('Abrir Otros PCs...', $null, { Show-BridgeDialog })
 $script:BridgeMenu.Add_DropDownOpening({ Update-BridgeMenu $script:BridgeMenu })
 if (Test-HubModule 'bridge') { [void]$menu.Items.Add($script:BridgeMenu) }
 [void]$menu.Items.Add('-')
+$script:UpdateMenu = $menu.Items.Add('Buscar actualizaciones...', $null, {
+    if ($script:UpdateVersion) { Confirm-AppUpdate } else { Start-UpdateCheck -Manual }
+})
 [void]$menu.Items.Add('Salir', $null, {
     # Leaving stops the SSH server, which ends what other PCs have open here.
     $open = if ($script:Bridge) { @($script:Bridge.Sessions.Values).Count } else { 0 }
@@ -433,8 +441,8 @@ $Notify.Add_MouseClick({
     param($sender, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Switch-Popup }
 })
-# The 5-hour and weekly windows as two long bars between the eggs and the Claude icon, always in sight, drawn across
-# $UsageBarSegments icons (lib\traysessions.ps1). Same click and menu as the Claude icon.
+# The 5-hour and weekly windows as two long bars between the eggs and the jellyfish icon, always in sight, drawn across
+# $UsageBarSegments icons (lib\traysessions.ps1). Same click and menu as the jellyfish icon.
 $script:UsageBars = @(for ($i = 0; $i -lt $script:UsageBarSegments; $i++) {
     $bar = New-Object System.Windows.Forms.NotifyIcon
     Set-NotifyIconId $bar ($script:TrayIconIds.Bars + $i)
@@ -448,10 +456,64 @@ $script:UsageBars = @(for ($i = 0; $i -lt $script:UsageBarSegments; $i++) {
 $Notify.Add_BalloonTipClicked({
     if ($script:BridgeBalloonAction -eq 'dialog') { Show-BridgeDialog }
     elseif ($script:BridgeBalloonAction -eq 'whisper') { Start-WhisperWindow $TrayRoot }
+    elseif ($script:BridgeBalloonAction -eq 'update' -and $script:UpdateVersion) { Confirm-AppUpdate }
 })
 
-# Like a meeting assistant: when a call app starts using the microphone, offer Claude Whisper. Only once
-# Claude Whisper has been used on this PC (its settings exist), and not while it is open.
+# Updates (lib\update.ps1): a notice once per version, and the menu item to install it.
+function Start-UpdateCheck([switch]$Manual) {
+    if ($Manual) { $script:UpdateManual = $true }
+    if ($script:UpdatePending) { return }
+    try {
+        $script:UpdatePending = Start-UpdateRequest
+        $script:UpdateTimer.Start()
+    } catch {
+        if ($script:UpdateManual) { Show-UpdateResult @{ State = 'error' } }
+    }
+}
+
+function Show-UpdateResult($Result) {
+    $manual = $script:UpdateManual
+    $script:UpdateManual = $false
+    $text = $null
+    if ($Result.State -eq 'new') {
+        $announced = $script:UpdateVersion -eq $Result.Version
+        $script:UpdateVersion = $Result.Version
+        # Tag keeps the Spanish text the menu translates each time it opens.
+        $script:UpdateMenu.Tag = Ux 'Instalar actualizaci\u00f3n...'
+        $script:UpdateMenu.Text = L $script:UpdateMenu.Tag
+        if ($manual -or -not $announced) { $text = (Tx 'ClaudeMaxxing {0} est\u00e1 disponible. Haz clic para actualizar.') -f $Result.Version }
+    } elseif ($manual) {
+        $text = switch ($Result.State) {
+            'current' { (Tx 'Tienes la \u00faltima versi\u00f3n ({0}).') -f $AppVersion }
+            'none' { Tx 'Todav\u00eda no hay versiones publicadas.' }
+            default { Tx 'No se pudo buscar la actualizaci\u00f3n. Int\u00e9ntalo m\u00e1s tarde.' }
+        }
+    }
+    if (-not $text) { return }
+    $script:BridgeBalloonAction = if ($Result.State -eq 'new') { 'update' } else { '' }
+    $script:Notify.ShowBalloonTip(8000, 'ClaudeMaxxing', $text, [System.Windows.Forms.ToolTipIcon]::Info)
+}
+
+function Confirm-AppUpdate {
+    $question = (Tx '\u00bfActualizar ClaudeMaxxing a {0}? La bandeja se reinicia, y se cierran Maxx Whisper y las sesiones de Otros PCs. Tus datos se conservan.') -f $script:UpdateVersion
+    if (-not (Confirm-UiAction $question)) { return }
+    try { Start-AppUpdate $TrayRoot } catch {
+        $script:Notify.ShowBalloonTip(8000, 'ClaudeMaxxing', ((L 'No se pudo actualizar: ') + $_.Exception.Message), [System.Windows.Forms.ToolTipIcon]::Warning)
+    }
+}
+
+$script:UpdateTimer = New-Object System.Windows.Forms.Timer
+$script:UpdateTimer.Interval = 250
+$script:UpdateTimer.Add_Tick({
+    if (-not $script:UpdatePending -or -not $script:UpdatePending.Task.IsCompleted) { return }
+    $script:UpdateTimer.Stop()
+    $result = Complete-UpdateRequest $script:UpdatePending $AppVersion
+    $script:UpdatePending = $null
+    Show-UpdateResult $result
+})
+
+# Like a meeting assistant: when a call app starts using the microphone, offer Maxx Whisper. Only once
+# Maxx Whisper has been used on this PC (its settings exist), and not while it is open.
 $script:MeetingAppsSeen = @()
 function Test-MeetingStarted {
     if (-not (Test-HubModule 'whisper')) { return }
@@ -462,7 +524,7 @@ function Test-MeetingStarted {
     $script:MeetingAppsSeen = $apps
     if ($new.Count -eq 0 -or -not $script:Notify.Visible) { return }
     $script:BridgeBalloonAction = 'whisper'
-    $script:Notify.ShowBalloonTip(6000, 'Claude Whisper', ((Tx '{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir Claude Whisper.') -f $new[0]),
+    $script:Notify.ShowBalloonTip(6000, 'Maxx Whisper', ((Tx '{0} est\u00e1 usando el micr\u00f3fono. Haz clic para abrir Maxx Whisper.') -f $new[0]),
         [System.Windows.Forms.ToolTipIcon]::Info)
 }
 
@@ -480,8 +542,10 @@ $timer.Add_Tick({
     if (Test-HubModule 'ambientes') { try { Invoke-HarnessWatch } catch { } }
     # Business edition (lib\hubbusiness.ps1): calibrate the seat and send the weekly report, every 5 minutes.
     if ($script:Ticks % 20 -eq 1) { try { Update-PolicyAtRuntime; Invoke-BusinessTick } catch { } }
-    # Claude Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
+    # Maxx Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
     if ($script:Ticks % 20 -eq 2) { try { Update-WhipForecast } catch { } }
+    # Updates: a minute after starting and every 6 hours. Not by itself in a company, where IT picks the version.
+    if ($script:Ticks % 1440 -eq 4) { try { if (-not (Get-BusinessState).Business) { Start-UpdateCheck } } catch { } }
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }
 })
@@ -510,30 +574,39 @@ if ($RenderLogoTo) {
 
 if ($RenderEggsTo) {
     New-Item -ItemType Directory -Force -Path $RenderEggsTo | Out-Null
-    foreach ($slotColor in $SlotColors) {
-        # On a dark rounded chip, as in the notification area: the tab itself is the session's color, and an egg of
-        # that color straight on it would vanish.
-        $icon = New-Object System.Drawing.Bitmap(64, 64)
-        $g = [System.Drawing.Graphics]::FromImage($icon)
-        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        $chip = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
-        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-        foreach ($corner in @(@(0, 0, 180), @(40, 0, 270), @(40, 40, 0), @(0, 40, 90))) { $path.AddArc($corner[0], $corner[1], 24, 24, $corner[2], 90) }
-        $path.CloseFigure()
-        $g.FillPath($chip, $path)
-        $egg = New-SessionIconBitmap $slotColor.Hex 52
-        $g.DrawImage($egg, 6, 6, 52, 52)
-        $g.Dispose(); $chip.Dispose(); $path.Dispose(); $egg.Dispose()
-        $icon.Save((Join-Path $RenderEggsTo "$($slotColor.Name).png"), [System.Drawing.Imaging.ImageFormat]::Png)
-        $icon.Dispose()
+    $chosen = Get-SessionSymbol
+    foreach ($symbol in @((Get-SessionSymbols $TrayRoot).Keys)) {
+        $script:SessionSymbol = $symbol
+        $script:EggImages = $null
+        $out = Join-Path $RenderEggsTo $symbol
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        foreach ($slotColor in $SlotColors) {
+            # On a dark rounded chip, as in the notification area: the tab itself is the session's color, and an egg of
+            # that color straight on it would vanish.
+            $icon = New-Object System.Drawing.Bitmap(64, 64)
+            $g = [System.Drawing.Graphics]::FromImage($icon)
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $chip = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
+            $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+            foreach ($corner in @(@(0, 0, 180), @(40, 0, 270), @(40, 40, 0), @(0, 40, 90))) { $path.AddArc($corner[0], $corner[1], 24, 24, $corner[2], 90) }
+            $path.CloseFigure()
+            $g.FillPath($chip, $path)
+            $egg = New-SessionIconBitmap $slotColor.Hex 52
+            $g.DrawImage($egg, 6, 6, 52, 52)
+            $g.Dispose(); $chip.Dispose(); $path.Dispose(); $egg.Dispose()
+            $icon.Save((Join-Path $out "$($slotColor.Name).png"), [System.Drawing.Imaging.ImageFormat]::Png)
+            $icon.Dispose()
+        }
     }
-    # The same egg as 8-bit text for the statusline, 2 cells on one line (4 x 3 dots): still, and a hole going round
-    # it while it thinks (the GIF's waves do not show at this size).
+    # The symbol on as 8-bit text for the statusline, 2 cells on one line (4 x 3 dots): still, and for the egg a hole
+    # going round it while it thinks (the GIF's waves do not show at this size; that hole only fits the egg's shape).
+    $script:SessionSymbol = $chosen
+    $script:EggImages = $null
     $images = Get-EggImages
     $eggDots = if ($images.Still) { ConvertTo-EggDots $images.Still 4 3 } else { $null }
     Write-JsonFile (Join-Path $RenderEggsTo 'statusline.json') ([ordered]@{
         still = $(if ($eggDots) { Format-EggSextants $eggDots } else { @() })
-        thinking = $(if ($eggDots) { New-EggWaveFrames $eggDots } else { @() })
+        thinking = $(if ($eggDots -and $chosen -eq $DefaultSymbol) { New-EggWaveFrames $eggDots } else { @() })
     })
     $Notify.Dispose()
     exit 0
@@ -617,6 +690,9 @@ if ($RenderTo) {
 $timer.Start()
 # A company policy without Otros PCs: no SSH server and no discovery on this PC.
 if (Test-HubModule 'bridge') { $script:BridgeTimer.Start() }
+# The phone app (lib\mobile.ps1): its HTTPS server when Celular is on, and the queue its requests wait in.
+Start-MobileTimer
+Update-MobileServer
 Update-UsageBarsIcon $script:UsageBars $script:View
 # Right end first: Windows puts each new icon at the left end, so the bars line up left to right next to Claude,
 # and the eggs (shown next) go to their left.
@@ -642,6 +718,7 @@ try {
     $timer.Stop()
     $script:BridgeTimer.Stop()
     Stop-BridgeTray
+    Stop-MobileTimer
     Stop-SessionIcons
     Stop-SnipWatch
     Stop-UsageOverlay

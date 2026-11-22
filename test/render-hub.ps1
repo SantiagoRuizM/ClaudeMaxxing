@@ -10,8 +10,8 @@ $out = Join-Path ([IO.Path]::GetTempPath()) ('cmx-render-' + [guid]::NewGuid().T
 New-Item -ItemType Directory -Path $out | Out-Null
 
 $sections = @('home', 'home-business', 'business', 'plan', 'plan-running', 'plan-error', 'plan-empty', 'envs', 'envs-busy',
-    'envs-error', 'envs-none', 'envs-empty', 'self', 'usage', 'stats', 'stats-usage', 'stats-hours', 'stats-projects', 'stats-models-all',
-    'code', 'code-help', 'whip', 'skills', 'pcs', 'whisper', 'voice', 'home-full', 'stats-full')
+    'envs-error', 'envs-none', 'envs-empty', 'envs-lists', 'self', 'usage', 'stats', 'stats-usage', 'stats-hours', 'stats-projects', 'stats-models-all',
+    'code', 'code-help', 'whip', 'skills', 'skills-mcp', 'pcs', 'whisper', 'mobile', 'voice', 'settings', 'home-full', 'stats-full')
 $jobs = @(foreach ($s in $sections) { @{ Name = "hub $s"; Args = @('-RenderHubTo', (Join-Path $out "hub-$s.png"), '-HubSection', $s); Png = (Join-Path $out "hub-$s.png") } })
 $jobs += @{ Name = 'popup'; Args = @('-RenderTo', (Join-Path $out 'popup.png')); Png = (Join-Path $out 'popup.png') }
 $jobs += @{ Name = 'Otros PCs'; Args = @('-RenderBridgeTo', (Join-Path $out 'bridge.png')); Png = (Join-Path $out 'bridge.png') }

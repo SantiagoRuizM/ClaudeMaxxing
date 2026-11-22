@@ -1,15 +1,16 @@
-"""Builds font/ClaudeMaxxingEggs.ttf: the session egg as glyphs for the Claude Code statusline.
+"""Builds symbols/<id>/symbol.ttf: each session symbol as glyphs for the Claude Code statusline.
 
-Each frame of the egg is drawn two terminal cells wide, as two glyphs in the Private Use Area: frame k is
+Each frame is drawn two terminal cells wide, as two glyphs in the Private Use Area: frame k is
 U+E100 + 2k (left half) and U+E101 + 2k (right half). The terminal colors them like any text, so the statusline
 prints the frame in the session's color. Frames:
-    0       the still egg (egg_logo.png)
-    1..N    the thinking animation (the frames of egg_logo_gift_thinking.gif)
-    N+1     the egg filled in (its silhouette), for the speaking blink
+    0       the still symbol (still.png)
+    1..N    the thinking animation (the frames of thinking.gif)
+    N+1     the symbol filled in (its silhouette), for the speaking blink
 Metrics match Cascadia Mono (Windows Terminal's default font) so each glyph fills exactly one cell; the menu
-sessions' terminal profiles list this font after their main one (lib\\installer.ps1, Install-TerminalProfiles).
+sessions' terminal profiles list their symbol's after their main one (lib\\symbols.ps1, Install-TerminalProfiles).
+Every symbol has a family of its own and the same code points: the profile a session opened with decides its symbol.
 
-Run it again after changing the egg images (needs fontTools and Pillow):
+Run it again after changing a symbol's images (needs fontTools and Pillow):
     python font/build_eggs_font.py
 """
 import pathlib
@@ -19,8 +20,6 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from PIL import Image, ImageDraw, ImageSequence
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-OUT = ROOT / 'font' / 'ClaudeMaxxingEggs.ttf'
-FAMILY = 'ClaudeMaxxing Eggs'
 
 UPM, ADVANCE, ASCENT, DESCENT = 2048, 1200, 1900, 480  # Cascadia Mono's
 BASE = 0xE100
@@ -50,11 +49,12 @@ def rectangles(mask, box):
     """The egg inside box as row runs, in font units centered on two cells: (x0, y0, x1, y1), y up."""
     crop = mask.crop(box)
     height = ASCENT + DESCENT - 2 * MARGIN
-    scale = height / ROWS
     cols = max(1, round(ROWS * crop.width / crop.height))
+    # A symbol wider than its two cells shrinks to fit them, centered in the line.
+    scale = min(height / ROWS, 2 * ADVANCE / cols)
     small = crop.resize((cols, ROWS), Image.LANCZOS)
     left = (2 * ADVANCE - cols * scale) / 2
-    top = ASCENT - MARGIN
+    top = ASCENT - MARGIN - (height - ROWS * scale) / 2
     pixels = small.load()
     runs = []
     for row in range(ROWS):
@@ -89,15 +89,24 @@ def glyph(runs, offset):
     return pen.glyph()
 
 
-def main():
-    still = mask_of(Image.open(ROOT / 'egg_logo.png'))
-    gif = Image.open(ROOT / 'egg_logo_gift_thinking.gif')
-    thinking = [mask_of(frame.copy()) for frame in ImageSequence.Iterator(gif)]
+def family_of(symbol):  # Get-SymbolFontFamily in lib/symbols.ps1
+    return 'ClaudeMaxxing Eggs' if symbol == 'egg' else 'ClaudeMaxxing Symbol ' + symbol
+
+
+def build(folder, symbol):
+    with Image.open(folder / 'still.png') as image:
+        still = mask_of(image)
+    with Image.open(folder / 'thinking.gif') as gif:
+        thinking = [mask_of(frame.copy()) for frame in ImageSequence.Iterator(gif)]
+    assert len(thinking) == 9, 'the statusline expects 9 thinking frames'
+    out, family = folder / 'symbol.ttf', family_of(symbol)
     # The GIF's frames share one box, so its outline stays put while the waves move.
-    frames = [(still, still.getbbox())]
     gif_box = union_box(thinking)
+    # Drawn on one canvas (font/add_symbol.py), the still one keeps the animation's box, so it does not jump.
+    still_box = gif_box if still.size == thinking[0].size else still.getbbox()
+    frames = [(still, still_box)]
     frames += [(m, gif_box) for m in thinking]
-    frames.append((silhouette(still), still.getbbox()))
+    frames.append((silhouette(still), still_box))
 
     order = ['.notdef', 'space']
     cmap = {0x20: 'space'}
@@ -123,14 +132,19 @@ def main():
     fb.setupHorizontalMetrics(metrics)
     fb.setupHorizontalHeader(ascent=ASCENT, descent=-DESCENT)
     # Windows (GDI) refuses a font without its full set of names.
-    fb.setupNameTable({'familyName': FAMILY, 'styleName': 'Regular', 'uniqueFontIdentifier': FAMILY + ' Regular 1.0',
-                       'fullName': FAMILY + ' Regular', 'version': 'Version 1.000', 'psName': FAMILY.replace(' ', '') + '-Regular'})
+    fb.setupNameTable({'familyName': family, 'styleName': 'Regular', 'uniqueFontIdentifier': family + ' Regular 1.0',
+                       'fullName': family + ' Regular', 'version': 'Version 1.000', 'psName': family.replace(' ', '') + '-Regular'})
     fb.setupOS2(sTypoAscender=ASCENT, sTypoDescender=-DESCENT, sTypoLineGap=0,
                 usWinAscent=ASCENT, usWinDescent=DESCENT)
     fb.setupPost(isFixedPitch=1)
-    fb.save(str(OUT))
+    fb.save(str(out))
     print('%s: %d frames (still, %d thinking, filled), U+%04X..U+%04X'
-          % (OUT, len(frames), len(thinking), BASE, BASE + 2 * len(frames) - 1))
+          % (out, len(frames), len(thinking), BASE, BASE + 2 * len(frames) - 1))
+
+
+def main():
+    for info in sorted((ROOT / 'symbols').glob('*/symbol.json')):
+        build(info.parent, info.parent.name)
 
 
 if __name__ == '__main__':

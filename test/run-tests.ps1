@@ -10,6 +10,9 @@ $env:CLAUDEMAXXING_LANG = 'es'
 . (Join-Path $TrayRoot 'lib\statusline.ps1')
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\symbols.ps1')
+# The tests draw the default symbol and never read or write the one chosen on this PC.
+$SymbolFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-symbol-{0}.json' -f [guid]::NewGuid().ToString('N'))
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
 
 $script:Failures = 0
@@ -129,6 +132,17 @@ Assert-Equal $plan (L $plan) 'a language without a file shows the Spanish text'
 Set-UiLanguage 'es'
 Assert-Equal $plan (L $plan) 'Spanish: the text in the code'
 
+# --- The signed-in account (window and phone)
+$acctFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-account-{0}.json' -f [guid]::NewGuid().ToString('N'))
+try {
+    $acctOf = { param($Json, $Plan) [IO.File]::WriteAllText($acctFile, $Json); $a = Get-AccountInfo $acctFile $Plan; if ($a) { "$($a.title)|$($a.detail)" } }
+    $dot = ' ' + [char]0x00B7 + ' '
+    Assert-Equal "Ana$($dot)Plan PRO|ana@example.com" (& $acctOf '{"projects":{"C:/x":{},"c:/x":{}},"oauthAccount":{"displayName":"Ana","emailAddress":"ana@example.com","organizationName":"ana@example.com''s Organization"}}' 'PRO') 'account: name and plan, email without the personal organization, keys differing in case'
+    Assert-Equal "Ana|ana@example.com$($dot)Acme" (& $acctOf '{"oauthAccount":{"displayName":"Ana","emailAddress":"ana@example.com","organizationName":"Acme"}}' '') 'account: a company shows, no plan leaves the name alone'
+    Assert-Equal 'ana@example.com|' (& $acctOf '{"oauthAccount":{"emailAddress":"ana@example.com"}}' '') 'account: without a name, the email once'
+    Assert-Equal $null (& $acctOf '{"projects":{}}' 'PRO') 'account: not signed in, nothing to show'
+} finally { Remove-Item -LiteralPath $acctFile -ErrorAction SilentlyContinue }
+
 # --- Warnings before a limit (session 72 %, weekly 86 %)
 $alerts = @(Get-UsageAlerts $usage @())
 Assert-Equal 'Weekly:80' (($alerts | ForEach-Object { "$($_.Window):$($_.Threshold)" }) -join ',') 'alerts: only the weekly window crossed a threshold'
@@ -231,6 +245,13 @@ if ((Test-Path -LiteralPath $slBash) -and (Test-Path -LiteralPath $slJq)) {
         Assert-Equal 60 (Invoke-SlBlock 40 $slReset) 'statusline: stale against the tray refresh copy'
         Assert-Equal 70 (Invoke-SlBlock 70 $slReset) 'statusline: higher in the same window is written'
         Assert-Equal 0 @(Get-ChildItem -LiteralPath (Split-Path $slFile) -Filter '*.tmp*').Count 'statusline and Write-JsonFile leave no temporary file'
+        # Each session's line for the phone: one file per session id, written even without rate limits.
+        $slSid = '0d9c3f1e-1111-4222-8333-944455556666'
+        ('{"session_id":"' + $slSid + '","model":{"display_name":"Opus 5.5"},"effort":{"level":"high"},"workspace":{"current_dir":"C:/repo"},"context_window":{"used_percentage":34.6},"cost":{"total_cost_usd":1.8449,"total_duration_ms":4320000}}') | & $slBash "$slHome/sl.sh"
+        $slLine = Read-JsonFile (Join-Path $slHome ".claude\usage-tray\status\$slSid.json")
+        Assert-Equal 'Opus 5.5|high|C:/repo|34|1.84' (($slLine.model, $slLine.effort, $slLine.dir, [string]$slLine.context, [string]$slLine.cost) -join '|') 'statusline: the session line keeps model, effort, folder, context and cost'
+        Assert-Equal 0 ([long]$slLine.start % 60) 'statusline: the session start is kept to the minute (not rewritten on every run)'
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath (Join-Path $slHome '.claude\usage-tray\status') -Filter '*.tmp*').Count 'statusline: the session line leaves no temporary file'
     } finally {
         $env:HOME = $slSaved[0]; $env:JQ_BIN = $slSaved[1]
         Remove-Item -LiteralPath $slHome -Recurse -Force -ErrorAction SilentlyContinue
@@ -480,11 +501,13 @@ try {
     Assert-Equal 0 @((Get-HarnessState $null).Envs).Count 'harness: no folder, no environments'
     Assert-Equal $false ([bool](Test-HarnessDir $yh)) 'harness: a folder without env.js is not the harness'
     [IO.File]::WriteAllText((Join-Path $yh 'env.js'), '')
-    [IO.File]::WriteAllText((Join-Path $yh 'environments\Zeta.json'), '{"name":"Zeta","focus":"z"}')
+    [IO.File]::WriteAllText((Join-Path $yh 'environments\Zeta.json'), '{"name":"Zeta","focus":"z","folder":"D:\\zeta","claude":{"dir":"D:\\zeta\\app"}}')
     [IO.File]::WriteAllText((Join-Path $yh 'environments\alfa.json'), '{"name":"Alfa","focus":"a"}')
     Assert-Equal $true ([bool](Test-HarnessDir $yh)) 'harness: a folder with env.js is'
     $hs = Get-HarnessState $yh
     Assert-Equal 'alfa,zeta' ((@($hs.Envs) | ForEach-Object { $_.Id }) -join ',') 'harness: environments sorted, ids lower-case'
+    Assert-Equal 'D:\zeta|D:\zeta\app' (@($hs.Envs[1].Folders) -join '|') 'harness: an environment knows its folder and where its Claude opens'
+    Assert-Equal 0 @($hs.Envs[0].Folders).Count 'harness: an environment without a folder has none'
     Assert-Equal $null $hs.Active 'harness: nothing on without active.json'
     [IO.File]::WriteAllText((Join-Path $yh 'run\active.json'), '{"id":"alfa","name":"Alfa","since":"2026-11-03T09:00:00Z"}')
     [IO.File]::WriteAllText((Join-Path $yh 'run\job.json'), '{"id":"zeta","name":"Zeta","action":"on","state":"running","step":"x","pid":999999}')
@@ -567,9 +590,9 @@ Add-Type -AssemblyName System.Drawing
 $eggs = Get-EggImages
 $still = $eggs.Still
 $mid = 0..($still.Width - 1) | ForEach-Object { $still.GetPixel($_, [int]($still.Height / 2)) }
-Assert-Equal "True 0" ('{0} {1}' -f ($still.Width -eq $still.Height), $still.GetPixel(0, 0).A) 'session egg: egg_logo.png loads squared, background transparent'
+Assert-Equal "True 0" ('{0} {1}' -f ($still.Width -eq $still.Height), $still.GetPixel(0, 0).A) 'session egg: still.png loads squared, background transparent'
 Assert-Equal $true (@($mid | Where-Object { $_.A -eq 255 }).Count -gt 0 -and @($mid | Where-Object { $_.A -eq 0 }).Count -gt 0) 'session egg: solid outline with see-through stripes between'
-Assert-Equal 9 $eggs.Frames.Count 'session egg: egg_logo_gift_thinking.gif gives the 9 thinking frames'
+Assert-Equal 9 $eggs.Frames.Count 'session egg: thinking.gif gives the 9 thinking frames'
 Assert-Equal 9 @($eggs.Frames | Where-Object { $_.GetPixel(1, 1).A -eq 0 -and $_.GetPixel($_.Width - 2, $_.Height - 2).A -eq 0 }).Count 'session egg: every GIF frame has a transparent background'
 Assert-Equal 2 @($eggs.Frames | ForEach-Object { $_.GetPixel([int]($_.Width / 2), [int]($_.Height * 0.55)).A -gt 127 } | Select-Object -Unique).Count 'session egg: the GIF frames differ (the waves move)'
 $busyTitles = @(((Tx '\u2733') + ' Diego'), ((Tx '\u25d1') + ' Diego'), ((Tx '\u2810') + ' Diego'), 'C:\WINDOWS\system32\cmd.exe', '',
@@ -650,6 +673,24 @@ try {
     $inside = $quiet.GetPixel(8, 8)
     Assert-Equal $true ($inside.A -eq 255 -and [Math]::Abs($inside.R - 217) -lt 10 -and [Math]::Abs($inside.G - 119) -lt 10) 'speaking egg: filled with the session color'
     $quiet.Dispose(); $loud.Dispose()
+    # The notification area's jellyfish: one color, as Windows' icons, and set again only when the theme changes it.
+    $tones = foreach ($light in $false, $true) {
+        $shot = (Get-TrayIcon $light).ToBitmap()
+        $seen = 0; $off = 0; $want = if ($light) { 0 } else { 255 }
+        for ($x = 0; $x -lt $shot.Width; $x++) { for ($y = 0; $y -lt $shot.Height; $y++) {
+            $px = $shot.GetPixel($x, $y)
+            # Every visible pixel, edges too (an edge must not turn gray); PNG rounding moves one by a few units.
+            if ($px.A -le 100) { continue }
+            $seen++
+            foreach ($v in $px.R, $px.G, $px.B) { if ([Math]::Abs($v - $want) -gt 5) { $off++ } }
+        } }
+        '{0} {1}' -f ($seen -gt 10), $off
+        $shot.Dispose()
+    }
+    Assert-Equal 'True 0|True 0' ($tones -join '|') 'tray icon: white on a dark taskbar, black on a light one'
+    $fakeNotify = [pscustomobject]@{ Icon = (Get-TrayIcon (-not (Test-LightTaskbar))) }
+    Update-TrayIcon $fakeNotify
+    Assert-Equal $true ([object]::ReferenceEquals($fakeNotify.Icon, (Get-TrayIcon))) 'tray icon: a theme change swaps it, the same theme keeps the same one'
     # The jellyfish of logo.png: square, clear corners, solid body; and the Apps-list .ico built from it.
     $mark = New-AppLogoBitmap 64
     Assert-Equal '64x64 0 255' ('{0}x{1} {2} {3}' -f $mark.Width, $mark.Height, $mark.GetPixel(1, 1).A, $mark.GetPixel(32, 18).A) 'app logo: jellyfish square, transparent around, solid head'
@@ -763,7 +804,7 @@ try {
     Assert-Equal $true (Get-ContextModeState $cmHome).Enabled 'context-mode: enabled'
 } finally { Remove-Item -LiteralPath $cmHome -Recurse -Force -ErrorAction SilentlyContinue }
 
-# --- Claude Whip (lib\whip.ps1): settings, threshold steps, mode and the company policy switch
+# --- Maxx Whip (lib\whip.ps1): settings, threshold steps, mode and the company policy switch
 . (Join-Path $TrayRoot 'lib\whip.ps1')
 $whipFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-whip-{0}.json' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
 try {
@@ -774,18 +815,20 @@ try {
     Assert-Equal "True|85|codex,agy" "$($ws.Enabled)|$($ws.Threshold)|$($ws.Agents -join ',')" 'whip: unknown threshold and agents dropped'
     $ws.Agents = @('codex'); $ws.Threshold = 0
     Save-WhipSettings $ws $whipFile
-    Assert-Equal '{"enabled":true,"threshold":0,"agents":["codex"]}' (([IO.File]::ReadAllText($whipFile) | ConvertFrom-Json) | ConvertTo-Json -Compress) 'whip: one agent stays a list (the plugin reads an array)'
+    Assert-Equal '{"enabled":true,"threshold":0,"agents":["codex"],"forecast":false}' (([IO.File]::ReadAllText($whipFile) | ConvertFrom-Json) | ConvertTo-Json -Compress) 'whip: one agent stays a list (the plugin reads an array)'
     Assert-Equal 90 (Step-WhipThreshold 85 1) 'whip: threshold up'
     Assert-Equal 0 (Step-WhipThreshold 95 1) 'whip: threshold wraps to always'
     Assert-Equal 'Siempre|Desde 85%' ((Format-WhipThreshold 0) + '|' + (Format-WhipThreshold 85)) 'whip: threshold labels'
-    $mode = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex') }
+    $mode = [pscustomobject]@{ Enabled = $true; Threshold = 85; Agents = @('codex'); Forecast = $false }
     Assert-Equal 'armed|active' ((Get-WhipMode $mode 84) + '|' + (Get-WhipMode $mode 85)) 'whip: armed under the threshold, active at it'
     $fcFile = "$whipFile.forecast"
     $wNow = Get-Date
     Save-WhipForecast ([pscustomobject]@{ ProjectedPercent = 131.6; LimitAt = $wNow.Date.AddHours(15).AddMinutes(40) }) $wNow $fcFile
     $wfc = Read-JsonFile $fcFile
     Assert-Equal '132|15:40' "$($wfc.projectedPercent)|$($wfc.limitAt)" 'whip forecast: percent and the time the limit is hit'
-    Assert-Equal 'forecast|armed' ((Get-WhipMode $mode 62 $wfc $wNow) + '|' + (Get-WhipMode $mode 40 $wfc $wNow)) 'whip: on pace to hit the limit turns it on from half the plan'
+    Assert-Equal 'armed' (Get-WhipMode $mode 62 $wfc $wNow) 'whip: the threshold rules while the forecast switch is off'
+    $mode.Forecast = $true
+    Assert-Equal 'forecast|armed' ((Get-WhipMode $mode 62 $wfc $wNow) + '|' + (Get-WhipMode $mode 40 $wfc $wNow)) 'whip: switched on, on pace to hit the limit turns it on from half the plan'
     Assert-Equal 'armed' (Get-WhipMode $mode 62 $wfc $wNow.AddMinutes(20)) 'whip: a stale forecast does not count'
     Save-WhipForecast ([pscustomobject]@{ ProjectedPercent = $null }) $wNow $fcFile
     Assert-Equal $false (Test-Path $fcFile) 'whip forecast: removed when there is none'
@@ -861,6 +904,134 @@ try {
     Assert-Equal 'skill-creator=False, mcp-server-dev=False, plugin-dev=True' ((Get-SkillPackState $skHome | ForEach-Object { "$($_.Id)=$($_.Installed)" }) -join ', ') 'packs: installed means installed for the user, not for one project'
     Assert-Equal 0 @(Get-SkillList (Join-Path $skHome 'nothing')).Count 'skills: no ~/.claude, no rows'
 } finally { Remove-Item -LiteralPath $skHome -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Catalogo de Skills y MCP (lib\catalog.ps1): the shipped catalog, and switching on and off in a fake home
+. (Join-Path $TrayRoot 'lib\catalog.ps1')
+$catDir = Join-Path $TrayRoot 'catalog'
+$catItems = @(Get-CatalogItems $catDir)
+$catSkills = @($catItems | Where-Object { $_.Kind -eq 'skill' })
+Assert-Equal $true ($catSkills.Count -gt 300 -and @($catItems | Where-Object { $_.Kind -eq 'mcp' }).Count -gt 10) 'catalog: the index lists the skills and mcp.json the servers'
+Assert-Equal $catSkills.Count @($catSkills.Name | Select-Object -Unique).Count 'catalog: every skill name once'
+$catMissing = @($catSkills | Where-Object { -not (Test-Path -LiteralPath (Join-Path $catDir "skills\$($_.Source)\$($_.Name)\SKILL.md")) -or -not $_.Description })
+Assert-Equal '' (($catMissing | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ', ') 'catalog: each indexed skill has its SKILL.md and a description'
+$catCode = @(Get-ChildItem -LiteralPath (Join-Path $catDir 'skills') -Recurse -File | Where-Object { '.md', '.txt', '.ttf', '.otf', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.svg' -notcontains $_.Extension.ToLowerInvariant() -and $_.Name -notmatch '^LICENSE' })
+Assert-Equal '' (($catCode | Select-Object -First 3 | ForEach-Object { $_.FullName.Substring($catDir.Length) }) -join ', ') 'catalog: no scripts, only text, fonts, images and PDFs'
+Assert-Equal 0 @(Get-ChildItem -LiteralPath (Join-Path $catDir 'skills') -Recurse -Filter 'SKILL.md' | Select-String -Pattern '^(allowed-tools|hooks):' -List).Count 'catalog: no skill grants tools or registers hooks'
+foreach ($src in 'anthropic', 'superpowers', 'wshobson', 'ecc') {
+    Assert-Equal $true ([bool](Get-ChildItem -LiteralPath (Join-Path $catDir "skills\$src") -File -Filter '*' | Where-Object { $_.Name -match 'LICENSE|NOTICES' })) "catalog: $src keeps its license"
+}
+
+$catHome = Join-Path ([IO.Path]::GetTempPath()) ('cmx-catalog-{0}' -f [guid]::NewGuid().ToString('N').Substring(0, 8))
+try {
+    $fakeCat = "$catHome\cat"
+    Write-SkillFixture "$fakeCat\index.json" '{ "skills": [ { "name": "alpha", "source": "ecc", "description": "A" }, { "name": "beta", "source": "wshobson", "description": "B" }, { "name": "gamma", "source": "ecc", "description": "G" } ] }'
+    Write-SkillFixture "$fakeCat\mcp.json" '{ "servers": [ { "name": "docs", "label": "Docs", "auth": "none", "description": "d", "config": { "type": "http", "url": "https://docs.example.com/mcp" } }, { "name": "local", "label": "Local", "auth": "none", "description": "l", "config": { "command": "cmd", "args": ["/c", "npx", "-y", "pkg@1.0.0"] } } ] }'
+    Write-SkillFixture "$fakeCat\skills\ecc\alpha\SKILL.md" "---`nname: alpha`ndescription: A`n---"
+    Write-SkillFixture "$fakeCat\skills\ecc\alpha\references\more.md" 'more'
+    Write-SkillFixture "$fakeCat\skills\wshobson\beta\SKILL.md" "---`nname: beta`ndescription: B`n---"
+    Write-SkillFixture "$fakeCat\skills\ecc\gamma\SKILL.md" "---`nname: gamma`ndescription: G`n---"
+    Write-SkillFixture "$catHome\claude\skills\beta\SKILL.md" "---`nname: beta`ndescription: mine`n---"
+    $proj = "$catHome\work"
+    New-Item -ItemType Directory -Force -Path "$proj\.git\info" | Out-Null
+    [IO.File]::WriteAllText("$proj\.git\info\exclude", "# git ls-files --others --exclude-from=.git/info/exclude`n")
+    Write-SkillFixture "$catHome\envs\trabajo.json" ('{ "name": "Trabajo", "claude": { "dir": "' + ($proj -replace '\\', '\\') + '" } }')
+    Write-SkillFixture "$catHome\envs\gone.json" '{ "name": "Gone", "folder": "C:\\nowhere\\at\\all" }'
+    $targets = Get-CatalogTargets "$catHome\envs" "$catHome\claude"
+    Assert-Equal '*,trabajo' (@($targets.Keys) -join ',') 'catalog targets: always, then each environment whose folder exists'
+
+    $set = Get-CatalogSettings "$catHome\none.json"
+    Set-CatalogItem $set 'skill' 'alpha' '*' $true
+    Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $true
+    Set-CatalogItem $set 'skill' 'beta' '*' $true
+    Set-CatalogItem $set 'skill' 'gamma' 'trabajo' $true
+    Save-CatalogSettings $set "$catHome\catalog.json"
+    $set = Get-CatalogSettings "$catHome\catalog.json"
+    Assert-Equal '*,trabajo' ($set.skills['alpha'] -join ',') 'catalog settings: one item on in two targets survives a save'
+    $conflicts = Sync-CatalogSkills $set $targets $fakeCat
+    Assert-Equal 'beta' ($conflicts -join ',') 'catalog: a skill folder of the user with the same name is reported'
+    Assert-Equal 'mine' (Read-SkillHeader "$catHome\claude\skills\beta\SKILL.md").Description 'catalog: and left alone'
+    Assert-Equal $true ((Test-Path "$catHome\claude\skills\alpha\references\more.md") -and (Test-Path "$catHome\claude\skills\alpha\.maxx-catalog")) 'catalog: on always copies the whole folder, marked'
+    Assert-Equal $true (Test-Path "$proj\.claude\skills\gamma\SKILL.md") 'catalog: on in an environment copies into its folder'
+    Assert-Equal $true ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match '(?m)^/\.claude/skills/gamma/$') 'catalog: and keeps it out of git status'
+    Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $false
+    Set-CatalogItem $set 'skill' 'gamma' 'trabajo' $false
+    Set-CatalogItem $set 'skill' 'beta' '*' $false
+    [void](Sync-CatalogSkills $set $targets $fakeCat)
+    Assert-Equal $false (Test-Path "$proj\.claude\skills\gamma") 'catalog: off deletes the marked copy'
+    Assert-Equal $false ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match 'ClaudeMaxxing') 'catalog: and its exclude lines'
+    Assert-Equal $true ((Test-Path "$catHome\claude\skills\alpha") -and (Test-Path "$catHome\claude\skills\beta\SKILL.md")) 'catalog: other targets and the user skill stay'
+
+    Set-CatalogItem $set 'mcp' 'docs' '*' $true
+    Set-CatalogItem $set 'mcp' 'local' 'trabajo' $true
+    $calls = New-Object System.Collections.Generic.List[string]
+    $fake = { param($a) $calls.Add((Get-Location).Path + '>' + ($a -join ' ')); if ($a -contains 'local' -and $a[1] -eq 'add') { @{ Ok = $false; Output = "MCP server local already exists`nmore" } } else { @{ Ok = $true; Output = '' } } }
+    $items = Get-CatalogItems $fakeCat "$catHome\stash.json"
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp add --transport http -s user docs https://docs.example.com/mcp|$proj>mcp add -s local local -- cmd /c npx -y pkg@1.0.0" ($calls -join '|') 'catalog mcp: http with flags for the user, stdio in the environment folder'
+    Assert-Equal 'local: MCP server local already exists' ($errors -join '|') 'catalog mcp: a name taken by a server of yours is an error, not recorded'
+    Assert-Equal 'docs' ((Get-CatalogApplied "$catHome\applied.json")['*'] -join ',') 'catalog mcp: what was added is recorded'
+    $calls.Clear()
+    Set-CatalogItem $set 'mcp' 'docs' '*' $false
+    Set-CatalogItem $set 'mcp' 'local' 'trabajo' $false
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp remove -s user docs" ($calls -join '|') 'catalog mcp: off removes only what ClaudeMaxxing added'
+    Assert-Equal 0 @((Get-CatalogApplied "$catHome\applied.json")['*']).Count 'catalog mcp: and forgets it'
+
+    # An Ambiente with its own list: what is on always is not copied or added again in its folder.
+    $set = Get-CatalogSettings "$catHome\none.json"
+    Assert-Equal 0 $set.limited.Count 'catalog settings: no Ambiente has its own list at first'
+    Set-CatalogItem $set 'skill' 'alpha' '*' $true
+    Set-CatalogItem $set 'skill' 'alpha' 'trabajo' $true
+    Set-CatalogItem $set 'skill' 'mine' 'trabajo' $true
+    Set-CatalogItem $set 'mcp' 'docs' '*' $true
+    Set-CatalogItem $set 'mcp' 'docs' 'trabajo' $true
+    $set.limited = [string[]]@('trabajo')
+    Save-CatalogSettings $set "$catHome\catalog.json"
+    $set = Get-CatalogSettings "$catHome\catalog.json"
+    Assert-Equal 'trabajo' ($set.limited -join ',') 'catalog settings: the Ambientes with a list survive a save'
+    [void](Sync-CatalogSkills $set $targets $fakeCat)
+    Assert-Equal $false (Test-Path "$proj\.claude\skills\alpha") 'catalog: a skill on always is not copied into an Ambiente too'
+    Assert-Equal $true ([IO.File]::ReadAllText("$proj\.git\info\exclude") -match '(?m)^/\.claude/settings\.local\.json$') 'catalog: a limited Ambiente keeps its settings.local.json out of git'
+    Assert-Equal 'add docs *' ((@(Get-CatalogMcpPlan $set $targets @{} $items) | ForEach-Object { "$($_.Action) $($_.Name) $($_.Target.Id)" }) -join '|') 'catalog mcp: a server on always is not added in an Ambiente too'
+
+    # The Ambiente's folder: every other skill off, the listed ones on, the other servers blocked; yours stay.
+    Write-SkillFixture "$proj\.claude\settings.local.json" '{ "permissions": { "allow": ["Bash(git:*)"] }, "skillOverrides": { "keepme": "name-only" }, "deniedMcpServers": [ { "serverName": "theirs" } ] }'
+    Sync-CatalogOverrides $set $targets ([string[]]@('mine', 'alpha', 'p:tool', 'keepme')) ([string[]]@('docs', 'plugin:p:srv', 'theirs')) "$catHome\overrides.json"
+    $local = Read-JsonFile "$proj\.claude\settings.local.json"
+    Assert-Equal 'keepme=name-only, mine=on, alpha=on, p:tool=off' (($local.skillOverrides.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ', ') 'overrides: the list on, every other skill off, an entry of yours kept'
+    Assert-Equal 'theirs, plugin:p:srv' (($local.deniedMcpServers | ForEach-Object { $_.serverName }) -join ', ') 'overrides: the servers off the list blocked, yours kept'
+    Assert-Equal 'Bash(git:*)' ($local.permissions.allow -join ',') 'overrides: the rest of the file stays'
+    $set.limited = [string[]]@()
+    Sync-CatalogOverrides $set $targets ([string[]]@('mine', 'alpha', 'p:tool', 'keepme')) ([string[]]@('docs', 'plugin:p:srv', 'theirs')) "$catHome\overrides.json"
+    $local = Read-JsonFile "$proj\.claude\settings.local.json"
+    Assert-Equal 'keepme|theirs' ((@($local.skillOverrides.PSObject.Properties.Name) -join ',') + '|' + (@($local.deniedMcpServers.serverName) -join ',')) 'overrides: without the list only its own entries go'
+
+    # Siempre: a skill of yours off in skillOverrides of settings.json, edited as text.
+    Write-SkillFixture "$catHome\settings.json" "{`n  `"model`": `"opus`"`n}"
+    Set-CatalogSkillOff 'ship' $true "$catHome\settings.json"
+    Set-CatalogSkillOff 'p:tool' $true "$catHome\settings.json"
+    Assert-Equal 'ship,p:tool' ((Get-CatalogSkillOff "$catHome\settings.json") -join ',') 'skill off: written in skillOverrides'
+    Assert-Equal 'opus' (Read-JsonFile "$catHome\settings.json").model 'skill off: the rest of settings.json stays'
+    Set-CatalogSkillOff 'ship' $false "$catHome\settings.json"
+    Set-CatalogSkillOff 'p:tool' $false "$catHome\settings.json"
+    Assert-Equal "{`n  `"model`": `"opus`"`n}" ([IO.File]::ReadAllText("$catHome\settings.json")) 'skill off: back on leaves the file as it was'
+    Assert-Equal $null (Set-JsonKeyText '{ "a": [1, 2 }' 'b' 'x') 'json text: a result that would not parse is refused'
+
+    # Siempre: a server of yours off goes to the stash (with its env and headers) and is removed; on, added back.
+    Write-SkillFixture "$catHome\claude.json" '{ "mcpServers": { "aws": { "type": "stdio", "command": "uvx", "args": ["aws-mcp"], "env": { "AWS_PROFILE": "dev" } }, "api": { "type": "http", "url": "https://api.example.com/mcp", "headers": { "Authorization": "Bearer x" } } } }'
+    Save-CatalogStash 'aws' "$catHome\claude.json" "$catHome\stash.json" "$catHome\applied.json"
+    Save-CatalogStash 'api' "$catHome\claude.json" "$catHome\stash.json" "$catHome\applied.json"
+    $set = Get-CatalogSettings "$catHome\none.json"
+    $items = Get-CatalogItems $fakeCat "$catHome\stash.json"
+    $calls.Clear()
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp remove -s user aws|$env:USERPROFILE>mcp remove -s user api" ($calls -join '|') 'stash: a server of yours off in Siempre is removed'
+    Set-CatalogItem $set 'mcp' 'aws' 'trabajo' $true
+    Set-CatalogItem $set 'mcp' 'api' '*' $true
+    $calls.Clear()
+    $errors = Invoke-CatalogMcpSync $fake $set $targets $items "$catHome\applied.json"
+    Assert-Equal "$env:USERPROFILE>mcp add --transport http -H Authorization: Bearer x -s user api https://api.example.com/mcp|$proj>mcp add -e AWS_PROFILE=dev -s local aws -- uvx aws-mcp" ($calls -join '|') 'stash: added back with its env and headers, in Siempre or in an Ambiente'
+} finally { Remove-Item -LiteralPath $catHome -Recurse -Force -ErrorAction SilentlyContinue }
 Assert-Equal 'claude --session-id 1111 "Usa la skill skill-creator: crea una skill"' (Format-ClaudeCommand 'claude' '1111' '' 'green' '' 'Usa la skill "skill-creator": crea una skill') 'claude command: a first prompt takes the place of /color, without its double quotes'
 Assert-Equal 'claude "uno\; dos"' (Format-ClaudeCommand 'claude' '' '' '' '' 'uno; dos') 'claude command: a ; in the prompt is escaped for wt'
 
@@ -1181,12 +1352,24 @@ $package = [IO.File]::ReadAllText((Join-Path $TrayRoot 'package.json')) | Conver
 Assert-Equal $AppVersion $package.version 'package.json (npx github:...) has the version in lib\common.ps1'
 Assert-Equal $true (Test-Path -LiteralPath (Join-Path $TrayRoot $package.bin.claudemaxxing)) 'package.json points npx at bin\claudemaxxing.js'
 $manifest = Get-RuntimeManifest $TrayRoot
+# --- updates (lib\update.ps1)
+. (Join-Path $TrayRoot 'lib\update.ps1')
+Assert-Equal '1.10.0' (Get-NewerVersion 'v1.10.0' '1.9.9') 'update: 1.10 is newer than 1.9, as numbers'
+Assert-Equal '' (Get-NewerVersion 'v1.2.0' '1.2.0') 'update: the same version is not an update'
+Assert-Equal '' (Get-NewerVersion 'v1.1.9' '1.2.0') 'update: never a downgrade'
+Assert-Equal '' (Get-NewerVersion 'v2.0.0-beta' '1.2.0') 'update: only X.Y.Z'
+Assert-Equal '' (Get-NewerVersion '' '1.2.0') 'update: a response without a tag'
+Assert-Equal 0 (Get-UpdateOptions $true $true $null).Count 'update: a full install passes no switches'
+Assert-Equal 'NoHotkeys,SkipMenu,SkipVoiceDeps' ((@((Get-UpdateOptions $false $false ([pscustomobject]@{ skipVoiceDeps = $true })).Keys) | Sort-Object) -join ',') 'update: what the install does without stays off'
+$getParams = (Get-Command (Join-Path $TrayRoot 'get.ps1')).Parameters
+Assert-Equal 0 @((Get-UpdateOptions $false $false ([pscustomobject]@{ skipVoiceDeps = $true })).Keys | Where-Object { -not $getParams.ContainsKey($_) }).Count 'update: get.ps1 takes every switch it passes'
+Assert-Equal 3 @('get.ps1', 'lib\update.ps1', 'lib\update-run.ps1' | Where-Object { $manifest -contains $_ }).Count 'update: installed with the runtime'
 Assert-Equal 0 @($manifest | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot $_)) }).Count 'every runtime file exists in the repo'
 foreach ($needed in 'tray.ps1', 'open-session.ps1', 'uninstall.ps1', 'lib\installer.ps1', 'voice\hooks\speak.ps1', 'voice\plugin\hooks\hooks.json', 'voice\templates\skill-voz.md') {
     Assert-Equal $true ($manifest -contains $needed) "runtime includes $needed"
 }
 Assert-Equal 0 @($manifest | Where-Object { $_ -like 'voice\plugin\skills\*' -or $_ -like 'test\*' -or $_ -like 'menu\src\*' }).Count 'runtime skips generated, test and source files'
-$stale = Get-StaleFiles @('lib\old.ps1', 'lib\common.ps1', 'voice\config.local.json', 'voice\venv\Scripts\edge-tts.exe', 'voice\plugin\skills\voz\SKILL.md', 'assets\Tray-Win32.ico') @('lib\common.ps1')
+$stale = Get-StaleFiles @('lib\old.ps1', 'lib\common.ps1', 'voice\config.local.json', 'voice\venv\Scripts\edge-tts.exe', 'voice\plugin\skills\voz\SKILL.md') @('lib\common.ps1')
 Assert-Equal 'lib\old.ps1' ($stale -join ',') 'update deletes only files dropped from the repo, never user or generated ones'
 Assert-Equal 0 @(Get-StaleFiles @('LIB\Common.ps1') @('lib\common.ps1')).Count 'stale check ignores case'
 Assert-Equal $false ([bool]($manifest | Where-Object { $_ -like '*.stackdump' })) 'runtime never includes Git Bash crash dumps'
@@ -1217,13 +1400,14 @@ $realFragment = $TerminalFragmentFile
 try {
     $TerminalFragmentFile = Join-Path $wtTmp 'Fragments\ClaudeMaxxing\sessions.json'
     $eggDir = Join-Path $wtTmp 'eggs'
-    New-Item -ItemType Directory -Force -Path $eggDir | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $eggDir 'egg'), (Join-Path $eggDir 'ring') | Out-Null
     Assert-Equal $true ((Install-TerminalProfiles $eggDir) -like '*no eggs*') 'terminal profiles: none without eggs'
-    foreach ($name in 'orange', 'blue') { [IO.File]::WriteAllBytes((Join-Path $eggDir "$name.png"), [byte[]](137, 80, 78, 71)) }
-    [void](Install-TerminalProfiles $eggDir)
+    foreach ($name in 'orange', 'blue') { foreach ($id in 'egg', 'ring') { [IO.File]::WriteAllBytes((Join-Path $eggDir "$id\$name.png"), [byte[]](137, 80, 78, 71)) } }
+    [void](Install-TerminalProfiles $eggDir @('egg', 'ring'))
     $fragment = [IO.File]::ReadAllText($TerminalFragmentFile) | ConvertFrom-Json
-    Assert-Equal "$(Get-SessionProfileName 'blue')|$(Join-Path $eggDir 'blue.png')|True|2" ('{0}|{1}|{2}|{3}' -f $fragment.profiles[0].name, $fragment.profiles[0].icon, $fragment.profiles[0].hidden, @($fragment.profiles).Count) 'terminal profiles: one hidden profile per egg, named as the launcher asks'
+    Assert-Equal "$(Get-SessionProfileName 'blue')|$(Join-Path $eggDir 'egg\blue.png')|True|4" ('{0}|{1}|{2}|{3}' -f $fragment.profiles[0].name, $fragment.profiles[0].icon, $fragment.profiles[0].hidden, @($fragment.profiles).Count) 'terminal profiles: one hidden profile per egg, named as the launcher asks'
     Assert-Equal 'Cascadia Mono, ClaudeMaxxing Eggs' $fragment.profiles[0].font.face 'terminal profiles: the eggs font after the main one (the statusline egg glyphs)'
+    Assert-Equal 'ClaudeMaxxing blue|ClaudeMaxxing blue ring|Cascadia Mono, ClaudeMaxxing Symbol ring' ('{0}|{1}|{2}' -f $fragment.profiles[0].name, $fragment.profiles[2].name, $fragment.profiles[2].font.face) 'terminal profiles: each symbol has its own, the egg keeping the name open sessions have'
     [void](Uninstall-TerminalProfiles)
     Assert-Equal $false (Test-Path -LiteralPath (Split-Path -Parent $TerminalFragmentFile)) 'terminal profiles: removed on uninstall'
 } finally { $TerminalFragmentFile = $realFragment; Remove-Item -LiteralPath $wtTmp -Recurse -Force -ErrorAction SilentlyContinue }
@@ -1231,7 +1415,8 @@ try {
 # The example environment is the exception: its paths are made up (C:\Users\me) and the harness tests use them.
 $repoRefs = @($manifest | Where-Object {
     $text = [IO.File]::ReadAllText((Join-Path $TrayRoot $_))
-    $text -match [regex]::Escape($TrayRoot) -or ($_ -ne 'harness\test\environments\trabajo.json' -and $text -match 'C:[\\/]+Users[\\/]+')
+    # The catalog's third-party skills too: their examples carry made-up paths like C:\Users\me.
+    $text -match [regex]::Escape($TrayRoot) -or ($_ -ne 'harness\test\environments\trabajo.json' -and $_ -notlike 'catalog\skills\*' -and $text -match 'C:[\\/]+Users[\\/]+')
 })
 Assert-Equal '' ($repoRefs -join ', ') 'no runtime file has an absolute path to this PC'
 
@@ -1325,7 +1510,7 @@ try {
 $source = [IO.File]::ReadAllText((Join-Path $TrayRoot 'menu\package\AppxManifest.xml'))
 Assert-Equal ($source.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") ($packed.Trim([char]0xFEFF).Trim() -replace '\r\n', "`n") 'MSIX manifest matches menu\package\AppxManifest.xml (run menu\package.ps1 after editing it)'
 
-# --- Claude Whisper: settings, questions, echo, keyterms, transcript, stream-json, hotkeys, claude arguments
+# --- Maxx Whisper: settings, questions, echo, keyterms, transcript, stream-json, hotkeys, claude arguments
 Add-Type -AssemblyName System.Windows.Forms
 $ws = Get-WhisperSettings $null
 Assert-Equal 'es' $ws.language 'whisper: default language'
@@ -1368,7 +1553,7 @@ Assert-Equal $false (Test-WhisperQuestion (Tx 'Cuando empec\u00e9 en la empresa 
 
 # Call history, as the ClaudeMaxxing window lists it.
 $callLog = @(
-    (Tx '# Claude Whisper \u00b7 2026-10-17 23:58'), '',
+    (Tx '# Maxx Whisper \u00b7 2026-10-17 23:58'), '',
     '**Ellos** 23:58:04 Buenos dias.', (Tx '**Ellos** 23:58:10 \u00bfCu\u00e1l es tu experiencia con Python?'),
     (Tx '### Claude \u00b7 \u00bfCu\u00e1l es tu experiencia con Python?'), '', 'Llevo cuatro anos con Python.', '',
     (Tx '**T\u00fa** 00:03:30 Llevo cuatro a\u00f1os.'), (Tx '### Claude \u00b7 Pantalla')
@@ -1728,7 +1913,7 @@ foreach ($script in 'install.ps1', 'get.ps1') {
 }
 
 $policy = Merge-BusinessPolicy $null
-Assert-Equal 'ambientes,bridge,freellm,whip,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs, Whisper, Whip and Ambientes off by default'
+Assert-Equal 'ambientes,bridge,freellm,mobile,whip,whisper' ((@($policy.disabled) | Sort-Object) -join ',') 'policy: FreeLLMAPI, Otros PCs, Whisper, Whip, Ambientes and Celular off by default'
 $policy = Merge-BusinessPolicy ([pscustomobject]@{ disabled = @('whisper'); seatMonthlyUsd = '150'; autoReport = 1; unknown = 'x'; plugins = 'one@kit' })
 Assert-Equal 'whisper' (@($policy.disabled) -join ',') 'policy: a list replaces the default'
 Assert-Equal 150 $policy.seatMonthlyUsd 'policy: the seat price is a number'
@@ -1821,6 +2006,290 @@ try {
     Assert-Equal $true (Test-ReportDue $due ([pscustomobject]@{ lastReportAt = $now.AddDays(-8).ToString('o') }) $now) 'auto report: due after 7 days'
     Assert-Equal $false (Test-ReportDue ([pscustomobject]@{ Business = $true; Policy = (Merge-BusinessPolicy $null) }) $null $now) 'auto report: only when the policy asks'
 } finally { Remove-Item -LiteralPath $bizRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Celular (the phone app's server, lib\mobile.ps1 and lib\mobile.cs)
+Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $TrayRoot 'lib\mobile.cs'))) -ReferencedAssemblies System.Core
+. (Join-Path $TrayRoot 'lib\mobile.ps1')
+$mobileRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-mobile-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $mobileRoot | Out-Null
+$MobileHome = $mobileRoot
+$MobileLogFile = Join-Path $mobileRoot 'mobile.log'
+$MobileDevicesFile = Join-Path $mobileRoot 'devices.json'
+$MobileSettingsFile = Join-Path $mobileRoot 'settings.json'
+try {
+    # The session's status line: folder, branch and worktree read from .git, the rest from the statusline's file.
+    $repo = Join-Path $mobileRoot 'ClaudeMaxxing'
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo '.git\worktrees\whip-umbral'), (Join-Path $repo 'lib'), (Join-Path $repo '.claude\worktrees\whip-umbral') | Out-Null
+    [IO.File]::WriteAllText((Join-Path $repo '.git\HEAD'), "ref: refs/heads/feat/ambientes`n")
+    [IO.File]::WriteAllText((Join-Path $repo '.git\worktrees\whip-umbral\HEAD'), "ref: refs/heads/fix/whip-threshold`n")
+    [IO.File]::WriteAllText((Join-Path $repo '.claude\worktrees\whip-umbral\.git'), ('gitdir: ' + ((Join-Path $repo '.git\worktrees\whip-umbral') -replace '\\', '/') + "`n"))
+    $place = Get-MobileGitPlace $repo
+    Assert-Equal 'ClaudeMaxxing|feat/ambientes|' ('{0}|{1}|{2}' -f $place.folder, $place.branch, $place.worktree) 'mobile status: the repo, its branch and no worktree'
+    Assert-Equal 'lib|feat/ambientes' $(($sub = Get-MobileGitPlace (Join-Path $repo 'lib')).folder + '|' + $sub.branch) 'mobile status: a subfolder shows itself, as the statusline does, with the branch found above it'
+    $place = Get-MobileGitPlace ((Join-Path $repo '.claude\worktrees\whip-umbral') -replace '\\', '/')
+    Assert-Equal 'ClaudeMaxxing|fix/whip-threshold|whip-umbral' ('{0}|{1}|{2}' -f $place.folder, $place.branch, $place.worktree) 'mobile status: in a worktree, the repo folder, its branch and the worktree'
+    Assert-Equal '1h12m|12m|0m' (((Format-MobileElapsed 0 4320), (Format-MobileElapsed 0 720), (Format-MobileElapsed 100 50)) -join '|') 'mobile status: elapsed like the statusline'
+    $MobileStatusDir = Join-Path $mobileRoot 'status'
+    New-Item -ItemType Directory -Force -Path $MobileStatusDir | Out-Null
+    $sid = '0d9c3f1e-1111-4222-8333-944455556666'
+    Write-JsonFile (Join-Path $MobileStatusDir "$sid.json") ([ordered]@{ id = $sid; model = 'Opus 5.5'; effort = 'high'; dir = ($repo -replace '\\', '/'); context = 34; cost = 1.84; start = 1000 })
+    $st = Get-MobileSessionStatus $sid 'StartDay' 5320
+    Assert-Equal 'Opus 5.5|high|ClaudeMaxxing|feat/ambientes||StartDay|34|1.84|1h12m' (($st.model, $st.effort, $st.folder, $st.branch, $st.worktree, $st.env, [string]$st.context, [string]$st.cost, $st.elapsed) -join '|') 'mobile status: what the phone shows under the session name'
+    Assert-Equal $null (Get-MobileSessionStatus 'f00dfeed-0000-4000-8000-000000000000' '') 'mobile status: no file, no status line (the app keeps the old subtitle)'
+    Assert-Equal $null (Get-MobileSessionStatus '..\x' '') 'mobile status: only session ids name a file'
+    $pairing = New-MobilePairing $now
+    Assert-Equal 16 $pairing.Code.Length 'mobile: the pairing code is 16 hex characters'
+    Assert-Equal 'none' (Test-MobilePairCode $null 'x' $now) 'mobile: no pairing open refuses every code'
+    Assert-Equal 'wrong' (Test-MobilePairCode $pairing 'nope' $now) 'mobile: a wrong code is refused'
+    Assert-Equal 'ok' (Test-MobilePairCode $pairing $pairing.Code $now) 'mobile: the right code pairs'
+    Assert-Equal 'wrong' (Test-MobilePairCode $pairing $pairing.Code.ToUpper() $now) 'mobile: the code is case-sensitive'
+    Assert-Equal 'expired' (Test-MobilePairCode $pairing $pairing.Code $now.AddMinutes(6)) 'mobile: the code expires after 5 minutes'
+    $tries = New-MobilePairing $now
+    foreach ($i in 1..5) { [void](Test-MobilePairCode $tries 'bad' $now) }
+    Assert-Equal 'expired' (Test-MobilePairCode $tries $tries.Code $now) 'mobile: five wrong tries end the pairing'
+
+    $q = ConvertFrom-MobileQuery 'session=abc&after=12&x=a%20b&y=c+d&flag'
+    Assert-Equal 'abc|12|a b|c d|' ('{0}|{1}|{2}|{3}|{4}' -f $q['session'], $q['after'], $q['x'], $q['y'], $q['flag']) 'mobile: the query string is decoded'
+
+    $savedVoiceStateDir = $VoiceStateDir
+    $VoiceStateDir = $mobileRoot
+    try {
+        $firstId = '11111111-1111-1111-1111-111111111111'
+        $clearedId = '22222222-2222-2222-2222-222222222222'
+        Assert-Equal $firstId (Get-MobileCurrentSessionId $firstId) 'mobile: no turn yet, the id the window was opened with'
+        Write-JsonFile (Join-Path $mobileRoot "turn-$firstId") ([pscustomobject]@{ transcript = "C:\p\$clearedId.jsonl" })
+        Assert-Equal $clearedId (Get-MobileCurrentSessionId $firstId) 'mobile: after /clear, the current conversation of the window'
+    } finally { $VoiceStateDir = $savedVoiceStateDir }
+    Assert-Equal 'cmx://pair?h=192.168.1.5,100.64.0.9&p=47830&f=ab&c=cd&n=MY%20PC' (Format-MobilePairUri @('192.168.1.5', '100.64.0.9') 47830 'ab' 'cd' 'MY PC') 'mobile: the pairing URI the QR carries'
+
+    foreach ($case in @(@('192.168.1.2', $true), @('10.1.2.3', $true), @('172.20.0.1', $true), @('172.32.0.1', $false), @('8.8.8.8', $false),
+            @('100.100.1.1', $true), @('100.128.0.1', $false), @('127.0.0.1', $true), @('::1', $true), @('fd7a:115c:a1e0::1', $true),
+            @('fe80::1', $true), @('2001:4860::1', $false), @('::ffff:10.0.0.1', $true), @('::ffff:8.8.4.4', $false))) {
+        Assert-Equal $case[1] ([ClaudeTray.MobileGate]::IsAllowed([System.Net.IPAddress]::Parse($case[0]))) "mobile: $($case[0]) allowed is $($case[1])"
+    }
+    Assert-Equal $true ((Get-MobileFirewallScript 47830) -match 'LocalPort 47830 .*-Profile Private,Domain -RemoteAddress LocalSubnet,100\.64\.0\.0/10') 'mobile: the firewall rule is the port, private networks, LAN and Tailscale'
+
+    # tokens: only the hash is kept
+    $token = New-RandomHex 32
+    $devices = @([pscustomobject]@{ id = 'aaaaaaaaaaaa'; name = 'Pixel'; tokenHash = (Get-Sha256Hex $token); lastSeen = ''; address = '' })
+    Assert-Equal 'aaaaaaaaaaaa' (Find-MobileDevice $devices $token).id 'mobile: a paired token finds its device'
+    Assert-Equal $null (Find-MobileDevice $devices (New-RandomHex 32)) 'mobile: another token finds nothing'
+    Assert-Equal $null (Find-MobileDevice $devices 'short') 'mobile: a short token finds nothing'
+
+    # requests: /info is open, the rest needs a token, /pair needs the code once
+    $script:Mobile.Devices = @()
+    $script:Mobile.Pairing = New-MobilePairing
+    $req = { param($Method, $Path, $Token, $Body) $r = New-Object ClaudeTray.MobileRequest; $r.Method = $Method; $r.Path = $Path; $r.Token = "$Token"; $r.Body = "$Body"; $r.Remote = '192.168.1.40'; Invoke-MobileRequest $r }
+    Assert-Equal 200 (& $req 'GET' '/info').Status 'mobile: /info answers without a token'
+    Assert-Equal 401 (& $req 'GET' '/state').Status 'mobile: /state without a token is refused'
+    Assert-Equal 401 (& $req 'POST' '/pair' '' '{"code":"0000","device":"Pixel"}').Status 'mobile: /pair with a wrong code is refused'
+    $paired = & $req 'POST' '/pair' '' ('{"code":"' + $script:Mobile.Pairing.Code + '","device":"Pixel 8"}')
+    Assert-Equal 200 $paired.Status 'mobile: /pair with the code answers a token'
+    Assert-Equal 64 ([string]$paired.Body.token).Length 'mobile: the token is 32 random bytes'
+    Assert-Equal $null $script:Mobile.Pairing 'mobile: the code works once'
+    Assert-Equal 'Pixel 8' @(Read-MobileDevices)[0].name 'mobile: the device is saved'
+    Assert-Equal $false ((Get-Content -LiteralPath $MobileDevicesFile -Raw).Contains($paired.Body.token)) 'mobile: the saved file never holds the token'
+    Assert-Equal 404 (& $req 'GET' '/nope' $paired.Body.token).Status 'mobile: an unknown route with a token is 404'
+    Assert-Equal 400 (& $req 'POST' '/prompt' $paired.Body.token '{"session":"../x","text":"hi"}').Status 'mobile: a session id that is not a GUID is refused'
+    Assert-Equal 400 (& $req 'GET' '/messages' $paired.Body.token).Status 'mobile: /messages needs a session'
+    Assert-Equal 400 (& $req 'POST' '/action' $paired.Body.token '{bad').Status 'mobile: a body that is not JSON is refused'
+    Assert-Equal 200 (& $req 'POST' '/unpair' $paired.Body.token).Status 'mobile: a phone can unpair itself'
+    Assert-Equal 401 (& $req 'GET' '/state' $paired.Body.token).Status 'mobile: an unpaired token is refused'
+
+    # a choice sends a step to the hub's Step- command; actions are only the ones a section registered
+    $script:MobileSection = 'test'
+    $script:StepSeen = $null
+    function Step-TestChoice([int]$Delta) { $script:StepSeen = $Delta }
+    $choice = MChoice 'pick' 'Pick' ([ordered]@{ a = 'A'; b = 'B' }) 'a' 'Step-TestChoice'
+    & $script:Mobile.Actions['test/pick'] 1
+    Assert-Equal 1 $script:StepSeen 'mobile: a choice calls its command with the step'
+    Assert-Equal 'a,b' (@($choice.options | ForEach-Object { $_.k }) -join ',') 'mobile: a choice lists its options in order'
+
+    # Ambientes from the phone: the app asks, so the PC switches without a dialog nobody could answer
+    $savedHub = $script:Hub
+    $savedSwitch = ${function:Switch-HubHarness}
+    $script:Hub = @{ Cache = @{ Harness = @{ Dir = 'x'; Job = $null; Active = $null; Envs = @(@{ Id = 'work'; Name = 'Trabajo' }) } } }
+    $script:MobileSection = 'envs'
+    function Get-HubHarnessQuestion([string]$Id) { "ask $Id" }
+    $envSwitch = @(Get-MobileEnvsItems | Where-Object { $_.t -eq 'switch' })[0]
+    Assert-Equal 'ask work' $envSwitch.confirm 'mobile: an environment switch carries the question for the app'
+    function Switch-HubHarness([string]$Id, [switch]$NoConfirm) { $script:SwitchSeen = "$Id $NoConfirm" }
+    & $script:Mobile.Actions['envs/env-work']
+    Assert-Equal 'work True' $script:SwitchSeen 'mobile: the phone switches the environment without asking on the PC'
+    ${function:Switch-HubHarness} = $savedSwitch
+    $script:Hub = $savedHub
+
+    # the panel's quick Nueva sesion: in /state, its action registered under Claude Code
+    $savedState = ${function:Get-MobileState}; $savedNew = ${function:Get-MobileNewSessionItem}
+    function Get-MobileState { [ordered]@{ pc = 'x' } }
+    function Get-MobileNewSessionItem { [ordered]@{ t = 'choice'; id = (Register-MobileAction 'new-session' { }) } }
+    $script:Mobile.Actions.Remove('code/new-session')
+    Assert-Equal 'new-session' (Get-MobilePanelState).newSession.id 'mobile: /state carries the quick new session'
+    Assert-Equal $true $script:Mobile.Actions.ContainsKey('code/new-session') 'mobile: the quick new session acts as the one in Claude Code'
+    ${function:Get-MobileState} = $savedState; ${function:Get-MobileNewSessionItem} = $savedNew
+
+    # Energia: the shutdown asks on the phone; while it counts down, only its cancel
+    $script:MobileSection = 'power'
+    $script:Mobile.ShutdownAt = $null
+    $shut = @(Get-MobilePowerItems | Where-Object { $_.t -eq 'button' -and $_.id -eq 'shutdown' })[0]
+    Assert-Equal $true ($shut.confirm -like "*$env:COMPUTERNAME*") 'mobile: shutting down the PC asks first on the phone'
+    $script:Mobile.ShutdownAt = (Get-Date).AddSeconds(30)
+    Assert-Equal 'dark-on,shutdown-cancel' (@(Get-MobilePowerItems | Where-Object { $_.t -eq 'button' } | ForEach-Object { $_.id }) -join ',') 'mobile: a pending shutdown offers its cancel'
+    $script:Mobile.ShutdownAt = $null
+
+    # the transcript: complete lines only, read again from the returned offset
+    $transcript = Join-Path $mobileRoot 't.jsonl'
+    $lines = @(
+        '{"type":"user","message":{"role":"user","content":"hola"},"timestamp":"t1"}',
+        '{"type":"user","isMeta":true,"message":{"role":"user","content":"meta"}}',
+        '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"Listo."},{"type":"tool_use","name":"Bash","input":{"command":"git status","description":"Show status"}}]}}',
+        '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}',
+        '{"type":"user","message":{"role":"user","content":"<command-name>/color</command-name>\n<command-args>orange</command-args>"}}'
+    )
+    [IO.File]::WriteAllText($transcript, ($lines -join "`n") + "`n" + '{"type":"user","mess', (New-Object System.Text.UTF8Encoding($false)))
+    $chunk = Read-MobileTranscript $transcript -1
+    Assert-Equal 5 $chunk.Lines.Count 'mobile: the half-written last line is left for later'
+    $items = @(foreach ($l in $chunk.Lines) { ConvertFrom-MobileTranscriptLine $l })
+    Assert-Equal 'user:hola|assistant:Listo.|tool:Bash: Show status|user:/color orange' (@($items | ForEach-Object { "$($_.role):$($_.text)" }) -join '|') 'mobile: the chat leaves out meta, thinking and tool results'
+    [IO.File]::AppendAllText($transcript, 'age":{"role":"user","content":"sigue"}}' + "`n")
+    $next = Read-MobileTranscript $transcript $chunk.Offset
+    Assert-Equal 1 $next.Lines.Count 'mobile: the next read starts where the last one ended'
+    Assert-Equal 'sigue' (ConvertFrom-MobileTranscriptLine $next.Lines[0]).text 'mobile: the line finished later is read whole'
+    $tail = Read-MobileTranscript $transcript -1 -TailBytes 60
+    Assert-Equal $true (@($tail.Lines | Where-Object { -not $_.StartsWith('{') }).Count -eq 0) 'mobile: reading the tail skips the cut first line'
+
+    $peerLine = '{"type":"user","isMeta":true,"origin":{"kind":"peer","from":"unknown"},"message":{"role":"user","content":"Another Claude session sent a message:\n(ClaudeMaxxing app, from the user''s phone) sigue con los tests\n\nThis came from another Claude session - not typed by your user."}}'
+    $peer = ConvertFrom-MobileTranscriptLine $peerLine
+    Assert-Equal 'user:sigue con los tests' "$($peer.role):$($peer.text)" 'mobile: what the phone sent shows as the user''s, without the wrapper'
+    $other = ConvertFrom-MobileTranscriptLine $peerLine.Replace("(ClaudeMaxxing app, from the user's phone) ", '')
+    Assert-Equal 'tool' $other.role 'mobile: another session''s message is a side line'
+
+    # the voice's history for the phone: lines with audio only, newer than the last one it has, and their mp3
+    $voiceDir = Join-Path $mobileRoot 'history'
+    $sid = '3cd075fb-fe1c-4104-a081-3c1699aa6a6e'
+    foreach ($v in @(@('20261121-093306-695', 'uno', $true), @('20261121-093453-400', 'dos', $true), @('20261121-094000-001', 'sapi', $false))) {
+        Write-JsonFile (Join-Path $voiceDir "$($v[0])-$sid.json") ([ordered]@{ time = '2026-11-21T09:34:53'; session = $sid; name = 'Ana'; text = $v[1]; audio = '' })
+        if ($v[2]) { [IO.File]::WriteAllBytes((Join-Path $voiceDir "$($v[0])-$sid.mp3"), [byte[]](1, 2, 3)) }
+    }
+    Assert-Equal 'uno,dos' (@(Get-MobileVoices '' $voiceDir | ForEach-Object { $_.text }) -join ',') 'mobile voices: oldest first, only lines with audio'
+    Assert-Equal 'dos' (@(Get-MobileVoices "20261121-093306-695-$sid" $voiceDir | ForEach-Object { $_.text }) -join ',') 'mobile voices: only the ones newer than the last the phone has'
+    Assert-Equal $true ((@(Get-MobileVoices '' $voiceDir))[0].at -match '^2026-11-21T09:34:53(\.0+)?[+-]\d\d:\d\d$') 'mobile voices: the time carries the PC offset'
+    Assert-Equal 'AQID' (Get-MobileVoiceAnswer "20261121-093453-400-$sid" $voiceDir).Body.audio 'mobile voices: the audio goes as base64'
+    Assert-Equal 400 (Get-MobileVoiceAnswer '..\..\secret' $voiceDir).Status 'mobile voices: an id that is not one is refused'
+    Assert-Equal 404 (Get-MobileVoiceAnswer "20261121-094000-001-$sid" $voiceDir).Status 'mobile voices: a line without audio has none to send'
+
+    # uploads: a safe name on disk, the caption and the attachment line, refused without the session's inbox
+    Assert-Equal 'foto_de_hoy.jpg' (Get-MobileSafeName 'C:\x\..\foto de hoy.jpg') 'mobile: an upload keeps only a safe file name'
+    Assert-Equal 'file' (Get-MobileSafeName '...') 'mobile: a name of dots becomes file'
+    Assert-Equal 80 ((Get-MobileSafeName (('a' * 100) + '.pdf')).Length) 'mobile: a long name is cut to 80, keeping its extension'
+    Assert-Equal "mira esto`n[phone attachment] C:\u\f.png" (Format-MobileUploadText ' mira esto ' 'C:\u\f.png') 'mobile: the upload message is the caption and the attachment'
+    Assert-Equal '[phone attachment] C:\u\f.png' (Format-MobileUploadText '' 'C:\u\f.png') 'mobile: an upload without caption'
+    $MobileInboxDir = Join-Path $mobileRoot 'inbox'
+    $sid = [guid]::NewGuid().ToString()
+    Assert-Equal 409 (Save-MobileUpload $sid 'a.png' '' ([byte[]](1, 2, 3))).Status 'mobile: an upload to a session without inbox is refused'
+    Assert-Equal 400 (Save-MobileUpload $sid 'a.png' '' ([byte[]]@())).Status 'mobile: an empty upload is refused'
+    New-Item -ItemType Directory -Force -Path $MobileInboxDir | Out-Null
+    [IO.File]::WriteAllText((Join-Path $MobileInboxDir "$sid.json"), '{"socket":"\\\\.\\pipe\\LOCAL\\cc-msg-00000000000000000000000000000000","token":"t"}')
+    Assert-Equal 409 (Save-MobileUpload $sid 'a b.png' 'hola' ([byte[]](1, 2, 3))).Status 'mobile: a closed session answers that it does not respond'
+    Assert-Equal 3 @(Get-ChildItem -LiteralPath (Join-Path $mobileRoot "uploads\$sid") -Filter '*-a_b.png')[0].Length 'mobile: the upload is kept on disk with its bytes'
+
+    $inbox = Format-MobileInboxLines 'tok' 'hola "mundo"'
+    Assert-Equal 'auth|tok' ("{0}|{1}" -f ($inbox[0] | ConvertFrom-Json).type, ($inbox[0] | ConvertFrom-Json).token) 'mobile: the inbox auth line'
+    Assert-Equal 'user|user|hola "mundo"' ("{0}|{1}|{2}" -f ($inbox[1] | ConvertFrom-Json).type, ($inbox[1] | ConvertFrom-Json).message.role, ($inbox[1] | ConvertFrom-Json).message.content) 'mobile: the inbox message line'
+
+    $qr = [ClaudeTray.QrCode]::Encode('HELLO', 1)
+    Assert-Equal 21 $qr.GetLength(0) 'mobile: a short text fits a version 1 QR'
+    Assert-Equal 'True|False|True' ("{0}|{1}|{2}" -f $qr[0, 0], $qr[1, 1], $qr[2, 2]) 'mobile: the finder pattern in the corner'
+    Assert-Equal 49 ([ClaudeTray.QrCode]::Encode((Format-MobilePairUri @('192.168.1.5', '100.64.0.9') 47830 ('ab' * 32) ('cd' * 8) 'DESKTOP-ABCDEFG'), 1)).GetLength(0) 'mobile: a pairing URI is a version 8 QR'
+} finally { Remove-Item -LiteralPath $mobileRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- session symbols (lib\symbols.ps1): every one is complete, and changing it leaves none of the one before
+$symbols = Get-SessionSymbols $TrayRoot
+Assert-Equal 'egg' @($symbols.Keys)[0] 'symbols: the egg is first, the default'
+. (Join-Path $TrayRoot 'lib\theme.ps1')
+# Not Read-JsonFile: the catalog has keys that differ only in case.
+$english = (Read-UiCatalog (Join-Path $TrayRoot 'lib\lang\en.json'))['strings']
+$bundled = [IO.File]::ReadAllText((Join-Path $TrayRoot 'mobile\lib\symbols.dart'))
+foreach ($id in @($symbols.Keys)) {
+    $missing = @('still.png', 'filled.png', 'thinking.gif', 'symbol.ttf', 'symbol.json' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot "symbols\$id\$_")) })
+    $missing += @('mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot "mobile\android\app\src\main\res\drawable-$_\ic_stat_$id.png")) })
+    Assert-Equal '' ($missing -join ',') "symbol ${id}: images, font and phone icons"
+    Assert-Equal $true ($bundled.Contains("'$id'")) "symbol ${id}: in the app's list"
+    Assert-Equal $true ([bool]$english[$symbols[$id]]) "symbol ${id}: its name is translated"
+    $gif = [System.Drawing.Image]::FromFile((Join-Path $TrayRoot "symbols\$id\thinking.gif"))
+    try { Assert-Equal 9 $gif.GetFrameCount([System.Drawing.Imaging.FrameDimension]::Time) "symbol ${id}: the 9 frames the statusline counts on" } finally { $gif.Dispose() }
+}
+
+$symTmp = Join-Path ([IO.Path]::GetTempPath()) ('cmx-symbols-{0}' -f [guid]::NewGuid().ToString('N'))
+$symSaved = @{ Root = $TrayRoot; File = $SymbolFile; Fragment = $TerminalFragmentFile; Local = $env:LOCALAPPDATA; Icons = $script:SessionIcons
+    Colors = $script:SessionIconColor; Frames = $script:SessionIconFrames; Speaking = $script:SessionSpeaking }
+$symPreference = $ErrorActionPreference
+try {
+    # An error here would otherwise only print, and the suite still pass.
+    $ErrorActionPreference = 'Stop'
+    New-Item -ItemType Directory -Force -Path "$symTmp\symbols\egg", "$symTmp\symbols\ring", "$symTmp\eggs\egg", "$symTmp\eggs\ring", "$symTmp\local" | Out-Null
+    Copy-Item -Path "$TrayRoot\symbols\egg\*" -Destination "$symTmp\symbols\egg"
+    Copy-Item -Path "$TrayRoot\symbols\egg\*" -Destination "$symTmp\symbols\ring"
+    [IO.File]::WriteAllText("$symTmp\symbols\ring\symbol.json", '{ "name": "Aro" }')
+    foreach ($shape in 'still', 'filled') {
+        $bmp = New-Object System.Drawing.Bitmap(100, 100)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.FillRectangle([System.Drawing.Brushes]::Black, 5, 5, 90, 90)
+        if ($shape -eq 'still') { $g.CompositingMode = 'SourceCopy'; $g.FillRectangle([System.Drawing.Brushes]::Transparent, 25, 25, 50, 50) }
+        $g.Dispose(); $bmp.Save("$symTmp\symbols\ring\$shape.png", [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    }
+    foreach ($id in 'egg', 'ring') { [IO.File]::WriteAllBytes("$symTmp\eggs\$id\blue.png", [byte[]](137, 80, 78, 71)) }
+    $TrayRoot = $symTmp
+    $SymbolFile = "$symTmp\symbol.json"
+    $TerminalFragmentFile = "$symTmp\fragment\sessions.json"
+    # Away from the real Windows Terminal settings, whose timestamp writing the profiles touches.
+    $env:LOCALAPPDATA = "$symTmp\local"
+    [void](Install-TerminalProfiles "$symTmp\eggs" @('egg', 'ring'))
+    $profilesBefore = [IO.File]::ReadAllText($TerminalFragmentFile)
+    $openedWith = Get-SessionProfileName 'blue' (Get-SavedSymbol $symTmp)
+    $script:SessionSymbol = $null; $script:EggImages = $null; $script:SessionIconCache = @{}; $script:Mobile.Eggs = @{}
+    $script:SessionIconColor = @{ 0 = 1 }; $script:SessionIconFrames = @{ 0 = -1 }; $script:SessionSpeaking = -1
+    $script:SessionIcons = @([pscustomobject]@{ Icon = (Get-SessionIcon 1) })
+    $iconBefore = $script:SessionIcons[0].Icon
+    $phoneBefore = (Get-MobileEggsAnswer '#16A34A').Body.still
+    Assert-Equal 'egg,ring' (@((Get-SessionSymbols $symTmp).Keys) -join ',') 'symbols: a folder is one more option'
+    Assert-Equal 'egg' (Get-SavedSymbol $symTmp) 'symbols: the egg until one is chosen'
+
+    $ringListed = (Get-MobileEggsAnswer '#16A34A' 'ring').Body.still
+    Assert-Equal $false ($ringListed -eq $phoneBefore) 'symbols: the phone list draws one that is not on'
+    Assert-Equal 400 (Get-MobileEggsAnswer '#16A34A' '..\..\x').Status 'symbols: the phone names only symbols of the list'
+    $listEgg = Get-SymbolPreview 'egg' 24; $listRing = Get-SymbolPreview 'ring' 24
+    Assert-Equal '9|56x24|False|egg' ('{0}|{1}x{2}|{3}|{4}' -f $listRing.Count, $listRing[0].Width, $listRing[0].Height, ($listRing[0].GetPixel(12, 12).A -eq $listEgg[0].GetPixel(12, 12).A), (Get-SessionSymbol)) 'symbols: the list shows each one still and thinking, without switching it on'
+    foreach ($frame in @($listEgg) + @($listRing)) { $frame.Dispose() }
+    $script:SymbolPreviewCache = @{}
+
+    Set-SessionSymbol 'ring'
+    Assert-Equal 'ring|ring' ('{0}|{1}' -f (Get-SessionSymbol), (Get-SavedSymbol $symTmp)) 'symbols: the choice is on and saved for the next start'
+    Assert-Equal $false ([object]::ReferenceEquals($iconBefore, $script:SessionIcons[0].Icon)) 'symbols: a tray icon already showing is redrawn'
+    Assert-Equal $false ($phoneBefore -eq (Get-MobileEggsAnswer '#16A34A').Body.still) 'symbols: the phone gets the new one, not the cached one'
+    Assert-Equal $ringListed (Get-MobileEggsAnswer '#16A34A').Body.still 'symbols: what the list showed is what comes on'
+    Assert-Equal $profilesBefore ([IO.File]::ReadAllText($TerminalFragmentFile)) 'symbols: the open terminals are not touched: they keep theirs'
+    $openingNow = Get-SessionProfileName 'blue' (Get-SavedSymbol $symTmp)
+    Assert-Equal 'ClaudeMaxxing blue|ClaudeMaxxing blue ring' "$openedWith|$openingNow" 'symbols: a session opened now starts with the new one'
+    $speak = New-SpeakingIconBitmap '#16A34A' 64 2
+    try { Assert-Equal '22,163,74' ('{0},{1},{2}' -f $speak.GetPixel(32, 32).R, $speak.GetPixel(32, 32).G, $speak.GetPixel(32, 32).B) 'symbols: speaking fills its own shape' } finally { $speak.Dispose() }
+
+    Set-SessionSymbol 'egg'
+    Assert-Equal $phoneBefore (Get-MobileEggsAnswer '#16A34A').Body.still 'symbols: back to the egg draws the egg again'
+    Assert-Equal 'ClaudeMaxxing blue' (Get-SessionProfileName 'blue' (Get-SavedSymbol $symTmp)) 'symbols: and new sessions start with the egg again'
+    $refused = try { Set-SessionSymbol '..\x'; $false } catch { $true }
+    Assert-Equal $true $refused 'symbols: an unknown id is refused'
+    Write-JsonFile $SymbolFile @{ id = 'gone' }
+    Assert-Equal 'egg' (Get-SavedSymbol $symTmp) 'symbols: one that is no longer there falls back to the egg'
+} catch {
+    Assert-Equal '' "$_" 'symbols: changing it runs without errors'
+} finally {
+    $ErrorActionPreference = $symPreference
+    $TrayRoot = $symSaved.Root; $SymbolFile = $symSaved.File; $TerminalFragmentFile = $symSaved.Fragment; $env:LOCALAPPDATA = $symSaved.Local
+    $script:SessionIcons = $symSaved.Icons; $script:SessionIconColor = $symSaved.Colors; $script:SessionIconFrames = $symSaved.Frames; $script:SessionSpeaking = $symSaved.Speaking
+    $script:SessionSymbol = $null; $script:EggImages = $null
+    Remove-Item -LiteralPath $symTmp -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {

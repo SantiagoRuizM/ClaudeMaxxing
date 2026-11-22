@@ -1,4 +1,4 @@
-// Claude Whisper native side: audio capture (WASAPI), streaming speech-to-text, and the claude process.
+// Maxx Whisper native side: audio capture (WASAPI), streaming speech-to-text, and the claude process.
 // Everything that runs off the UI thread lives here; it only pushes strings into queues that the
 // WinForms timer in whisper.ps1 drains. C# 5 only: PowerShell 5.1 compiles it with the .NET Framework csc.
 using System;

@@ -252,7 +252,7 @@ function Draw-HubAutoCard($G, $Map, $Hover, [System.Drawing.Rectangle]$Card) {
 
 # Planear sesion: the automatic agenda told as its idea. A short message opens each 5-hour window at the right
 # time, so the hour you use Claude most falls on the change from one window to the next: that hour has the end of
-# one window and the start of another to spend. Claude Judge (put a plan on trial) stays one link away.
+# one window and the start of another to spend. Maxx Judge (put a plan on trial) stays one link away.
 function Draw-HubPlanSession($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $P = $script:Palette
     $F = $script:Fonts
@@ -377,10 +377,10 @@ function Draw-HubPlanSession($G, $Map, $Hover, [int]$X0, [int]$Inner) {
         Draw-PillButton $G $Map $Hover 'plan-clean' (New-Rect ($ncard.Right - (Px 16) - $bw) ($ncard.Bottom - (Px 34)) $bw (Px 24)) $label { Remove-AutoConflicts }
     }
 
-    # Claude Judge, one link away: put what you want to do today on trial before opening sessions.
+    # Maxx Judge, one link away: put what you want to do today on trial before opening sessions.
     if (Test-HubModule 'judge') {
         $judge = New-Rect $X0 ($scard.Bottom + (Px 12)) $Inner (Px 20)
-        Draw-Text $G (Tx 'Antes de empezar, pon a prueba lo que vas a hacer hoy con Claude Judge \u203a') $F.Small $(if ($Hover -eq 'plan-judge') { $P.AccentHover } else { $P.Accent }) $judge.X $judge.Y $judge.Width $judge.Height
+        Draw-Text $G (Tx 'Antes de empezar, pon a prueba lo que vas a hacer hoy con Maxx Judge \u203a') $F.Small $(if ($Hover -eq 'plan-judge') { $P.AccentHover } else { $P.Accent }) $judge.X $judge.Y $judge.Width $judge.Height
         Add-Hit $Map 'plan-judge' $judge { $script:Hub.PlanJudge = $true; $script:HubDialog.Invalidate() }
     }
 }

@@ -78,43 +78,28 @@ $script:Fonts = @{
     Refresh    = New-UiFont 'Segoe UI Symbol' 11
 }
 
-function Get-ClaudeIconPath([string]$Name) {
-    $package = Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($package) {
-        $path = Join-Path $package.InstallLocation "app\resources\$Name"
-        if (Test-Path -LiteralPath $path) { return $path }
-    }
-    $fallback = Join-Path $TrayRoot "assets\$Name"
-    if (Test-Path -LiteralPath $fallback) { return $fallback }
-    $null
+# Notification area icon: the jellyfish in one color like Windows' own icons, white on a dark taskbar and black on a
+# light one.
+$script:TrayIcons = @{}
+function Get-TrayIcon([bool]$Light = (Test-LightTaskbar)) {
+    if ($script:TrayIcons.ContainsKey($Light)) { return $script:TrayIcons[$Light] }
+    $color = if ($Light) { New-Rgb 0 0 0 } else { New-Rgb 255 255 255 }
+    $bitmap = New-BrandMark $color (Px 16)
+    if (-not $bitmap) { return [System.Drawing.SystemIcons]::Information }
+    # Through a PNG .ico: GetHicon multiplies the color by the alpha, so the white edges would show gray.
+    $stream = New-Object IO.MemoryStream(, (Get-PngIconBytes @($bitmap)))
+    $png = New-Object System.Drawing.Icon($stream, $bitmap.Width, $bitmap.Height)
+    # Its copy by handle: .NET can't draw an Icon that holds a PNG frame this small (ToBitmap, DrawIcon).
+    $script:TrayIcons[$Light] = [System.Drawing.Icon]::FromHandle($png.Handle).Clone()
+    $png.Dispose(); $stream.Dispose(); $bitmap.Dispose()
+    $script:TrayIcons[$Light]
 }
 
-# Taskbar icon: white glyph on dark taskbars, black on light ones.
-function Get-TrayIcon {
-    $lightTaskbar = $false
-    try {
-        $theme = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction Stop
-        $lightTaskbar = ($theme.SystemUsesLightTheme -eq 1)
-    } catch { }
-    $name = if ($lightTaskbar) { 'Tray-Win32.ico' } else { 'Tray-Win32-Dark.ico' }
-    $path = Get-ClaudeIconPath $name
-    if ($path) {
-        try { return New-Object System.Drawing.Icon($path, (Px 16), (Px 16)) } catch { }
-    }
-    [System.Drawing.SystemIcons]::Information
-}
-
-# The Claude spark recolored to a solid color (RGB replaced, alpha kept); only the usage popup's "Claude" header.
-function New-TintedLogo([System.Drawing.Color]$Color, [int]$Size) {
-    $path = Get-ClaudeIconPath 'Tray-Win32.ico'
-    if (-not $path) { return $null }
-    # The .ico frame closest to the size asked for (at least 64): a 128 px logo is not scaled up from 64.
-    $frame = [Math]::Max(64, $Size)
-    $icon = New-Object System.Drawing.Icon($path, $frame, $frame)
-    $source = $icon.ToBitmap()
-    $bitmap = ConvertTo-TintedBitmap $source $Color $Size
-    $source.Dispose(); $icon.Dispose()
-    $bitmap
+# After a change of the taskbar's theme; setting the icon only then keeps Explorer from redrawing it every tick.
+function Update-TrayIcon($Notify) {
+    if (-not $Notify) { return }
+    $icon = Get-TrayIcon
+    if (-not [object]::ReferenceEquals($Notify.Icon, $icon)) { $Notify.Icon = $icon }
 }
 
 # $Source scaled to a $Size square in a solid color (RGB replaced, alpha kept).
@@ -137,7 +122,9 @@ function ConvertTo-TintedBitmap([System.Drawing.Image]$Source, [System.Drawing.C
 function New-AppLogoBitmap([int]$Size) { New-BrandMark (New-Rgb 253 107 77) $Size }
 
 # The bitmaps as one .ico of PNG frames (Windows Vista and later read them); for the entry in Settings > Apps.
-function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) {
+function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) { [IO.File]::WriteAllBytes($Path, (Get-PngIconBytes $Bitmaps)) }
+
+function Get-PngIconBytes([System.Drawing.Bitmap[]]$Bitmaps) {
     $frames = @($Bitmaps | ForEach-Object { $ms = New-Object IO.MemoryStream; $_.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); , $ms.ToArray() })
     $out = New-Object IO.MemoryStream
     $w = New-Object IO.BinaryWriter($out)
@@ -150,8 +137,9 @@ function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) {
         $offset += $frames[$i].Length
     }
     foreach ($frame in $frames) { $w.Write($frame) }
-    [IO.File]::WriteAllBytes($Path, $out.ToArray())
+    $bytes = $out.ToArray()
     $w.Dispose()
+    , $bytes
 }
 
 # Window and taskbar icon: the logo above at 64 px, built once; falls back to the tray icon.

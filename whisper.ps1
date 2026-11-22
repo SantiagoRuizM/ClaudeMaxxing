@@ -1,4 +1,4 @@
-# Claude Whisper: a live copilot window for calls (interviews, meetings, sales calls). It transcribes what the
+# Maxx Whisper: a live copilot window for calls (interviews, meetings, sales calls). It transcribes what the
 # PC plays (the other side) and the microphone (you) with Claude Code's speech-to-text, spots questions, and
 # Claude answers them on your Claude subscription through one long-lived `claude -p`. Started from the tray
 # menu; a second start just brings the window back.
@@ -13,9 +13,9 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
 . (Join-Path $TrayRoot 'lib\business.ps1')
 Clear-ClaudeSessionEnv
-# A company policy can turn Claude Whisper off: then it never starts (the tray hides it as well).
+# A company policy can turn Maxx Whisper off: then it never starts (the tray hides it as well).
 if (-not $RenderTo -and -not (Test-ModuleAllowed (Get-BusinessState) 'whisper')) {
-    [Console]::Error.WriteLine('Claude Whisper is turned off by the company policy.')
+    [Console]::Error.WriteLine('Maxx Whisper is turned off by the company policy.')
     exit 1
 }
 
@@ -99,7 +99,7 @@ function Add-SessionLog([string]$Text) {
         if (-not $script:SessionFile) {
             if (-not (Test-Path -LiteralPath $WhisperSessionsDir)) { New-Item -ItemType Directory -Force -Path $WhisperSessionsDir | Out-Null }
             $script:SessionFile = Join-Path $WhisperSessionsDir ((Get-Date).ToString('yyyyMMdd-HHmmss') + '.md')
-            $head = '# Claude Whisper ' + [char]0x00B7 + ' ' + (Get-Date).ToString('yyyy-MM-dd HH:mm') + "`n`n"
+            $head = '# Maxx Whisper ' + [char]0x00B7 + ' ' + (Get-Date).ToString('yyyy-MM-dd HH:mm') + "`n`n"
             [IO.File]::WriteAllText($script:SessionFile, $head, (New-Object System.Text.UTF8Encoding($false)))
         }
         [IO.File]::AppendAllText($script:SessionFile, $Text + "`n`n", (New-Object System.Text.UTF8Encoding($false)))
@@ -111,7 +111,7 @@ function Add-SessionLog([string]$Text) {
 function Start-Claude {
     Stop-Claude
     $exe = Resolve-ClaudeExe
-    if (-not $exe) { $script:Problem = Tx 'No encuentro Claude Code (claude). Inst\u00e1lalo y vuelve a abrir Claude Whisper.'; return $false }
+    if (-not $exe) { $script:Problem = Tx 'No encuentro Claude Code (claude). Inst\u00e1lalo y vuelve a abrir Maxx Whisper.'; return $false }
     [IO.File]::WriteAllText($WhisperPromptFile, (New-WhisperSystemPrompt $script:Settings), (New-Object System.Text.UTF8Encoding($false)))
     $process = New-Object ClaudeWhisper.ClaudeProcess
     try {
@@ -434,7 +434,7 @@ function Set-WhisperNotice([string]$Text) {
 function Start-Listening {
     if ($script:Listening) { return }
     if (-not $Testing -and -not $script:Settings.consent) {
-        $answer = [System.Windows.Forms.MessageBox]::Show($script:Form, (Tx $script:WhisperConsentText), 'Claude Whisper', 'YesNo', 'Warning', 'Button2')
+        $answer = [System.Windows.Forms.MessageBox]::Show($script:Form, (Tx $script:WhisperConsentText), 'Maxx Whisper', 'YesNo', 'Warning', 'Button2')
         if ($answer -ne 'Yes') { return }
         $script:Settings.consent = $true
         Save-WhisperSettings
@@ -539,7 +539,7 @@ function Test-AutoAnswer {
 
 $script:Form = New-Object System.Windows.Forms.Form
 $Form = $script:Form
-$Form.Text = 'Claude Whisper'
+$Form.Text = 'Maxx Whisper'
 $Form.BackColor = $P.Back
 $Form.ForeColor = $P.Text
 $Form.Font = $script:Fonts.Body
@@ -679,7 +679,7 @@ $script:TopMostItem.Add_Click({
     Start-Process explorer.exe $WhisperSessionsDir
 })
 [void]$more.Items.Add('-')
-[void]$more.Items.Add((L 'Cerrar Claude Whisper'), $null, { $script:Form.Close() })
+[void]$more.Items.Add((L 'Cerrar Maxx Whisper'), $null, { $script:Form.Close() })
 $script:MoreButton.Add_Click({ $more.Show($script:MoreButton, 0, $script:MoreButton.Height) })
 
 # ---- body: transcript above, answer below
@@ -819,7 +819,7 @@ function Render-Transcript {
             Add-RichText $box $open $WF.Line $P.Muted
         }
         if ($box.TextLength -eq 0) {
-            $hint = if ($script:Listening) { Tx 'Cuando alguien hable en la llamada, aparece aqu\u00ed.' } else { Tx 'Pulsa Escuchar al empezar la llamada. Claude Whisper oye lo que suena en el PC (la otra parte) y tu micr\u00f3fono.' }
+            $hint = if ($script:Listening) { Tx 'Cuando alguien hable en la llamada, aparece aqu\u00ed.' } else { Tx 'Pulsa Escuchar al empezar la llamada. Maxx Whisper oye lo que suena en el PC (la otra parte) y tu micr\u00f3fono.' }
             Add-RichText $box $hint $WF.Line $P.Faint
             $script:OpenStart = 0
         }
@@ -925,7 +925,7 @@ $script:ScreenButton.Add_Click({ Invoke-UserRequest { Request-Screen } })
 $script:ClearButton.Add_Click({
     $answer = [System.Windows.Forms.MessageBox]::Show($script:Form,
         (Tx '\u00bfBorrar la transcripci\u00f3n y las respuestas? Claude olvida lo anterior de esta llamada. Lo ya guardado en el historial se queda.'),
-        'Claude Whisper', 'YesNo', 'Question', 'Button2')
+        'Maxx Whisper', 'YesNo', 'Question', 'Button2')
     if ($answer -eq 'Yes') { Reset-Conversation }
 })
 $script:PrevButton.Add_Click({ if ($script:AnswerIndex -gt 0) { $script:AnswerIndex--; $script:AnswerDirty = $true } })

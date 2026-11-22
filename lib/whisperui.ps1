@@ -1,4 +1,4 @@
-# Claude Whisper window pieces: themed controls, a small markdown renderer for answers, and the context
+# Maxx Whisper window pieces: themed controls, a small markdown renderer for answers, and the context
 # dialog (profile, conversation, instructions, language, model). Needs theme.ps1 and whisper.ps1.
 
 function Set-WhisperTitleBar([System.Windows.Forms.Form]$Form, $Palette, [bool]$Light) {
@@ -160,7 +160,7 @@ function Show-WhisperContextDialog($Settings, $Palette, $Owner) {
     $P = $Palette
     $F = $script:Fonts
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = (L 'Claude Whisper ') + [char]0x00B7 + (L ' Contexto')
+    $dlg.Text = (L 'Maxx Whisper ') + [char]0x00B7 + (L ' Contexto')
     $dlg.StartPosition = 'CenterParent'
     $dlg.FormBorderStyle = 'Sizable'
     $dlg.MinimizeBox = $false

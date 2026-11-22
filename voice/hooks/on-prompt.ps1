@@ -14,6 +14,16 @@ function Get-NamingNotice($Info) {
     '{0} Esta {1} es {2} ({3}), voz {4}' -f $mic, $sesion, $Info.name, $Info.role, $Info.voice
 }
 
+# A title this voice gave (name-* of an active session): /clear keeps the window's title, but the new conversation
+# gets a new name, so the old one is replaced. A title from --name or /rename is never in those files.
+function Test-OwnTitle($Config, [string]$Title) {
+    foreach ($file in @(Get-ActiveStateFiles $Config 'name')) {
+        $named = Read-JsonFile $file.FullName
+        if ($named -and "$($named.title)" -eq $Title) { return $true }
+    }
+    $false
+}
+
 try {
     $evt = Read-HookInput
     if (-not $evt) { exit 0 }
@@ -30,7 +40,7 @@ try {
             hookSpecificOutput = [ordered]@{ hookEventName = 'UserPromptSubmit' }
         }
         # Si ya tiene un titulo propio (--name, /rename) no se pisa.
-        if (-not $evt.session_title -and (Get-Opt $cfg 'naming.setTitle' $true)) {
+        if ((-not $evt.session_title -or (Test-OwnTitle $cfg "$($evt.session_title)")) -and (Get-Opt $cfg 'naming.setTitle' $true)) {
             $out.hookSpecificOutput.sessionTitle = $info.title
         }
         $others = Get-OtherSessionsNote $evt.session_id $evt.cwd

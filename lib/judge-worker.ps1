@@ -38,7 +38,7 @@ try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexExcepti
 if (-not $owned) { exit 0 }
 try {
     Set-Status 'running' ''
-    Write-Log "Claude Judge: jury $Jury, model $Model, folder $JudgeHome"
+    Write-Log "Maxx Judge: jury $Jury, model $Model, folder $JudgeHome"
 
     # ---- checks, before spending any of the plan
     if (Test-JudgeProtectedPath $JudgeHome) { throw "La carpeta de los juicios ($JudgeHome) est$(Tx '\u00e1') dentro de una carpeta protegida de Claude Code (.claude, .git...): Claude no puede escribir ah$(Tx '\u00ed')." }
@@ -55,7 +55,7 @@ try {
     $probe = Join-Path $JudgeHome '.write-test'
     try { [IO.File]::WriteAllText($probe, 'ok'); Remove-Item -LiteralPath $probe -Force } catch { throw "No se puede escribir en $JudgeHome : $($_.Exception.Message)" }
     $source = Join-Path $TrayRoot "claudeJudge\.claude\skills\$JudgeSkillName"
-    if (-not (Test-Path -LiteralPath (Join-Path $source 'SKILL.md'))) { throw "Falta la skill de Claude Judge en $source. Vuelve a ejecutar install.ps1." }
+    if (-not (Test-Path -LiteralPath (Join-Path $source 'SKILL.md'))) { throw "Falta la skill de Maxx Judge en $source. Vuelve a ejecutar install.ps1." }
 
     # The skill is loaded from the trial folder's .claude\skills (a fresh copy of the installed one each time).
     $skill = Join-Path $JudgeHome ".claude\skills\$JudgeSkillName"

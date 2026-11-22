@@ -28,7 +28,8 @@ function Get-HarnessState([string]$Dir = (Get-HarnessDir), [string]$DataDir = $H
     $envs = @()
     foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $DataDir 'environments') -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
         $def = Read-JsonFile $file.FullName
-        $envs += [pscustomobject]@{ Id = $file.BaseName.ToLowerInvariant(); Name = $(if ($def -and $def.name) { [string]$def.name } else { $file.BaseName }); Focus = $(if ($def) { [string]$def.focus } else { '' }) }
+        $envs += [pscustomobject]@{ Id = $file.BaseName.ToLowerInvariant(); Name = $(if ($def -and $def.name) { [string]$def.name } else { $file.BaseName }); Focus = $(if ($def) { [string]$def.focus } else { '' })
+            Folders = @(@(if ($def) { [string]$def.folder; [string]$def.claude.dir }) | Where-Object { $_ }) }
     }
     $run = Join-Path $DataDir 'run'
     $active = Read-JsonFile (Join-Path $run 'active.json')
