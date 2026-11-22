@@ -2255,10 +2255,19 @@ try {
     Assert-Equal 'egg,ring' (@((Get-SessionSymbols $symTmp).Keys) -join ',') 'symbols: a folder is one more option'
     Assert-Equal 'egg' (Get-SavedSymbol $symTmp) 'symbols: the egg until one is chosen'
 
+    $ringListed = (Get-MobileEggsAnswer '#16A34A' 'ring').Body.still
+    Assert-Equal $false ($ringListed -eq $phoneBefore) 'symbols: the phone list draws one that is not on'
+    Assert-Equal 400 (Get-MobileEggsAnswer '#16A34A' '..\..\x').Status 'symbols: the phone names only symbols of the list'
+    $listEgg = Get-SymbolPreview 'egg' 24; $listRing = Get-SymbolPreview 'ring' 24
+    Assert-Equal '9|56x24|False|egg' ('{0}|{1}x{2}|{3}|{4}' -f $listRing.Count, $listRing[0].Width, $listRing[0].Height, ($listRing[0].GetPixel(12, 12).A -eq $listEgg[0].GetPixel(12, 12).A), (Get-SessionSymbol)) 'symbols: the list shows each one still and thinking, without switching it on'
+    foreach ($frame in @($listEgg) + @($listRing)) { $frame.Dispose() }
+    $script:SymbolPreviewCache = @{}
+
     Set-SessionSymbol 'ring'
     Assert-Equal 'ring|ring' ('{0}|{1}' -f (Get-SessionSymbol), (Get-SavedSymbol $symTmp)) 'symbols: the choice is on and saved for the next start'
     Assert-Equal $false ([object]::ReferenceEquals($iconBefore, $script:SessionIcons[0].Icon)) 'symbols: a tray icon already showing is redrawn'
     Assert-Equal $false ($phoneBefore -eq (Get-MobileEggsAnswer '#16A34A').Body.still) 'symbols: the phone gets the new one, not the cached one'
+    Assert-Equal $ringListed (Get-MobileEggsAnswer '#16A34A').Body.still 'symbols: what the list showed is what comes on'
     Assert-Equal $profilesBefore ([IO.File]::ReadAllText($TerminalFragmentFile)) 'symbols: the open terminals are not touched: they keep theirs'
     $openingNow = Get-SessionProfileName 'blue' (Get-SavedSymbol $symTmp)
     Assert-Equal 'ClaudeMaxxing blue|ClaudeMaxxing blue ring' "$openedWith|$openingNow" 'symbols: a session opened now starts with the new one'

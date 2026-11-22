@@ -49,7 +49,7 @@ class EggFrames {
 }
 
 class EggCache {
-  static final _frames = <(String, String), Future<EggFrames>>{};
+  static final _frames = <(String, String, String?), Future<EggFrames>>{};
   static final _symbols = <String, String>{};
 
   /// Bumped when a PC changes its symbol: whoever shows one drops it and asks again.
@@ -61,15 +61,16 @@ class EggCache {
   static void use(String pin, String symbol) {
     if (_symbols[pin] == symbol) return;
     _symbols[pin] = symbol;
-    _frames.removeWhere((key, _) => key.$1 == pin);
+    _frames.removeWhere((key, _) => key.$1 == pin && key.$3 == null);
     changes.value++;
   }
 
-  static Future<EggFrames> of(Api api, String color) {
-    final key = (api.pc.pin, color);
+  /// [symbol]: that one, whatever the PC has on (the list of symbols).
+  static Future<EggFrames> of(Api api, String color, [String? symbol]) {
+    final key = (api.pc.pin, color, symbol);
     return _frames.putIfAbsent(key, () async {
       try {
-        return EggFrames.fromJson(await api.eggs(color));
+        return EggFrames.fromJson(await api.eggs(color, symbol));
       } catch (_) {
         _frames.remove(key);
         rethrow;
@@ -84,11 +85,13 @@ class Egg extends StatefulWidget {
     required this.api,
     required this.color,
     required this.state,
+    this.symbol,
     this.size = 28,
   });
 
   final Api api;
   final String color, state;
+  final String? symbol;
   final double size;
 
   @override
@@ -110,6 +113,7 @@ class _EggState extends State<Egg> {
 
   // The one before must not stay on screen while the new one arrives.
   void _symbolChanged() {
+    if (widget.symbol != null) return;
     setState(() => _frames = null);
     _sync();
     _load();
@@ -118,7 +122,9 @@ class _EggState extends State<Egg> {
   @override
   void didUpdateWidget(Egg oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.api != widget.api || oldWidget.color != widget.color) {
+    if (oldWidget.api != widget.api ||
+        oldWidget.color != widget.color ||
+        oldWidget.symbol != widget.symbol) {
       _frames = null;
       _loading = false;
       _sync();
@@ -131,15 +137,18 @@ class _EggState extends State<Egg> {
   Future<void> _load() async {
     final api = widget.api;
     final color = widget.color;
+    final symbol = widget.symbol;
     final change = EggCache.changes.value;
     _loading = true;
     EggFrames? frames;
     try {
-      frames = await EggCache.of(api, color);
+      frames = await EggCache.of(api, color, symbol);
     } catch (_) {
       // Keep the colored fallback and retry on the next state refresh.
     }
-    if (!mounted || widget.api != api || widget.color != color || change != EggCache.changes.value) return;
+    if (!mounted || widget.api != api || widget.color != color || widget.symbol != symbol) return;
+    // A named symbol is the same whichever is on.
+    if (symbol == null && change != EggCache.changes.value) return;
     setState(() {
       _loading = false;
       _frames = frames;

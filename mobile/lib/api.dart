@@ -156,8 +156,8 @@ class Api {
   Future<Map<String, dynamic>> messages(String session, int after) async =>
       (await call('GET', '/messages', query: {'session': session, 'after': '$after'})) as Map<String, dynamic>;
   Future<void> prompt(String session, String text) => call('POST', '/prompt', body: {'session': session, 'text': text});
-  Future<Map<String, dynamic>> eggs(String color) async =>
-      (await call('GET', '/eggs', query: {'color': color})) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> eggs(String color, [String? symbol]) async =>
+      (await call('GET', '/eggs', query: {'color': color, if (symbol != null) 'symbol': symbol})) as Map<String, dynamic>;
   Future<void> upload(String session, String name, List<int> bytes, String caption) =>
       call('POST', '/upload', query: {'session': session, 'name': name, 'caption': caption}, rawBody: bytes);
   Future<void> unpair() => call('POST', '/unpair');

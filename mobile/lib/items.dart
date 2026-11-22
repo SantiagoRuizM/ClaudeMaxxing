@@ -7,6 +7,9 @@ import 'strings.dart';
 
 typedef OnAction = Future<void> Function(String id, int? arg);
 
+/// The pictures before an option's name, for a choice with 'preview' (the color to draw them in).
+typedef OptionPreview = Widget Function(String key, String color);
+
 Color? hexColor(String? hex) {
   if (hex == null || !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(hex)) return null;
   return Color(int.parse(hex.substring(1), radix: 16) | 0xFF000000);
@@ -31,9 +34,10 @@ Color toneColor(BuildContext context, String? tone) {
 }
 
 class ItemsView extends StatelessWidget {
-  const ItemsView({super.key, required this.items, required this.onAction, this.busy = false});
+  const ItemsView({super.key, required this.items, required this.onAction, this.busy = false, this.optionPreview});
 
   final List<Map<String, dynamic>> items;
+  final OptionPreview? optionPreview;
   final OnAction onAction;
   final bool busy;
 
@@ -136,6 +140,8 @@ class ItemsView extends StatelessWidget {
         final keys = options.map((o) => '${o['k']}').toList();
         final current = '${item['current'] ?? ''}';
         final absolute = item['absolute'] == true;
+        final previewColor = item['preview'] as String?;
+        final preview = previewColor == null ? null : optionPreview;
         return ListTile(
           title: Text('${item['label']}'),
           trailing: DropdownButton<String>(
@@ -150,7 +156,13 @@ class ItemsView extends StatelessWidget {
             items: [
               for (final o in options)
                 if (!(absolute && '${o['k']}'.isEmpty))
-                  DropdownMenuItem(value: '${o['k']}', child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 180), child: Text('${o['label']}', overflow: TextOverflow.ellipsis))),
+                  DropdownMenuItem(
+                    value: '${o['k']}',
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (preview != null) ...[preview('${o['k']}', previewColor!), const SizedBox(width: 8)],
+                      ConstrainedBox(constraints: BoxConstraints(maxWidth: preview == null ? 180 : 80), child: Text('${o['label']}', overflow: TextOverflow.ellipsis)),
+                    ]),
+                  ),
             ],
           ),
         );

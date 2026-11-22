@@ -106,11 +106,13 @@ function Get-SessionSymbol {
     $script:SessionSymbol
 }
 
-# The images of the symbol on (background already removed), loaded once: still.png is the still one, filled.png
-# the same with no holes and thinking.gif gives the thinking frames. Any may be missing.
-function Get-EggImages {
-    if ($script:EggImages) { return $script:EggImages }
-    $folder = Join-Path (Join-Path $TrayRoot 'symbols') (Get-SessionSymbol)
+# A symbol's images (the one on if none is given; background already removed), loaded once each: still.png is the
+# still one, filled.png the same with no holes and thinking.gif gives the thinking frames. Any may be missing.
+function Get-EggImages([string]$Symbol) {
+    if (-not $Symbol) { $Symbol = Get-SessionSymbol }
+    if (-not $script:EggImages) { $script:EggImages = @{} }
+    if ($script:EggImages.ContainsKey($Symbol)) { return $script:EggImages[$Symbol] }
+    $folder = Join-Path (Join-Path $TrayRoot 'symbols') $Symbol
     $single = @{ still = $null; filled = $null }
     $frames = @()
     foreach ($name in 'still', 'filled') {
@@ -130,8 +132,8 @@ function Get-EggImages {
         }
         $gif.Dispose()
     }
-    $script:EggImages = [pscustomobject]@{ Still = $single.still; Filled = $single.filled; Frames = $frames }
-    $script:EggImages
+    $script:EggImages[$Symbol] = [pscustomobject]@{ Still = $single.still; Filled = $single.filled; Frames = $frames }
+    $script:EggImages[$Symbol]
 }
 
 # Thinking light: a round glow behind the egg, a light shade of the session color fading out toward the
@@ -158,9 +160,9 @@ function Add-SessionGlow([System.Drawing.Bitmap]$Egg, [System.Drawing.Color]$Col
 
 # The egg in the session's color: still while the session waits; frame $Frame of the thinking GIF, with its
 # light, while it works. A plain circle if the images are missing.
-function New-SessionIconBitmap([string]$Hex, [int]$Size, [int]$Frame = -1) {
+function New-SessionIconBitmap([string]$Hex, [int]$Size, [int]$Frame = -1, [string]$Symbol) {
     $color = [System.Drawing.ColorTranslator]::FromHtml($Hex)
-    $eggs = Get-EggImages
+    $eggs = Get-EggImages $Symbol
     $source = if ($Frame -ge 0 -and $eggs.Frames.Count) { $eggs.Frames[$Frame % $eggs.Frames.Count] } else { $eggs.Still }
     if ($source) {
         $egg = ConvertTo-TintedBitmap $source $color $Size
@@ -181,7 +183,7 @@ function New-SessionIconBitmap([string]$Hex, [int]$Size, [int]$Frame = -1) {
 # on a halo of the same color, growing and stretching up from its base with the voice, two beats per cycle.
 # The other eggs are outlines: the one talking stands out at a glance.
 $script:SpeakFrameCount = 8
-function New-SpeakingIconBitmap([string]$Hex, [int]$Size, [int]$Frame) {
+function New-SpeakingIconBitmap([string]$Hex, [int]$Size, [int]$Frame, [string]$Symbol) {
     $color = [System.Drawing.ColorTranslator]::FromHtml($Hex)
     $beat = [Math]::Abs([Math]::Sin(2 * [Math]::PI * ($Frame % $script:SpeakFrameCount) / $script:SpeakFrameCount))
     $bitmap = New-Object System.Drawing.Bitmap($Size, $Size)
@@ -200,7 +202,7 @@ function New-SpeakingIconBitmap([string]$Hex, [int]$Size, [int]$Frame) {
     $side = [Math]::Round($Size * (0.72 + 0.28 * $beat))
     $x = ($Size - $side) / 2; $y = $Size - $side
     # Its inside: the symbol's own shape with no holes, under its lines.
-    $images = Get-EggImages
+    $images = Get-EggImages $Symbol
     if ($images.Filled) {
         $inside = ConvertTo-TintedBitmap $images.Filled $color $Size
         $g.DrawImage($inside, [single]$x, [single]$y, [single]$side, [single]$side)
@@ -309,6 +311,29 @@ function Get-SessionIcon([int]$Index, [int]$Frame = -1, [switch]$Speaking) {
     $script:SessionIconCache[$key]
 }
 
+# A symbol as its list shows it (Configuracion): still on the left, thinking on the right, one image per step of the
+# animation. Drawn once per symbol and size.
+$script:SymbolPreviewCache = @{}
+function Get-SymbolPreview([string]$Symbol, [int]$Size) {
+    $key = "$Symbol/$Size"
+    if (-not $script:SymbolPreviewCache.ContainsKey($key)) {
+        $hex = $SlotColors[1].Hex
+        $gap = [int]($Size / 3)
+        $still = New-SessionIconBitmap $hex $Size -1 $Symbol
+        $script:SymbolPreviewCache[$key] = @(for ($f = 0; $f -lt (Get-EggFrameCount); $f++) {
+            $thinking = New-SessionIconBitmap $hex $Size $f $Symbol
+            $pair = New-Object System.Drawing.Bitmap((2 * $Size + $gap), $Size)
+            $g = [System.Drawing.Graphics]::FromImage($pair)
+            $g.DrawImage($still, 0, 0, $Size, $Size)
+            $g.DrawImage($thinking, ($Size + $gap), 0, $Size, $Size)
+            $g.Dispose(); $thinking.Dispose()
+            $pair
+        })
+        $still.Dispose()
+    }
+    , $script:SymbolPreviewCache[$key]
+}
+
 # Another symbol for the whole PC, from Configuracion here or on the phone: saved for the sessions opened from now
 # on, and redrawn in the tray, the strip, the window and the phone. The terminals already open keep the one they
 # opened with (tab and statusline: Get-SessionProfileName).
@@ -317,10 +342,6 @@ function Set-SessionSymbol([string]$Id) {
     if ($Id -eq (Get-SessionSymbol)) { return }
     Write-JsonFile $SymbolFile ([ordered]@{ id = $Id })
     $script:SessionSymbol = $Id
-    if ($script:EggImages) {
-        foreach ($image in @($script:EggImages.Still, $script:EggImages.Filled) + @($script:EggImages.Frames)) { if ($image) { $image.Dispose() } }
-        $script:EggImages = $null
-    }
     foreach ($cache in $script:HubEggCache, $script:EggBitmapCache) {
         if (-not $cache) { continue }
         foreach ($bitmap in @($cache.Values)) { $bitmap.Dispose() }

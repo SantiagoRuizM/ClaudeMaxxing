@@ -308,7 +308,7 @@ function Invoke-MobileRequest($Request) {
     if ($Request.Body) { try { $body = $Request.Body | ConvertFrom-Json } catch { return $badJson } }
 
     switch ($route) {
-        'GET /eggs'     { return Get-MobileEggsAnswer ([string]$query['color']) }
+        'GET /eggs'     { return Get-MobileEggsAnswer ([string]$query['color']) ([string]$query['symbol']) }
         'POST /upload'  { return Save-MobileUpload ([string]$query['session']) ([string]$query['name']) ([string]$query['caption']) $Request.BodyBytes }
         'GET /state'    { return New-MobileAnswer 200 (Get-MobilePanelState) }
         'GET /section'  { return New-MobileAnswer 200 (Get-MobileSection ([string]$query['id'])) }
@@ -328,19 +328,21 @@ function Invoke-MobileRequest($Request) {
 
 # The eggs of the tray for one session color, drawn by the tray's own functions (lib\traysessions.ps1): still, the
 # 9 frames of thinking and the 8 of speaking, as PNG in base64, and the tray's 120 ms per frame. Cached per color
-# until the symbol changes (Set-SessionSymbol).
-function Get-MobileEggsAnswer([string]$Hex) {
+# until the symbol changes (Set-SessionSymbol). With $Symbol, that one's instead (the app's list of symbols).
+function Get-MobileEggsAnswer([string]$Hex, [string]$Symbol) {
     if ($Hex -notmatch '^#[0-9a-fA-F]{6}$') { return New-MobileAnswer 400 @{ error = 'bad color' } }
+    # It names a folder: only one of the list gets through.
+    if ($Symbol -and -not (Get-SessionSymbols $TrayRoot).Contains($Symbol)) { return New-MobileAnswer 400 @{ error = 'bad symbol' } }
     if (-not $script:Mobile.Eggs) { $script:Mobile.Eggs = @{} }
-    $key = $Hex.ToLowerInvariant()
+    $key = $Hex.ToLowerInvariant() + '/' + $Symbol.ToLowerInvariant()
     if (-not $script:Mobile.Eggs.ContainsKey($key)) {
         $size = 96
         $png = { param($Bitmap) $ms = New-Object IO.MemoryStream; $Bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); $Bitmap.Dispose(); [Convert]::ToBase64String($ms.ToArray()) }
         $script:Mobile.Eggs[$key] = [ordered]@{
             interval = 120
-            still    = (& $png (New-SessionIconBitmap $Hex $size))
-            thinking = @(for ($f = 0; $f -lt (Get-EggFrameCount); $f++) { & $png (New-SessionIconBitmap $Hex $size $f) })
-            speaking = @(for ($f = 0; $f -lt $script:SpeakFrameCount; $f++) { & $png (New-SpeakingIconBitmap $Hex $size $f) })
+            still    = (& $png (New-SessionIconBitmap $Hex $size -1 $Symbol))
+            thinking = @(for ($f = 0; $f -lt (Get-EggFrameCount); $f++) { & $png (New-SessionIconBitmap $Hex $size $f $Symbol) })
+            speaking = @(for ($f = 0; $f -lt $script:SpeakFrameCount; $f++) { & $png (New-SpeakingIconBitmap $Hex $size $f $Symbol) })
         }
     }
     New-MobileAnswer 200 $script:Mobile.Eggs[$key]
@@ -1031,7 +1033,10 @@ function Get-MobileBusinessItems {
 function Get-MobileSettingsItems {
     $c = $script:Hub.Cache
     if ($script:Hub.Languages) { MChoice 'language' (L 'Idioma') $script:Hub.Languages ([string]$script:UiLanguage) 'Step-HubLanguage' }
-    MChoice 'symbol' (Tx 'S\u00edmbolo de las sesiones') (Get-SessionSymbols $TrayRoot) (Get-SessionSymbol) 'Step-HubSymbol'
+    $symbols = MChoice 'symbol' (Tx 'S\u00edmbolo de las sesiones') (Get-SessionSymbols $TrayRoot) (Get-SessionSymbol) 'Step-HubSymbol'
+    # The app draws each option still and thinking, in this color.
+    $symbols.preview = $SlotColors[1].Hex
+    $symbols
     MText $SymbolNote
     MSwitch 'snip' ((L 'Captura a Claude Code') + ' (' + $(if ($script:SnipHotkeyName) { $script:SnipHotkeyName } else { 'Win+Alt+C' }) + ')') '' ([bool]$c.SnipEnabled) ([scriptblock]::Create("Set-HubSnip `$$(-not [bool]$c.SnipEnabled)"))
     if ($c.VoiceInstalled) { MSwitch 'settings-voice-on' (L 'Voz en todas las sesiones') (Tx 'Si la apagas, ninguna sesi\u00f3n habla') (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)")) }

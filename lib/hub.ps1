@@ -2709,7 +2709,39 @@ namespace ClaudeTray {
         if ($i -ne $at) { $item.Add_Click([scriptblock]::Create("$($d.Command) $($i - $at)")) }
         [void]$menu.Items.Add($item)
     }
+    if ($Id -eq 'symbol') { Add-HubSymbolPreviews $menu $keys }
     $menu.Show($script:HubDialog, (New-Object System.Drawing.Point([int]($d.Box.X * $zoom), [int](($d.Box.Bottom + (Px 2)) * $zoom))))
+}
+
+# The symbols' list: each one still and thinking, next to its name, moving at the tray's pace while the list is open.
+$script:SymbolMenuTimer = $null
+function Add-HubSymbolPreviews($Menu, [string[]]$Ids) {
+    $size = Px 32
+    $Menu.ShowImageMargin = $true
+    $Menu.ImageScalingSize = New-Object System.Drawing.Size((2 * $size + [int]($size / 3)), $size)
+    for ($i = 0; $i -lt $Ids.Count; $i++) {
+        $Menu.Items[$i].Tag = $Ids[$i]
+        $Menu.Items[$i].Image = (Get-SymbolPreview $Ids[$i] $size)[0]
+    }
+    Stop-HubSymbolPreviews
+    $script:SymbolMenuFrame = 0
+    $script:SymbolMenuTimer = New-Object System.Windows.Forms.Timer
+    $script:SymbolMenuTimer.Interval = 120
+    $script:SymbolMenuTimer.Add_Tick({ try { Step-HubSymbolPreviews } catch { Stop-HubSymbolPreviews; Write-SessionIconError $_ } })
+    $Menu.Add_Closed({ Stop-HubSymbolPreviews })
+    $script:SymbolMenuTimer.Start()
+}
+
+function Step-HubSymbolPreviews {
+    $script:SymbolMenuFrame++
+    foreach ($item in @($script:HubDropdownMenu.Items)) {
+        $frames = Get-SymbolPreview ([string]$item.Tag) (Px 32)
+        $item.Image = $frames[$script:SymbolMenuFrame % $frames.Count]
+    }
+}
+
+function Stop-HubSymbolPreviews {
+    if ($script:SymbolMenuTimer) { $script:SymbolMenuTimer.Stop(); $script:SymbolMenuTimer.Dispose(); $script:SymbolMenuTimer = $null }
 }
 
 function Draw-HubGroupTitle($G, [string]$Text, [int]$X, [int]$Y, [int]$W) {

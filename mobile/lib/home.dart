@@ -398,7 +398,17 @@ class _SectionScreenState extends State<SectionScreen> {
         child: ListView(padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom), children: [
           if (_error.isNotEmpty) Padding(padding: const EdgeInsets.all(16), child: Text(_error, style: TextStyle(color: Theme.of(context).colorScheme.error))),
           if (_items == null && _error.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
-          if (_items != null) ItemsView(items: _items!, onAction: _act, busy: _busy),
+          if (_items != null)
+            ItemsView(
+              items: _items!,
+              onAction: _act,
+              busy: _busy,
+              optionPreview: (symbol, color) => Row(mainAxisSize: MainAxisSize.min, children: [
+                Egg(api: widget.api, color: color, symbol: symbol, state: 'idle'),
+                const SizedBox(width: 4),
+                Egg(api: widget.api, color: color, symbol: symbol, state: 'thinking'),
+              ]),
+            ),
           const SizedBox(height: 24),
         ]),
       ),
