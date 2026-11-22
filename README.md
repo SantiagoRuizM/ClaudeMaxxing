@@ -417,7 +417,8 @@ The ClaudeMaxxing app for Android shows the panel of the ClaudeMaxxing window an
 - Pairing gives the phone a random token. The PC keeps only its hash (`~/.claude/usage-tray/mobile/devices.json`) and the phone keeps it in the Android Keystore. A pairing code works once and 5 wrong tries end it.
 - The panel is described by the PC, already in the language chosen there: the app only draws it. A switch or a choice sends back the id of an action the PC registered for it, never a command.
 - Writing to a session goes through Claude Code's cross-session messaging (a named pipe per session, Claude Code 2.1.234 or later). Claude Code delivers your text as a message from another session: Claude follows it, but it can't approve a permission prompt, which stays on the PC. Only sessions opened from the Explorer menu take messages, because the voice plugin records each one's inbox when it starts.
-- Not included yet: iPhone (the Flutter code would build there, but it needs a Mac), and a release signed with a fixed key (the APK is signed with the build PC's debug key, so an update from another PC has to be installed over an uninstall).
+- Not included yet: iPhone (the Flutter code would build there, but it needs a Mac).
+- The APKs in the Releases are signed with the project's release key, so each one installs over the one before. One signed with another key (a debug build, for example) can only be installed after uninstalling the app, and then the phone has to be paired again.
 
 </details>
 
@@ -524,6 +525,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\bridge-e2e.ps1        #
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File test\bridge-tray-e2e.ps1   # the same through the tray functions
 powershell -NoProfile -ExecutionPolicy Bypass -File test\mobile-e2e.ps1        # the phone app's HTTPS server on loopback: pinned certificate, pairing, refusals
 cd mobile; flutter analyze; flutter test; flutter build apk --release            # the phone app (Flutter); the APK lands in mobile\build\app\outputs\flutter-apk
+# Release signing: mobile\android\key.properties (storePassword, keyPassword, keyAlias, storeFile: the .jks), kept
+# out of git like the key itself. Without it the release build is signed with the debug key.
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draw the popup to an image (-RenderHubTo x.png -HubSection <id> draws a section of the window)
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Claude Whisper with sample data
 ```
