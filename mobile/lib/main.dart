@@ -9,6 +9,7 @@ import 'notify.dart';
 import 'pair_screen.dart';
 import 'store.dart';
 import 'strings.dart';
+import 'update.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,17 +42,58 @@ class Root extends StatefulWidget {
   State<Root> createState() => _RootState();
 }
 
-class _RootState extends State<Root> {
+class _RootState extends State<Root> with WidgetsBindingObserver {
   List<Pc>? _pcs;
   int _current = 0;
+  DateTime? _updateCheckedAt;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SessionNotification.instance.requestPermission();
+      _checkUpdate();
     });
     loadPcs().then((pcs) => setState(() => _pcs = pcs));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // The app can stay alive for days behind its notification: also on coming back to it, every 6 hours at most.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkUpdate();
+  }
+
+  Future<void> _checkUpdate() async {
+    final last = _updateCheckedAt;
+    if (last != null && DateTime.now().difference(last) < const Duration(hours: 6)) return;
+    _updateCheckedAt = DateTime.now();
+    final version = await findUpdate();
+    if (version == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(MaterialBanner(
+      content: Text(S.updateAvailable(version)),
+      actions: [
+        TextButton(onPressed: messenger.hideCurrentMaterialBanner, child: Text(S.updateLater)),
+        FilledButton(
+          onPressed: () async {
+            if (await downloadUpdate()) {
+              messenger.hideCurrentMaterialBanner();
+            } else {
+              messenger.showSnackBar(SnackBar(content: Text(S.updateFailed)));
+            }
+          },
+          child: Text(S.updateDownload),
+        ),
+      ],
+    ));
   }
 
   Future<void> _add() async {

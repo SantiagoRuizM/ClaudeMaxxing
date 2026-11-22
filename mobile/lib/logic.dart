@@ -172,3 +172,22 @@ List<({String text, bool bold, bool code})> inlineMarks(String line) {
   ].join(' · ');
   return (place: place, model: s('model'), effort: s('effort'), run: run);
 }
+
+/// The version of GitHub's latest [release] when it is newer than [current] and has the APK, else null.
+String? apkUpdate(Object? release, String current) {
+  if (release is! Map) return null;
+  List<int>? parts(String v) {
+    final m = RegExp(r'^v?(\d{1,6})\.(\d{1,6})\.(\d{1,6})$').firstMatch(v);
+    return m == null ? null : [for (var i = 1; i <= 3; i++) int.parse(m.group(i)!)];
+  }
+
+  final next = parts('${release['tag_name']}');
+  final now = parts(current);
+  final assets = release['assets'];
+  if (next == null || now == null || assets is! List) return null;
+  if (!assets.any((a) => a is Map && a['name'] == 'ClaudeMaxxing.apk')) return null;
+  for (var i = 0; i < 3; i++) {
+    if (next[i] != now[i]) return next[i] > now[i] ? next.join('.') : null;
+  }
+  return null;
+}

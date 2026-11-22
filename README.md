@@ -47,11 +47,15 @@ Optional:
 
 ### Install
 
-Run this in any PowerShell window. Nothing needs to be installed first.
+**1. On the PC**, paste this in any PowerShell window. Nothing needs to be installed first.
 
 ```powershell
 irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
 ```
+
+**2. On the phone** (optional, Android), download **[ClaudeMaxxing.apk](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest/download/ClaudeMaxxing.apk)**, open it and allow the install. In ClaudeMaxxing on the PC open **Phone**, turn it on, and scan its QR from the app with **Add PC**.
+
+**3. Away from your Wi-Fi** (optional), install [Tailscale](https://tailscale.com/download) on both and sign in to the same account.
 
 It downloads the [latest release](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest), verifies it against the release's SHA-256 and runs its `install.ps1`. If GitHub's API can't be reached (it allows 60 requests an hour per address) or the release has no SHA-256, it stops without installing anything. The unreleased `main` branch is installed only while the repo has no release at all, or with `-Ref main`.
 
@@ -63,7 +67,7 @@ To pass [options](#install-options):
 
 Other ways to install:
 
-- **npx** (needs Node.js): `npx github:SantiagoRuizM/ClaudeMaxxing`. Options pass through, for example `-- -SkipBridge`.
+- **npx** (needs Node.js): `npx github:SantiagoRuizM/ClaudeMaxxing`. Options pass through, for example `-- -SkipBridge`. It installs `main` as it is, not the latest release, with no SHA-256 check.
 - **By hand**: download and unzip the release ZIP (or clone the repo), then run this in that folder:
 
   ```powershell
@@ -95,7 +99,14 @@ Other ways to install:
 
 ### Updating
 
-Run the install command again, or download a newer release (or `git pull`) and run `install.ps1`. The installer is idempotent and keeps your per-PC settings (`voice\config.local.json`) and all your data.
+You don't have to look for new versions, and you never uninstall to update.
+
+- **PC**: ClaudeMaxxing tells you when there is a new version. Click the notice, or right-click the jellyfish and choose **Install update...** (**Check for updates...** looks right away). It checks the download's SHA-256, installs over the old version and restarts the tray. Reopen the sessions that were open, and reload the Chrome extension if you use it.
+- **Phone**: the app tells you too. Tap **Download** and open the file: it installs over the old one and stays paired.
+
+Updates keep your data, your settings, the paired phones, the edition and what you installed without (menu, hotkeys, voice dependencies). The business edition doesn't check by itself: IT chooses when, or use **Check for updates...**.
+
+A version from before this existed updates once by running the install command again. An app from before this existed needs the APK installed once by hand.
 
 Versions follow [Semantic Versioning](https://semver.org). What changed in each one is in [CHANGELOG.md](CHANGELOG.md), and what counts as a major, minor or patch version is in [VERSIONING.md](VERSIONING.md). The installed version shows in **Settings > Apps > ClaudeMaxxing**.
 
@@ -399,7 +410,7 @@ A live copilot for calls: job interviews, meetings, sales calls. Open **Maxx Whi
 
 The ClaudeMaxxing app for Android shows the panel of the ClaudeMaxxing window and the Claude Code sessions open on your PC. Off until you turn it on.
 
-**Setting it up.** In the ClaudeMaxxing window, open **Phone** and turn it on. Windows asks once for admin approval to allow it in the firewall. Install the app from the APK in the [GitHub Releases](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases), tap **Add PC** and scan the QR shown in **Phone** (**Show the QR**, valid for 5 minutes). The phone has to be on the same Wi-Fi as the PC. From anywhere else, install [Tailscale](https://tailscale.com) on both.
+**Setting it up.** In the ClaudeMaxxing window, open **Phone** and turn it on. Windows asks once for admin approval to allow it in the firewall. Install the [latest APK](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest/download/ClaudeMaxxing.apk), tap **Add PC** and scan the QR shown in **Phone** (**Show the QR**, valid for 5 minutes). The phone has to be on the same Wi-Fi as the PC. From anywhere else, install [Tailscale](https://tailscale.com) on both.
 
 **Using it.**
 
@@ -470,6 +481,7 @@ What each module lets in or sends out:
 | Voice | The Edge voice (the default) sends each spoken summary to Microsoft; ElevenLabs and Gemini send it to them. The Windows voice stays on the PC |
 | FreeLLMAPI | The prompts of the sessions it serves go to free third-party providers, some of which train on them |
 | Skills & MCP catalog | A skill is instructions Claude follows: the catalog's were checked when copied (text only, no scripts, hooks or tool grants) but are third-party. An MCP server you switch on reaches that vendor with your login; the local ones download their npm package the first time |
+| Updates | The tray (personal edition) and the phone app ask GitHub for the latest release on start and every 6 hours. GitHub sees your IP address; nothing else is sent |
 | Keys | The ElevenLabs, Gemini and FreeLLMAPI keys are stored encrypted for your Windows user (DPAPI). The Jev key in `harness\.env` is plain text (Node reads it) |
 
 Statistics, transcripts and usage data are read and kept on your PC.
@@ -528,6 +540,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File test\mobile-e2e.ps1        #
 cd mobile; flutter analyze; flutter test; flutter build apk --release            # the phone app (Flutter); the APK lands in mobile\build\app\outputs\flutter-apk
 # Release signing: mobile\android\key.properties (storePassword, keyPassword, keyAlias, storeFile: the .jks), kept
 # out of git like the key itself. Without it the release build is signed with the debug key.
+# Published APKs are built by release.yml, which also gives them their version (VERSIONING.md).
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File tray.ps1 -RenderTo popup.png   # draw the popup to an image (-RenderHubTo x.png -HubSection <id> draws a section of the window)
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File whisper.ps1 -RenderTo whisper.png   # Maxx Whisper with sample data
 ```

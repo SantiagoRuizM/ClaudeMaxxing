@@ -1,7 +1,7 @@
 name: Release
 
 # Pushing a tag v<version> (the version in lib/common.ps1 and the newest entry of CHANGELOG.md)
-# runs the tests and publishes a GitHub Release with the ZIP to install and that entry as its notes.
+# runs the tests and publishes a GitHub Release with the ZIP to install, the signed APK and that entry as its notes.
 on:
   push:
     tags: ['v*']
@@ -14,8 +14,83 @@ jobs:
   tests:
     uses: ./.github/workflows/ci.yml
 
-  release:
+  apk:
     needs: tests
+    runs-on: ubuntu-latest
+    env:
+      FLUTTER_VERSION: 3.24.3
+      FLUTTER_COMMIT: 2663184aa7
+      # The project's release certificate: Android installs an update only over an APK signed with the same one.
+      APK_CERT_SHA256: 15f75c642313e12b44deb1273e55c3487a6ef739a26836bdb6cdc333d417b82a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Before the signing key is written anywhere.
+      - name: The tag is on main or a release branch
+        run: |
+          if ! git branch -r --contains "$GITHUB_SHA" | grep -qE 'origin/(main|release/[^ ]+)$'; then
+            echo "tag $GITHUB_REF_NAME is not on main or a release/* branch"; exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Cloned and pinned, rather than a third-party action next to the signing key.
+      - name: Flutter
+        run: |
+          git clone --quiet --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          case "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" in
+            "$FLUTTER_COMMIT"*) ;;
+            *) echo "Flutter $FLUTTER_VERSION is not the pinned commit"; exit 1 ;;
+          esac
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: App tests
+        working-directory: mobile
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter test
+
+      - name: Signed APK
+        working-directory: mobile
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEY_PROPERTIES" ]; then
+            echo "Missing ANDROID_KEYSTORE_BASE64 or ANDROID_KEY_PROPERTIES (VERSIONING.md > Signing the app)"; exit 1
+          fi
+          trap 'rm -f "$RUNNER_TEMP/release.jks" android/key.properties' EXIT
+          echo "$KEYSTORE_BASE64" | base64 --decode --ignore-garbage > "$RUNNER_TEMP/release.jks"
+          printf '%s\n' "$KEY_PROPERTIES" | tr -d '\r' | grep -v '^storeFile=' > android/key.properties
+          echo "storeFile=$RUNNER_TEMP/release.jks" >> android/key.properties
+          version="${GITHUB_REF_NAME#v}"
+          IFS=. read -r major minor patch <<< "$version"
+          flutter build apk --release --build-name="$version" --dart-define=APP_VERSION="$version" \
+            --build-number=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+
+      - name: The APK has the project's certificate
+        working-directory: mobile
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          signer="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$signer" verify --print-certs "$apk" > certs.txt
+          grep -q "certificate SHA-256 digest: $APK_CERT_SHA256" certs.txt
+          cp "$apk" "$RUNNER_TEMP/ClaudeMaxxing.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: ${{ runner.temp }}/ClaudeMaxxing.apk
+          if-no-files-found: error
+
+  release:
+    needs: [tests, apk]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -38,15 +113,19 @@ jobs:
             echo "tag $GITHUB_REF_NAME is not on main or a release/* branch"; exit 1
           fi
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+
       # get.ps1 (the one-command installer) downloads the ZIP and checks it against SHA256SUMS.txt.
-      - name: Release with the ZIP, its SHA-256, get.ps1 and the changelog entry
+      - name: Release with the ZIP, the APK, their SHA-256, get.ps1 and the changelog entry
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${GITHUB_REF_NAME#v}"
           git archive --format=zip --prefix="ClaudeMaxxing-$v/" -o "ClaudeMaxxing-$v.zip" HEAD
-          sha256sum "ClaudeMaxxing-$v.zip" > SHA256SUMS.txt
+          sha256sum "ClaudeMaxxing-$v.zip" ClaudeMaxxing.apk > SHA256SUMS.txt
           awk -v v="$v" '/^## /{ f = ($2 == v) } f' CHANGELOG.md | tail -n +2 > notes.md
           grep -q '[^[:space:]]' notes.md || { echo "CHANGELOG.md has no entry for $v"; exit 1; }
-          gh release create "$GITHUB_REF_NAME" "ClaudeMaxxing-$v.zip" SHA256SUMS.txt get.ps1 --title "ClaudeMaxxing $v" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" "ClaudeMaxxing-$v.zip" ClaudeMaxxing.apk SHA256SUMS.txt get.ps1 --title "ClaudeMaxxing $v" --notes-file notes.md

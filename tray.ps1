@@ -29,6 +29,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\maxx.ps1')
 . (Join-Path $TrayRoot 'lib\forecast.ps1')
 . (Join-Path $TrayRoot 'lib\business.ps1')
+. (Join-Path $TrayRoot 'lib\update.ps1')
 # Started by install.ps1 from a Claude Code shell, the tray would pass that shell's settings (no colors, no git
 # prompts) to everything it starts, including remote sessions on this PC.
 if ($env:CLAUDECODE) {
@@ -419,6 +420,9 @@ $script:BridgeMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Otros PC
 $script:BridgeMenu.Add_DropDownOpening({ Update-BridgeMenu $script:BridgeMenu })
 if (Test-HubModule 'bridge') { [void]$menu.Items.Add($script:BridgeMenu) }
 [void]$menu.Items.Add('-')
+$script:UpdateMenu = $menu.Items.Add('Buscar actualizaciones...', $null, {
+    if ($script:UpdateVersion) { Confirm-AppUpdate } else { Start-UpdateCheck -Manual }
+})
 [void]$menu.Items.Add('Salir', $null, {
     # Leaving stops the SSH server, which ends what other PCs have open here.
     $open = if ($script:Bridge) { @($script:Bridge.Sessions.Values).Count } else { 0 }
@@ -451,6 +455,60 @@ $script:UsageBars = @(for ($i = 0; $i -lt $script:UsageBarSegments; $i++) {
 $Notify.Add_BalloonTipClicked({
     if ($script:BridgeBalloonAction -eq 'dialog') { Show-BridgeDialog }
     elseif ($script:BridgeBalloonAction -eq 'whisper') { Start-WhisperWindow $TrayRoot }
+    elseif ($script:BridgeBalloonAction -eq 'update' -and $script:UpdateVersion) { Confirm-AppUpdate }
+})
+
+# Updates (lib\update.ps1): a notice once per version, and the menu item to install it.
+function Start-UpdateCheck([switch]$Manual) {
+    if ($Manual) { $script:UpdateManual = $true }
+    if ($script:UpdatePending) { return }
+    try {
+        $script:UpdatePending = Start-UpdateRequest
+        $script:UpdateTimer.Start()
+    } catch {
+        if ($script:UpdateManual) { Show-UpdateResult @{ State = 'error' } }
+    }
+}
+
+function Show-UpdateResult($Result) {
+    $manual = $script:UpdateManual
+    $script:UpdateManual = $false
+    $text = $null
+    if ($Result.State -eq 'new') {
+        $announced = $script:UpdateVersion -eq $Result.Version
+        $script:UpdateVersion = $Result.Version
+        # Tag keeps the Spanish text the menu translates each time it opens.
+        $script:UpdateMenu.Tag = Ux 'Instalar actualizaci\u00f3n...'
+        $script:UpdateMenu.Text = L $script:UpdateMenu.Tag
+        if ($manual -or -not $announced) { $text = (Tx 'ClaudeMaxxing {0} est\u00e1 disponible. Haz clic para actualizar.') -f $Result.Version }
+    } elseif ($manual) {
+        $text = switch ($Result.State) {
+            'current' { (Tx 'Tienes la \u00faltima versi\u00f3n ({0}).') -f $AppVersion }
+            'none' { Tx 'Todav\u00eda no hay versiones publicadas.' }
+            default { Tx 'No se pudo buscar la actualizaci\u00f3n. Int\u00e9ntalo m\u00e1s tarde.' }
+        }
+    }
+    if (-not $text) { return }
+    $script:BridgeBalloonAction = if ($Result.State -eq 'new') { 'update' } else { '' }
+    $script:Notify.ShowBalloonTip(8000, 'ClaudeMaxxing', $text, [System.Windows.Forms.ToolTipIcon]::Info)
+}
+
+function Confirm-AppUpdate {
+    $question = (Tx '\u00bfActualizar ClaudeMaxxing a {0}? La bandeja se reinicia, y se cierran Maxx Whisper y las sesiones de Otros PCs. Tus datos se conservan.') -f $script:UpdateVersion
+    if (-not (Confirm-UiAction $question)) { return }
+    try { Start-AppUpdate $TrayRoot } catch {
+        $script:Notify.ShowBalloonTip(8000, 'ClaudeMaxxing', ((L 'No se pudo actualizar: ') + $_.Exception.Message), [System.Windows.Forms.ToolTipIcon]::Warning)
+    }
+}
+
+$script:UpdateTimer = New-Object System.Windows.Forms.Timer
+$script:UpdateTimer.Interval = 250
+$script:UpdateTimer.Add_Tick({
+    if (-not $script:UpdatePending -or -not $script:UpdatePending.Task.IsCompleted) { return }
+    $script:UpdateTimer.Stop()
+    $result = Complete-UpdateRequest $script:UpdatePending $AppVersion
+    $script:UpdatePending = $null
+    Show-UpdateResult $result
 })
 
 # Like a meeting assistant: when a call app starts using the microphone, offer Maxx Whisper. Only once
@@ -485,6 +543,8 @@ $timer.Add_Tick({
     if ($script:Ticks % 20 -eq 1) { try { Update-PolicyAtRuntime; Invoke-BusinessTick } catch { } }
     # Maxx Whip (lib\hub.ps1): the window's forecast, so the whip comes on before the plan runs out.
     if ($script:Ticks % 20 -eq 2) { try { Update-WhipForecast } catch { } }
+    # Updates: a minute after starting and every 6 hours. Not by itself in a company, where IT picks the version.
+    if ($script:Ticks % 1440 -eq 4) { try { if (-not (Get-BusinessState).Business) { Start-UpdateCheck } } catch { } }
     Update-UsageState
     if ($script:Popup.Visible) { $script:Popup.Invalidate() }
 })

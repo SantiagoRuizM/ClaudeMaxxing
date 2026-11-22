@@ -4,6 +4,8 @@
 # Everything the installed tray, menu launcher and voice need; nothing else from the repo is copied.
 $script:RuntimeFiles = @(
     'tray.ps1', 'whisper.ps1', 'open-session.ps1', 'start-session.ps1', 'cloud-schedule.ps1', 'uninstall.ps1', 'logo.png',
+    # The one-command installer, which the tray's update runs (lib\update.ps1).
+    'get.ps1',
     # The egg of each session in the notification area (lib\traysessions.ps1): still, and the thinking animation.
     'egg_logo.png', 'egg_logo_gift_thinking.gif',
     'menu\uninstall.ps1', 'voice\config.json', 'voice\ctl.ps1', 'voice\install.ps1', 'harness\env.js', 'harness\tabs.js',

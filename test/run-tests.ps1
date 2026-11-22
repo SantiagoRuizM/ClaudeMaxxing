@@ -1320,6 +1320,18 @@ $package = [IO.File]::ReadAllText((Join-Path $TrayRoot 'package.json')) | Conver
 Assert-Equal $AppVersion $package.version 'package.json (npx github:...) has the version in lib\common.ps1'
 Assert-Equal $true (Test-Path -LiteralPath (Join-Path $TrayRoot $package.bin.claudemaxxing)) 'package.json points npx at bin\claudemaxxing.js'
 $manifest = Get-RuntimeManifest $TrayRoot
+# --- updates (lib\update.ps1)
+. (Join-Path $TrayRoot 'lib\update.ps1')
+Assert-Equal '1.10.0' (Get-NewerVersion 'v1.10.0' '1.9.9') 'update: 1.10 is newer than 1.9, as numbers'
+Assert-Equal '' (Get-NewerVersion 'v1.2.0' '1.2.0') 'update: the same version is not an update'
+Assert-Equal '' (Get-NewerVersion 'v1.1.9' '1.2.0') 'update: never a downgrade'
+Assert-Equal '' (Get-NewerVersion 'v2.0.0-beta' '1.2.0') 'update: only X.Y.Z'
+Assert-Equal '' (Get-NewerVersion '' '1.2.0') 'update: a response without a tag'
+Assert-Equal 0 (Get-UpdateOptions $true $true $null).Count 'update: a full install passes no switches'
+Assert-Equal 'NoHotkeys,SkipMenu,SkipVoiceDeps' ((@((Get-UpdateOptions $false $false ([pscustomobject]@{ skipVoiceDeps = $true })).Keys) | Sort-Object) -join ',') 'update: what the install does without stays off'
+$getParams = (Get-Command (Join-Path $TrayRoot 'get.ps1')).Parameters
+Assert-Equal 0 @((Get-UpdateOptions $false $false ([pscustomobject]@{ skipVoiceDeps = $true })).Keys | Where-Object { -not $getParams.ContainsKey($_) }).Count 'update: get.ps1 takes every switch it passes'
+Assert-Equal 3 @('get.ps1', 'lib\update.ps1', 'lib\update-run.ps1' | Where-Object { $manifest -contains $_ }).Count 'update: installed with the runtime'
 Assert-Equal 0 @($manifest | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot $_)) }).Count 'every runtime file exists in the repo'
 foreach ($needed in 'tray.ps1', 'open-session.ps1', 'uninstall.ps1', 'lib\installer.ps1', 'voice\hooks\speak.ps1', 'voice\plugin\hooks\hooks.json', 'voice\templates\skill-voz.md') {
     Assert-Equal $true ($manifest -contains $needed) "runtime includes $needed"
