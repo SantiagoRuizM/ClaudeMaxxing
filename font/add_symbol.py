@@ -1,5 +1,5 @@
 """Adds a session symbol from one image: a 3 x 3 sheet with the 9 frames of its thinking animation, black on white
-(the prompt is in font/symbol-prompt.md). The first cell is also the still symbol.
+(the prompts are in font/symbol-prompt.md). The first cell is also the still symbol.
 
     python font/add_symbol.py <id> "<Spanish name>" "<English name>" <sheet.png>
     python font/add_symbol.py --test
