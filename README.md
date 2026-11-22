@@ -29,6 +29,16 @@
 
 ## Installation
 
+### Install and update on each device
+
+| Device | Install | Update | Uninstall |
+|---|---|---|---|
+| **PC** (Windows 11) | [One command](#install) | [Click the notice](#update-the-pc) | [Settings > Apps](#uninstalling) |
+| **Android phone** (optional) | [The APK, then a QR](#install-on-the-phone) | [Tap the notice](#update-the-phone) | [Forget the PC, then uninstall](#uninstall-from-the-phone) |
+| **Tailscale** (optional, to use the phone away from your Wi-Fi) | [On the PC and the phone, before pairing](#tailscale-away-from-your-wi-fi) | By Tailscale itself | Like any app |
+| **Another PC** (optional) | [The same command there](#install), then [pair them](#other-pcs) | [On each PC](#update-another-pc) | On each PC |
+| **iPhone, macOS, Linux** | Not available | | |
+
 ### Requirements
 
 | | |
@@ -47,15 +57,11 @@ Optional:
 
 ### Install
 
-**1. On the PC**, paste this in any PowerShell window. Nothing needs to be installed first.
+Run this in any PowerShell window on the PC. Nothing needs to be installed first.
 
 ```powershell
 irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
 ```
-
-**2. On the phone** (optional, Android), download **[ClaudeMaxxing.apk](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest/download/ClaudeMaxxing.apk)**, open it and allow the install. In ClaudeMaxxing on the PC open **Phone**, turn it on, and scan its QR from the app with **Add PC**.
-
-**3. Away from your Wi-Fi** (optional), install [Tailscale](https://tailscale.com/download) on both and sign in to the same account.
 
 It downloads the [latest release](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest), verifies it against the release's SHA-256 and runs its `install.ps1`. If GitHub's API can't be reached (it allows 60 requests an hour per address) or the release has no SHA-256, it stops without installing anything. The unreleased `main` branch is installed only while the repo has no release at all, or with `-Ref main`.
 
@@ -82,6 +88,43 @@ Other ways to install:
 - **Other PCs stays off** until you turn it on (**Turn on** in its window, or `install.ps1 -Bridge`). Turning it on downloads the portable [Win32-OpenSSH](https://github.com/PowerShell/Win32-OpenSSH) release from GitHub (about 5 MB) and asks for a second UAC prompt for its firewall rules. The download is pinned: the zip must match a fixed SHA-256, and every program in it must be signed by Microsoft. An install where it was already set up keeps it.
 - Nothing personal ships in the repo. Your environments, voices, keys, paired PCs and usage data are created on your PC by the installer and the tray, and are kept across updates.
 
+### Tailscale, away from your Wi-Fi
+
+Skip this if you only use the phone on the PC's Wi-Fi. Otherwise do it **before pairing**, because the QR carries the addresses the PC has at that moment.
+
+1. On the PC, run this, or [download it](https://tailscale.com/download):
+
+   ```powershell
+   winget install --id Tailscale.Tailscale -e
+   ```
+
+2. On the phone, install Tailscale from Google Play.
+3. Sign in on both with the same account, the one of whoever owns the PC and the phone.
+
+If the phone was already paired, scan a new QR with **Add PC**: it replaces that PC in the app. Then, in **Phone** on the PC, **Revoke** the older of the phone's two entries.
+
+### Install on the phone
+
+Android 6 or later. In the business edition the phone app is off until the company's policy allows it.
+
+1. On the phone, download **[ClaudeMaxxing.apk](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest/download/ClaudeMaxxing.apk)**, open it and allow installing from the browser.
+2. On the PC, open **Phone** in the ClaudeMaxxing window, turn it on and accept the firewall prompt.
+3. Press **Show the QR** (valid for 5 minutes). In the app, tap **Add PC** and scan it. The phone has to be on the PC's Wi-Fi, or both on Tailscale.
+
+<details>
+<summary><strong>Install or update the phone by USB</strong></summary>
+
+Turn on **USB debugging** in the phone's Developer options, connect it and accept its prompt. `adb` comes with `winget install --id Google.PlatformTools -e` (open a new PowerShell window afterwards).
+
+```powershell
+curl.exe -fL -o "$env:TEMP\ClaudeMaxxing.apk" https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest/download/ClaudeMaxxing.apk
+adb install -r "$env:TEMP\ClaudeMaxxing.apk"
+```
+
+With several phones connected, `adb devices` lists them and `adb -s <serial> install -r ...` picks one. On a phone that isn't yours, revoke the USB debugging authorizations when you finish.
+
+</details>
+
 ### Install options
 
 | Option | Effect |
@@ -99,16 +142,35 @@ Other ways to install:
 
 ### Updating
 
-You don't have to look for new versions, and you never uninstall to update.
-
-- **PC**: ClaudeMaxxing tells you when there is a new version. Click the notice, or right-click the jellyfish and choose **Install update...** (**Check for updates...** looks right away). It checks the download's SHA-256, installs over the old version and restarts the tray. Reopen the sessions that were open, and reload the Chrome extension if you use it.
-- **Phone**: the app tells you too. Tap **Download** and open the file: it installs over the old one and stays paired.
-
-Updates keep your data, your settings, the paired phones, the edition and what you installed without (menu, hotkeys, voice dependencies). The business edition doesn't check by itself: IT chooses when, or use **Check for updates...**.
-
-A version from before this existed updates once by running the install command again. An app from before this existed needs the APK installed once by hand.
+Never uninstall to update. Updates keep your data, your settings, the edition and the paired phones.
 
 Versions follow [Semantic Versioning](https://semver.org). What changed in each one is in [CHANGELOG.md](CHANGELOG.md), and what counts as a major, minor or patch version is in [VERSIONING.md](VERSIONING.md). The installed version shows in **Settings > Apps > ClaudeMaxxing**.
+
+#### Update the PC
+
+1. Click the notice of the new version, or right-click the jellyfish and choose **Install update...**. **Check for updates...** looks right away.
+2. Confirm. It checks the download's SHA-256, installs over the old version and restarts the tray. Press Enter to close its window.
+3. Reopen the sessions that were open, and reload the Chrome extension if you use it.
+
+The business edition doesn't check by itself: IT chooses when, or use **Check for updates...**.
+
+By hand, or from a version that has no **Check for updates...**, run the install command again:
+
+```powershell
+irm https://raw.githubusercontent.com/SantiagoRuizM/ClaudeMaxxing/main/get.ps1 | iex
+```
+
+The button remembers what you installed without, the command doesn't: pass `-SkipMenu`, `-NoHotkeys`, `-SkipVoiceDeps` or `-InstallDir` again, or they go back to the default.
+
+#### Update the phone
+
+Tap **Download** on the app's notice, open the file and confirm: it installs over the old one and stays paired. Without a notice (an app from before it existed), [install the latest APK](#install-on-the-phone) over it, with no need to pair again.
+
+The PC and the phone update separately.
+
+#### Update another PC
+
+Each PC updates on its own: do the same on each one, sitting at it. Updating closes that PC's Other PCs connections, so don't do it through one of them.
 
 ### Uninstalling
 
@@ -122,6 +184,11 @@ This removes everything listed below, including the menu entry, its certificate 
 
 - Your data in `~/.claude/usage-tray`, `%TEMP%\claude-voice` and `%LOCALAPPDATA%\ClaudeJudge` is kept unless you pass `-RemoveData`, which also removes the installer's backups of your `settings.json` and statusline script, and the local report folder.
 - `-KeepMenu` keeps the menu entry, which then opens a plain Windows Terminal.
+
+#### Uninstall from the phone
+
+1. In the app, tap the computer icon and **Forget this PC**, for each PC. If the PC was off, also **Revoke** the phone in **Phone** on that PC.
+2. Uninstall ClaudeMaxxing like any app, or by USB with `adb uninstall com.claudemaxxing.claudemaxxing`. What the app kept on the phone goes with it.
 
 <details>
 <summary><strong>Everything the installer changes on your PC</strong></summary>
@@ -410,7 +477,7 @@ A live copilot for calls: job interviews, meetings, sales calls. Open **Maxx Whi
 
 The ClaudeMaxxing app for Android shows the panel of the ClaudeMaxxing window and the Claude Code sessions open on your PC. Off until you turn it on.
 
-**Setting it up.** In the ClaudeMaxxing window, open **Phone** and turn it on. Windows asks once for admin approval to allow it in the firewall. Install the [latest APK](https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest/download/ClaudeMaxxing.apk), tap **Add PC** and scan the QR shown in **Phone** (**Show the QR**, valid for 5 minutes). The phone has to be on the same Wi-Fi as the PC. From anywhere else, install [Tailscale](https://tailscale.com) on both.
+**Setting it up.** [Install on the phone](#install-on-the-phone) has the steps, [Tailscale](#tailscale-away-from-your-wi-fi) is for using it away from your Wi-Fi, and [Update the phone](#update-the-phone) is for new versions.
 
 **Using it.**
 
