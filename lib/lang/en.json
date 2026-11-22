@@ -1407,6 +1407,9 @@
     "No se pudo apagar el PC: ": "Could not shut down the PC: ",
     "El PC se apaga en un minuto.": "The PC shuts down in a minute.",
     "Apagado cancelado.": "Shutdown cancelled.",
-    "Gota": "Drop"
+    "Gota": "Drop",
+    "Llama": "Flame",
+    "Planeta": "Planet",
+    "Sol": "Sun"
   }
 }
