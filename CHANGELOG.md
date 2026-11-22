@@ -4,6 +4,8 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
 
 ## Unreleased
 
+## 1.2.0 - 2026-11-22
+
 - **Call a session from the phone**: each session's page has a call button. With the phone locked and headphones on you talk, Claude checks it and says its proposal, two taps accept it, three answer, and it speaks again when it finishes or asks something. It writes through the same inbox as the chat, so permission prompts stay on the PC.
 - **The phone app takes only the certificate its QR pinned**, also when another one comes from an authority the phone trusts. Update the app; nobody has to pair again.
 - **Your account in the window and on the phone**: name, plan, email and organization, at the top of Home and of the phone's panel, read from Claude Code's `~/.claude.json`.
