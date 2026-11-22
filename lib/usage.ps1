@@ -130,6 +130,27 @@ function Get-PlanName([string]$CredentialsPath) {
     } catch { return '' }
 }
 
+# The signed-in account as the window and the phone show it: name and plan, then email and organization (not the
+# one every personal account gets, "<email>'s Organization"). Only oauthAccount is used. A case-sensitive parser:
+# the projects in that file can differ only in case. $null without an account; throws when the file can't be read.
+function Get-AccountInfo([string]$ClaudeJson, [string]$Plan) {
+    if (-not (Test-Path -LiteralPath $ClaudeJson)) { return $null }
+    Add-Type -AssemblyName System.Web.Extensions
+    $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    $serializer.MaxJsonLength = [int]::MaxValue
+    $account = $serializer.DeserializeObject([IO.File]::ReadAllText($ClaudeJson, [Text.Encoding]::UTF8))['oauthAccount']
+    if (-not $account) { return $null }
+    $email = [string]$account['emailAddress']
+    $name = [string]$account['displayName']
+    if (-not $name) { $name = $email; $email = '' }
+    if (-not $name) { return $null }
+    $org = [string]$account['organizationName']
+    if ($org -eq "$($account['emailAddress'])'s Organization") { $org = '' }
+    $dot = ' ' + [char]0x00B7 + ' '
+    [ordered]@{ title = (@($name, $(if ($Plan) { "Plan $Plan" })) | Where-Object { $_ }) -join $dot
+        detail = (@($email, $org) | Where-Object { $_ }) -join $dot }
+}
+
 # ---------------------------------------------------------------- session planning
 
 # A window lasts 5 hours from the first message. The server may round the start (the statusline

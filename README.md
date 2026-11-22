@@ -177,7 +177,7 @@ One window with every tool. It opens like a session, on the first half, quarter 
 
 | Group | Section | What it has |
 |---|---|---|
-| | **Home** | Session and weekly usage, the next scheduled session, a diagram of the PCs on your network, Maxx Whisper's latest calls, the open sessions, the voice switches, and shortcuts to the sections you open most. |
+| | **Home** | Your account (name, plan, email, organization), session and weekly usage, the next scheduled session, a diagram of the PCs on your network, Maxx Whisper's latest calls, the open sessions, the voice switches, and shortcuts to the sections you open most. |
 | | **Business** | Business edition only. See [Business edition](#business-edition). |
 | Plan | **Plan session** | [Maxx Judge](#plan-session-maxx-judge). |
 | | **Usage & schedule** | Both limits, the [automatic schedule](#automatic-schedule), the scheduled sessions (automatic ones marked AUTO), **Schedule session...** and **Weekly plan...**. |
@@ -403,7 +403,7 @@ The ClaudeMaxxing app for Android shows the panel of the ClaudeMaxxing window an
 
 **Using it.**
 
-- The first page is the panel: the plan, the open sessions and every section of the window's side menu, with the same switches and choices. Buttons marked *on the PC* open something on the PC.
+- The first page is the panel: your account, the plan, the open sessions and every section of the window's side menu, with the same switches and choices. Buttons marked *on the PC* open something on the PC.
 - Swipe sideways to go through the open sessions, one page each, with the session's color. Each page shows the conversation as it happens and has a box to write to the session.
 - Attach photos, documents and audio to a session (the PC keeps them in ~/.claude/usage-tray/mobile/uploads and sends their path), dictate a voice note, and keep the sessions' symbols in the notification shade, moving and speaking as in the tray. The symbol is the PC's: change it in **Settings** on either side and both follow. The small status-bar icon is built into the APK, so a symbol newer than the app shows the app's mark there.
 - **Voice notes**: what each session's voice says arrives on the phone as a voice note in its chat, as in WhatsApp: play and pause, drag the bar, 1×, 1.5× or 2×, and what it said underneath. The phone downloads each one as soon as the PC has it, whichever page is open, and keeps it. The headphones icon lists them all, newest first, also after their session closed; a long press deletes one from the phone. The PC keeps only its last 100 (`historySize` in the voice settings), so a phone away for longer misses the older ones. Lines read by Windows' own voice (SAPI, when no engine made an mp3) have no audio to send.

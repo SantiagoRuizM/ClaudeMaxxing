@@ -193,6 +193,11 @@ function Update-HubCache([switch]$Full) {
     try { Update-HubBusiness } catch { }
     if ($slow) {
         $hub.SlowAt = $now
+        try {
+            # Read again only when it or the plan changed; while Claude Code is writing it, the last one read stays.
+            $stamp = "$([IO.File]::GetLastWriteTimeUtc($ClaudeJsonFile).Ticks)|$($script:Plan)"
+            if ($stamp -ne $c.AccountStamp) { $c.Account = Get-AccountInfo $ClaudeJsonFile $script:Plan; $c.AccountStamp = $stamp }
+        } catch { }
         $c.Calls = Get-WhisperCalls 5
         $c.VoiceSessions = Get-HubVoiceSessions
         $c.MenuInstalled = [bool](Get-ItemProperty -LiteralPath $MenuKey -Name Launcher -ErrorAction SilentlyContinue)
@@ -1338,6 +1343,11 @@ function Draw-Hub($Form, $G) {
     Add-Hit $map 'minimize' $min { $script:HubDialog.WindowState = 'Minimized' } 'Minimizar'
     if ($hub.Message -and ((Get-Date) - $hub.MessageAt).TotalSeconds -lt $(if ($hub.MessageError) { 15 } else { 8 })) {
         Draw-Text $G $hub.Message $F.Small $(if ($hub.MessageError) { $P.Error } else { $P.Accent }) ($x0 + (Px 220)) (Px 20) ($min.X - $x0 - (Px 230)) (Px 20) 'Right'
+    } elseif ($hub.Section -eq 'home' -and $hub.Cache.Account) {
+        $accountX = $x0 + (Px 120)
+        $accountW = $min.X - $accountX - (Px 16)
+        Draw-Text $G $hub.Cache.Account.title $F.BodyStrong $P.Text $accountX (Px 10) $accountW (Px 20) 'Right'
+        Draw-Text $G $hub.Cache.Account.detail $F.Small $P.Muted $accountX (Px 30) $accountW (Px 18) 'Right'
     }
     $G.DrawLine($pen, $x0, (Px 56), $x0 + $inner, (Px 56))
     $pen.Dispose()
@@ -3032,6 +3042,7 @@ function Set-HubPreview {
     $now = Get-Date
     $c = $script:Hub.Cache
     $c.WhisperRunning = $false
+    $c.Account = @{ title = (Ux 'Ana \u00b7 Plan PRO'); detail = 'ana@example.com' }
     $c.WhisperSettings = Get-WhisperSettings ([pscustomobject]@{ profile = ('x' * 1240); meeting = "Entrevista para Backend Senior en Acme`nObjetivo: pasar a la ronda final"; keyterms = 'Kubernetes, FastAPI, PostgreSQL' })
     $c.CodeSessions = @(
         [pscustomobject]@{ Slot = 0; Hwnd = 0; Live = $true; Dir = 'D:\proyectos\tienda-web'; At = $now.AddMinutes(-95); Color = 'blue'; Name = 'Isabela'; Role = 'codificadora'; Voice = 'es-CO-SalomeNeural' },

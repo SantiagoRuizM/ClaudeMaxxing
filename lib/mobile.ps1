@@ -518,6 +518,7 @@ function Get-MobileState {
     $sections = @([ordered]@{ id = 'power'; label = (L $MobilePowerLabel) }) + $sections
     [ordered]@{
         pc = $env:COMPUTERNAME; language = [string]$script:UiLanguage
+        account = $script:Hub.Cache.Account
         plan = [ordered]@{ session = (Get-MobileWindow $(if ($view -and $view.HasData) { $view.Session })); weekly = (Get-MobileWindow $(if ($view -and $view.HasData) { $view.Weekly })) }
         sections = @($sections | Where-Object { $_.id -ne 'self' } | Group-Object { $_.id } | ForEach-Object { $_.Group[0] })
         sessions = (Get-MobileSessions)
@@ -788,6 +789,7 @@ function Invoke-MobileAction([string]$Section, [string]$Id, $Arg) {
 function Get-MobileHomeItems {
     $c = $script:Hub.Cache
     $state = Get-MobileState
+    if ($state.account) { MRow $state.account.title $state.account.detail }
     MMeter (Tx 'SESI\u00d3N DE 5 H') $state.plan.session
     MMeter 'SEMANA' $state.plan.weekly
     $next = Get-HubNextRow

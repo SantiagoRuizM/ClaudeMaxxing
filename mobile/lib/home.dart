@@ -224,6 +224,7 @@ class PanelPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final plan = state['plan'] as Map<String, dynamic>? ?? {};
+    final account = state['account'] as Map<String, dynamic>?;
     final sessions = (state['sessions'] as List? ?? []).cast<Map<String, dynamic>>();
     final sections = (state['sections'] as List? ?? []).cast<Map<String, dynamic>>();
     Map<String, dynamic> meter(String label, dynamic w) =>
@@ -231,6 +232,12 @@ class PanelPage extends StatelessWidget {
     final newSession = state['newSession'] as Map<String, dynamic>?;
     return ListView(children: [
       if (newSession != null) NewSessionButton(api: api, item: newSession),
+      if (account != null)
+        ListTile(
+          leading: const Icon(Icons.account_circle_outlined),
+          title: Text('${account['title']}'),
+          subtitle: '${account['detail']}'.isEmpty ? null : Text('${account['detail']}'),
+        ),
       Card(
         margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
         child: Padding(

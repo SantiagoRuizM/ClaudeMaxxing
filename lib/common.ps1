@@ -27,6 +27,7 @@ $StatsCacheFile = Join-Path $TrayHome 'stats-cache.json'
 # "Otros PCs": keys, paired PCs and the SSH server's files (lib\bridge.ps1).
 $BridgeHome    = Join-Path $TrayHome 'bridge'
 $CredsFile     = Join-Path $env:USERPROFILE '.claude\.credentials.json'
+$ClaudeJsonFile = Join-Path $env:USERPROFILE '.claude.json'
 $MenuKey       = 'HKCU:\Software\ClaudeCodeMenu'
 $UninstallKey  = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"
 $StartupDir    = [Environment]::GetFolderPath('Startup')

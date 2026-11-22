@@ -132,6 +132,17 @@ Assert-Equal $plan (L $plan) 'a language without a file shows the Spanish text'
 Set-UiLanguage 'es'
 Assert-Equal $plan (L $plan) 'Spanish: the text in the code'
 
+# --- The signed-in account (window and phone)
+$acctFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-account-{0}.json' -f [guid]::NewGuid().ToString('N'))
+try {
+    $acctOf = { param($Json, $Plan) [IO.File]::WriteAllText($acctFile, $Json); $a = Get-AccountInfo $acctFile $Plan; if ($a) { "$($a.title)|$($a.detail)" } }
+    $dot = ' ' + [char]0x00B7 + ' '
+    Assert-Equal "Ana$($dot)Plan PRO|ana@example.com" (& $acctOf '{"projects":{"C:/x":{},"c:/x":{}},"oauthAccount":{"displayName":"Ana","emailAddress":"ana@example.com","organizationName":"ana@example.com''s Organization"}}' 'PRO') 'account: name and plan, email without the personal organization, keys differing in case'
+    Assert-Equal "Ana|ana@example.com$($dot)Acme" (& $acctOf '{"oauthAccount":{"displayName":"Ana","emailAddress":"ana@example.com","organizationName":"Acme"}}' '') 'account: a company shows, no plan leaves the name alone'
+    Assert-Equal 'ana@example.com|' (& $acctOf '{"oauthAccount":{"emailAddress":"ana@example.com"}}' '') 'account: without a name, the email once'
+    Assert-Equal $null (& $acctOf '{"projects":{}}' 'PRO') 'account: not signed in, nothing to show'
+} finally { Remove-Item -LiteralPath $acctFile -ErrorAction SilentlyContinue }
+
 # --- Warnings before a limit (session 72 %, weekly 86 %)
 $alerts = @(Get-UsageAlerts $usage @())
 Assert-Equal 'Weekly:80' (($alerts | ForEach-Object { "$($_.Window):$($_.Threshold)" }) -join ',') 'alerts: only the weekly window crossed a threshold'
