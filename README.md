@@ -1,31 +1,38 @@
 <p align="center">
-  <img src="logo.png" alt="ClaudeMaxxing logo" width="140">
+  <img src="logo_pixel.png" alt="ClaudeMaxxing logo" width="160">
 </p>
 
 <h1 align="center">ClaudeMaxxing</h1>
 
 <p align="center">
-  <strong>Get the most out of your Claude plan with Claude Code on Windows 11.</strong><br>
-  Plan usage in the tray, sessions tiled across your screens, spoken summaries, snipping straight to Claude, a call copilot and more.
+  <strong>Get the most out of your Claude plan</strong> <em>(on Windows 11)</em>
 </p>
 
 <p align="center">
-  <a href="https://github.com/SantiagoRuizM/ClaudeMaxxing/actions/workflows/ci.yml"><img src="https://github.com/SantiagoRuizM/ClaudeMaxxing/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest"><img src="https://img.shields.io/github/v/release/SantiagoRuizM/ClaudeMaxxing" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows%2011-0078D6" alt="Windows 11">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
+  See what's left of your plan and make it last. Claude Code sessions tiled across your screens, answers read aloud, snips straight to Claude and a copilot for your calls<br>
+  (all from the Windows tray, and from your Android phone if you want).
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> ·
+  <a href="#installation">Install</a> ·
   <a href="#features">Features</a> ·
-  <a href="#guide">Guide</a> ·
+  <a href="#guide">Docs</a> ·
   <a href="#privacy-risks-and-permissions">Privacy</a> ·
-  <a href="#business-edition">Business edition</a> ·
-  <a href="#development">Development</a>
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-000?labelColor=555" alt="MIT licence"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/github/package-json/v/SantiagoRuizM/ClaudeMaxxing?label=version&amp;labelColor=555&amp;color=000" alt="Current version"></a>
+  <a href="https://github.com/SantiagoRuizM/ClaudeMaxxing/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/SantiagoRuizM/ClaudeMaxxing/ci.yml?branch=main&amp;label=CI&amp;labelColor=555&amp;color=000" alt="CI status"></a>
+  <br>
+  <a href="#requirements"><img src="https://img.shields.io/badge/Windows%2011-x64-000?labelColor=555" alt="Windows 11, x64"></a>
+  <a href="#phone-app"><img src="https://img.shields.io/badge/Android-companion%20app-000?labelColor=555" alt="Android companion app"></a>
 </p>
 
 ---
+
+> **1.1.0** (8 November 2026) is the current version, for Windows 11 (x64); Windows 10 is untested. There is no packaged release yet, so the [installer](#install) gets the `main` branch, which also has the [unreleased changes](CHANGELOG.md#unreleased) merged so far.
 
 ## Installation
 
