@@ -7,7 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'api.dart';
+import 'eggs.dart';
 import 'logic.dart';
+import 'notify.dart';
 import 'strings.dart';
 
 enum CallPhase { off, starting, speaking, listening, sending, ready, paused }
@@ -101,6 +103,7 @@ class Call extends ChangeNotifier {
             'acceptLabel': S.accept,
             'talkLabel': S.talk,
             'hangUpLabel': S.hangUp,
+            'icon': statusIcon(EggCache.symbolOf(api.pc.pin)),
           }) ==
           true;
     } on PlatformException {

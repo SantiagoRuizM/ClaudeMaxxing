@@ -1,5 +1,6 @@
 import 'package:claudemaxxing/api.dart';
 import 'package:claudemaxxing/call.dart';
+import 'package:claudemaxxing/eggs.dart';
 import 'package:claudemaxxing/logic.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,6 +81,15 @@ void main() {
   });
 
   tearDown(() => call.hangUp());
+
+  test("the call's notification takes the symbol of its PC", () async {
+    String icon() => (native.lastWhere((c) => c.method == 'start').arguments as Map)['icon'] as String;
+    expect(icon(), 'ic_launcher_monochrome', reason: 'not known yet');
+    call.hangUp();
+    EggCache.use('', 'egg');
+    expect(await call.start(api, 's', 'Sofía'), isTrue);
+    expect(icon(), 'ic_stat_egg');
+  });
 
   test('callReply: the last spoken line, whether proposal or question', () {
     expect(callReply('sigo trabajando'), isNull);

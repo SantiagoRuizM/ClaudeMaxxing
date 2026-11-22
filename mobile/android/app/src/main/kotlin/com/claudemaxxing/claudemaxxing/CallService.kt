@@ -481,18 +481,21 @@ class CallService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
+        // The PC's symbol, by the name the app gives (lib/notify.dart, kept by res/raw/keep.xml).
+        val icon = resources.getIdentifier(labels.getString("icon").orEmpty(), "drawable", packageName)
+            .takeIf { it != 0 } ?: R.drawable.ic_launcher_monochrome
         fun action(name: String, label: String) {
             val intent = PendingIntent.getService(this, 0, Intent(this, CallService::class.java).setAction(name),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             @Suppress("DEPRECATION")
-            builder.addAction(Notification.Action.Builder(R.drawable.ic_stat_egg, labels.getString(label), intent).build())
+            builder.addAction(Notification.Action.Builder(icon, labels.getString(label), intent).build())
         }
         if (canAccept) action(PRIMARY, "acceptLabel")
         action(TALK, "talkLabel")
         action(HANG_UP, "hangUpLabel")
         // Only the state: what Claude said doesn't show on the lock screen.
         return builder
-            .setSmallIcon(R.drawable.ic_stat_egg)
+            .setSmallIcon(icon)
             .setContentTitle(labels.getString("title"))
             .setContentText(status)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
@@ -537,7 +540,7 @@ class CallService : Service() {
         var channel: MethodChannel? = null
         var instance: CallService? = null
             private set
-        val EXTRAS = listOf("locale", "title", "status", "channel", "acceptLabel", "talkLabel", "hangUpLabel")
+        val EXTRAS = listOf("locale", "title", "status", "channel", "acceptLabel", "talkLabel", "hangUpLabel", "icon")
 
         private const val TAG = "ClaudeCall"
         private const val CHANNEL = "session_call"
