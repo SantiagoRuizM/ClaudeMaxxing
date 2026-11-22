@@ -673,6 +673,24 @@ try {
     $inside = $quiet.GetPixel(8, 8)
     Assert-Equal $true ($inside.A -eq 255 -and [Math]::Abs($inside.R - 217) -lt 10 -and [Math]::Abs($inside.G - 119) -lt 10) 'speaking egg: filled with the session color'
     $quiet.Dispose(); $loud.Dispose()
+    # The notification area's jellyfish: one color, as Windows' icons, and set again only when the theme changes it.
+    $tones = foreach ($light in $false, $true) {
+        $shot = (Get-TrayIcon $light).ToBitmap()
+        $seen = 0; $off = 0; $want = if ($light) { 0 } else { 255 }
+        for ($x = 0; $x -lt $shot.Width; $x++) { for ($y = 0; $y -lt $shot.Height; $y++) {
+            $px = $shot.GetPixel($x, $y)
+            # Every visible pixel, edges too (an edge must not turn gray); PNG rounding moves one by a few units.
+            if ($px.A -le 100) { continue }
+            $seen++
+            foreach ($v in $px.R, $px.G, $px.B) { if ([Math]::Abs($v - $want) -gt 5) { $off++ } }
+        } }
+        '{0} {1}' -f ($seen -gt 10), $off
+        $shot.Dispose()
+    }
+    Assert-Equal 'True 0|True 0' ($tones -join '|') 'tray icon: white on a dark taskbar, black on a light one'
+    $fakeNotify = [pscustomobject]@{ Icon = (Get-TrayIcon (-not (Test-LightTaskbar))) }
+    Update-TrayIcon $fakeNotify
+    Assert-Equal $true ([object]::ReferenceEquals($fakeNotify.Icon, (Get-TrayIcon))) 'tray icon: a theme change swaps it, the same theme keeps the same one'
     # The jellyfish of logo.png: square, clear corners, solid body; and the Apps-list .ico built from it.
     $mark = New-AppLogoBitmap 64
     Assert-Equal '64x64 0 255' ('{0}x{1} {2} {3}' -f $mark.Width, $mark.Height, $mark.GetPixel(1, 1).A, $mark.GetPixel(32, 18).A) 'app logo: jellyfish square, transparent around, solid head'

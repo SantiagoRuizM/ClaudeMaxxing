@@ -883,7 +883,8 @@ function Start-TrayWatchdog([string]$TrayScript) {
 function Start-UsageOverlay {
     $script:UsageOverlayTimer = New-Object System.Windows.Forms.Timer
     $script:UsageOverlayTimer.Interval = 300
-    $script:UsageOverlayTimer.Add_Tick({ try { Update-UsageOverlay } catch { Write-SessionIconError $_ } })
+    # The jellyfish follows the taskbar's theme on the same tick as the bars.
+    $script:UsageOverlayTimer.Add_Tick({ try { Update-TrayIcon $script:Notify; Update-UsageOverlay } catch { Write-SessionIconError $_ } })
     $script:UsageOverlayTimer.Start()
 }
 

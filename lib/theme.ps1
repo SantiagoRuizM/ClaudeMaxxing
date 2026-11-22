@@ -78,14 +78,28 @@ $script:Fonts = @{
     Refresh    = New-UiFont 'Segoe UI Symbol' 11
 }
 
-# Taskbar icon: the ClaudeMaxxing jellyfish in its own orange, readable on light and dark taskbars.
-function Get-TrayIcon {
-    $bitmap = New-AppLogoBitmap (Px 16)
+# Notification area icon: the jellyfish in one color like Windows' own icons, white on a dark taskbar and black on a
+# light one.
+$script:TrayIcons = @{}
+function Get-TrayIcon([bool]$Light = (Test-LightTaskbar)) {
+    if ($script:TrayIcons.ContainsKey($Light)) { return $script:TrayIcons[$Light] }
+    $color = if ($Light) { New-Rgb 0 0 0 } else { New-Rgb 255 255 255 }
+    $bitmap = New-BrandMark $color (Px 16)
     if (-not $bitmap) { return [System.Drawing.SystemIcons]::Information }
-    # shortcut: the HICON from GetHicon is never destroyed; fine for one tray icon per process.
-    $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
-    $bitmap.Dispose()
-    $icon
+    # Through a PNG .ico: GetHicon multiplies the color by the alpha, so the white edges would show gray.
+    $stream = New-Object IO.MemoryStream(, (Get-PngIconBytes @($bitmap)))
+    $png = New-Object System.Drawing.Icon($stream, $bitmap.Width, $bitmap.Height)
+    # Its copy by handle: .NET can't draw an Icon that holds a PNG frame this small (ToBitmap, DrawIcon).
+    $script:TrayIcons[$Light] = [System.Drawing.Icon]::FromHandle($png.Handle).Clone()
+    $png.Dispose(); $stream.Dispose(); $bitmap.Dispose()
+    $script:TrayIcons[$Light]
+}
+
+# After a change of the taskbar's theme; setting the icon only then keeps Explorer from redrawing it every tick.
+function Update-TrayIcon($Notify) {
+    if (-not $Notify) { return }
+    $icon = Get-TrayIcon
+    if (-not [object]::ReferenceEquals($Notify.Icon, $icon)) { $Notify.Icon = $icon }
 }
 
 # $Source scaled to a $Size square in a solid color (RGB replaced, alpha kept).
@@ -108,7 +122,9 @@ function ConvertTo-TintedBitmap([System.Drawing.Image]$Source, [System.Drawing.C
 function New-AppLogoBitmap([int]$Size) { New-BrandMark (New-Rgb 253 107 77) $Size }
 
 # The bitmaps as one .ico of PNG frames (Windows Vista and later read them); for the entry in Settings > Apps.
-function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) {
+function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) { [IO.File]::WriteAllBytes($Path, (Get-PngIconBytes $Bitmaps)) }
+
+function Get-PngIconBytes([System.Drawing.Bitmap[]]$Bitmaps) {
     $frames = @($Bitmaps | ForEach-Object { $ms = New-Object IO.MemoryStream; $_.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); , $ms.ToArray() })
     $out = New-Object IO.MemoryStream
     $w = New-Object IO.BinaryWriter($out)
@@ -121,8 +137,9 @@ function Save-PngIcon([System.Drawing.Bitmap[]]$Bitmaps, [string]$Path) {
         $offset += $frames[$i].Length
     }
     foreach ($frame in $frames) { $w.Write($frame) }
-    [IO.File]::WriteAllBytes($Path, $out.ToArray())
+    $bytes = $out.ToArray()
     $w.Dispose()
+    , $bytes
 }
 
 # Window and taskbar icon: the logo above at 64 px, built once; falls back to the tray icon.
