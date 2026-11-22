@@ -21,7 +21,7 @@ $MobileLogFile = Join-Path $MobileHome 'mobile.log'
 $MobileDefaultPort = 47830
 $MobilePairSeconds = 300
 $MobileFirewallGroup = 'ClaudeMaxxing Celular'
-$MobileReleasesUrl = 'https://github.com/SantiagoRuizM/ClaudeMaxxing/releases'
+$MobileApkUrl = 'https://github.com/SantiagoRuizM/ClaudeMaxxing/releases/latest/download/ClaudeMaxxing.apk'
 $MobilePowerLabel = Ux 'Energ\u00eda'
 $MobileShutdownSeconds = 60
 
