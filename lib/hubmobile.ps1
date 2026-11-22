@@ -93,7 +93,7 @@ function Draw-HubMobileSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
             Draw-PillButton $G $Map $Hover 'mobile-pair' (New-Rect ($box.Right - (Px 16) - $bw) ($box.Y + (Px 12)) $bw (Px 26)) $label { Start-MobilePairing; Update-HubNow } -Accent
             $label = L 'Descargar la app'
             $dw = Get-PillWidth $label
-            Draw-PillButton $G $Map $Hover 'mobile-download' (New-Rect ($box.Right - (Px 16) - $dw) ($box.Y + (Px 42)) $dw (Px 26)) $label { Start-Process $MobileReleasesUrl }
+            Draw-PillButton $G $Map $Hover 'mobile-download' (New-Rect ($box.Right - (Px 16) - $dw) ($box.Y + (Px 42)) $dw (Px 26)) $label { Start-Process $MobileApkUrl }
         }
         $y = $box.Bottom + (Px 14)
     }
