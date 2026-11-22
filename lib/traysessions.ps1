@@ -1,6 +1,7 @@
 # Notification-area eggs, one per open Claude Code session from the Explorer menu (sessions.json), in the
+# chosen symbol (lib\symbols.ps1; "egg" in the names here is whichever symbol is on, the egg by default) and the
 # session's color. Hovering shows "name - role" and the folder; a click brings that window forward.
-# Needs lib\hub.ps1 (Get-HubCodeSessions) and lib\sessions.ps1 ($SlotColors).
+# Needs lib\hub.ps1 (Get-HubCodeSessions), lib\sessions.ps1 ($SlotColors) and lib\symbols.ps1.
 
 # Tooltip: "Isabela - codificadora" plus the folder on a second line. NotifyIcon.Text throws above 63 characters.
 function Format-SessionIconTip($Session) {
@@ -99,19 +100,27 @@ function ConvertTo-SquareBitmap([System.Drawing.Image]$Image, [double]$Fill = 0.
     $square
 }
 
-# The two egg_logo images of the project (background already removed), loaded once: egg_logo.png is the still
-# egg, egg_logo_gift_thinking.gif gives the thinking frames. Either may be missing.
+# The symbol on, read once: only the tray changes it (Set-SessionSymbol).
+function Get-SessionSymbol {
+    if (-not $script:SessionSymbol) { $script:SessionSymbol = Get-SavedSymbol $TrayRoot }
+    $script:SessionSymbol
+}
+
+# The images of the symbol on (background already removed), loaded once: still.png is the still one, filled.png
+# the same with no holes and thinking.gif gives the thinking frames. Any may be missing.
 function Get-EggImages {
     if ($script:EggImages) { return $script:EggImages }
-    $still = $null
+    $folder = Join-Path (Join-Path $TrayRoot 'symbols') (Get-SessionSymbol)
+    $single = @{ still = $null; filled = $null }
     $frames = @()
-    $pngPath = Join-Path $TrayRoot 'egg_logo.png'
-    if (Test-Path -LiteralPath $pngPath) {
+    foreach ($name in 'still', 'filled') {
+        $pngPath = Join-Path $folder "$name.png"
+        if (-not (Test-Path -LiteralPath $pngPath)) { continue }
         $png = [System.Drawing.Image]::FromFile($pngPath)
-        $still = ConvertTo-SquareBitmap $png
+        $single[$name] = ConvertTo-SquareBitmap $png
         $png.Dispose()
     }
-    $gifPath = Join-Path $TrayRoot 'egg_logo_gift_thinking.gif'
+    $gifPath = Join-Path $folder 'thinking.gif'
     if (Test-Path -LiteralPath $gifPath) {
         $gif = [System.Drawing.Image]::FromFile($gifPath)
         $dimension = New-Object System.Drawing.Imaging.FrameDimension($gif.FrameDimensionsList[0])
@@ -121,7 +130,7 @@ function Get-EggImages {
         }
         $gif.Dispose()
     }
-    $script:EggImages = [pscustomobject]@{ Still = $still; Frames = $frames }
+    $script:EggImages = [pscustomobject]@{ Still = $single.still; Filled = $single.filled; Frames = $frames }
     $script:EggImages
 }
 
@@ -190,11 +199,14 @@ function New-SpeakingIconBitmap([string]$Hex, [int]$Size, [int]$Frame) {
     # The egg's square, from 72 % to full size, standing on the bottom edge.
     $side = [Math]::Round($Size * (0.72 + 0.28 * $beat))
     $x = ($Size - $side) / 2; $y = $Size - $side
-    # Its inside: an ellipse within the outline (the egg is ~82 % as wide as tall in its square).
-    $fill = New-Object System.Drawing.SolidBrush($color)
-    $g.FillEllipse($fill, [single]($x + $side * 0.2), [single]($y + $side * 0.1), [single]($side * 0.6), [single]($side * 0.84))
-    $fill.Dispose()
-    $still = (Get-EggImages).Still
+    # Its inside: the symbol's own shape with no holes, under its lines.
+    $images = Get-EggImages
+    if ($images.Filled) {
+        $inside = ConvertTo-TintedBitmap $images.Filled $color $Size
+        $g.DrawImage($inside, [single]$x, [single]$y, [single]$side, [single]$side)
+        $inside.Dispose()
+    }
+    $still = $images.Still
     if ($still) {
         $egg = ConvertTo-TintedBitmap $still (New-Rgb 255 250 242) $Size
         $g.DrawImage($egg, [single]$x, [single]$y, [single]$side, [single]$side)
@@ -284,7 +296,7 @@ function New-EggWaveFrames($Dots) {
 function Get-EggFrameCount { $count = (Get-EggImages).Frames.Count; if ($count) { $count } else { 9 } }
 
 # Each color and frame is drawn once and kept: at most 8 colors x (1 + GIF frames + speaking frames) icons.
-# shortcut: their HICONs (from GetHicon) are never destroyed; bounded by that cache.
+# shortcut: their HICONs (from GetHicon) are destroyed only when the symbol changes; bounded by that cache.
 $script:SessionIconCache = @{}
 function Get-SessionIcon([int]$Index, [int]$Frame = -1, [switch]$Speaking) {
     $key = if ($Speaking) { "$Index/s$Frame" } else { "$Index/$Frame" }
@@ -295,6 +307,49 @@ function Get-SessionIcon([int]$Index, [int]$Frame = -1, [switch]$Speaking) {
         $bitmap.Dispose()
     }
     $script:SessionIconCache[$key]
+}
+
+# Another symbol for the whole PC, from Configuracion here or on the phone: saved, and redrawn everywhere the one
+# before could still show (tray, strip, window, phone, terminal tabs and statusline).
+function Set-SessionSymbol([string]$Id) {
+    if (-not (Get-SessionSymbols $TrayRoot).Contains($Id)) { throw "unknown symbol: $Id" }
+    if ($Id -eq (Get-SessionSymbol)) { return }
+    Write-JsonFile $SymbolFile ([ordered]@{ id = $Id })
+    $script:SessionSymbol = $Id
+    if ($script:EggImages) {
+        foreach ($image in @($script:EggImages.Still, $script:EggImages.Filled) + @($script:EggImages.Frames)) { if ($image) { $image.Dispose() } }
+        $script:EggImages = $null
+    }
+    foreach ($cache in $script:HubEggCache, $script:EggBitmapCache) {
+        if (-not $cache) { continue }
+        foreach ($bitmap in @($cache.Values)) { $bitmap.Dispose() }
+        $cache.Clear()
+    }
+    if ($script:Mobile) { $script:Mobile.Eggs = @{} }
+    $oldIcons = @($script:SessionIconCache.Values)
+    $script:SessionIconCache = @{}
+    for ($i = 0; $i -lt @($script:SessionIcons).Count; $i++) {
+        $speaks = $i -eq $script:SessionSpeaking
+        $frame = if ($speaks) { $script:SessionSpeakFrame } else { $script:SessionIconFrames[$i] }
+        $script:SessionIcons[$i].Icon = Get-SessionIcon $script:SessionIconColor[$i] $frame -Speaking:$speaks
+    }
+    # Only now that no icon shows them.
+    if ($oldIcons.Count) {
+        Initialize-SessionWindowApi
+        foreach ($icon in $oldIcons) { $handle = $icon.Handle; $icon.Dispose(); [void][ClaudeTray.SessionWindow]::DestroyIcon($handle) }
+    }
+    if ($script:EggStripShown) { $script:EggStrip.Invalidate() }
+    Update-SymbolTerminals $Id
+}
+
+# What install.ps1 drew for each symbol (eggs\<id>): its tab icons and its 8-bit text for terminals without the font.
+function Update-SymbolTerminals([string]$Id) {
+    $drawn = Join-Path (Join-Path $TrayRoot 'eggs') $Id
+    $text = Join-Path $drawn 'statusline.json'
+    if (-not (Test-Path -LiteralPath $text)) { return }
+    # Written, not copied: the statusline reads it again only when it is newer than its own copy.
+    Write-TextFileAtomic (Join-Path $TrayRoot 'eggs\statusline.json') ([IO.File]::ReadAllText($text))
+    if (Test-Path -LiteralPath $TerminalFragmentFile) { [void](Install-TerminalProfiles $drawn (Get-SymbolFontFamily $Id)) }
 }
 
 function Show-SessionWindow([long]$Hwnd) {
@@ -883,7 +938,7 @@ function Write-SessionIconError($ErrorRecord) {
 }
 
 # ---------------------------------------------------------------- egg strip
-# The eggs off the taskbar (Claude Code > Huevos in the window): a strip stuck to one edge of the main screen's work
+# The eggs off the taskbar (Claude Code > Posicion del icono in the window): a strip stuck to one edge of the main screen's work
 # area, so outside the taskbar, in a column on the sides and a row at the top or bottom. Dragged with the mouse it
 # only slides along that edge; a click on an egg brings its terminal forward, as on the taskbar.
 # shortcut: main screen only; a place per screen if someone wants them on another monitor.

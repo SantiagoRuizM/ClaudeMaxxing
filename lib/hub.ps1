@@ -2290,7 +2290,7 @@ function Draw-HubCodeSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     # In $EggDockEdges' order, the one Step-HubEggDock steps through (the labels' table has none).
     $eggs = [ordered]@{}
     foreach ($edge in $EggDockEdges) { $eggs[$edge] = $script:EggDockLabels[$edge] }
-    Draw-HubDropdown $G $Map $Hover 'code-eggs' (New-Rect $rowX ($scard.Y + (Px 102)) $rowW (Px 30)) (Tx 'Icono de cada sesi\u00f3n') $eggs (Get-EggDock).Edge 'Step-HubEggDock'
+    Draw-HubDropdown $G $Map $Hover 'code-eggs' (New-Rect $rowX ($scard.Y + (Px 102)) $rowW (Px 30)) (Tx 'Posici\u00f3n del icono') $eggs (Get-EggDock).Edge 'Step-HubEggDock'
 
     $fy = $scard.Bottom + (Px 6)
     if (Test-HubModule 'freellm') { Draw-HubFreeLlmCard $G $Map $Hover (New-Rect $X0 $fy $Inner (Px 84)) }
@@ -2326,6 +2326,14 @@ function Draw-HubPeekHelp($G, [int]$X0, [int]$Y, [int]$Inner) {
 }
 
 $script:EggDockLabels = @{ taskbar = 'Barra de tareas'; left = 'Lateral izquierdo'; right = 'Lateral derecho'; top = 'Arriba'; bottom = 'Abajo' }
+function Step-HubSymbol([int]$Delta) {
+    if ($script:Hub.Preview) { return }
+    $ids = @((Get-SessionSymbols $TrayRoot).Keys)
+    $id = $ids[(([array]::IndexOf($ids, (Get-SessionSymbol)) + $Delta) % $ids.Count + $ids.Count) % $ids.Count]
+    try { Set-SessionSymbol $id } catch { Set-HubMessage ((Tx 'No se pudo guardar: ') + $_.Exception.Message) -Failed }
+    Update-HubNow
+}
+
 function Step-HubEggDock([int]$Delta) {
     if ($script:Hub.Preview) { return }
     $i = ([Array]::IndexOf($EggDockEdges, (Get-EggDock).Edge) + $Delta + $EggDockEdges.Count) % $EggDockEdges.Count
@@ -2977,6 +2985,14 @@ function Draw-HubSettingsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     $sub = if ($snip -and -not $script:Hub.Preview -and -not $script:SnipHotkey) { Tx 'Win+Alt+C, Win+Shift+X y Ctrl+Alt+C los usan otras apps: cierra una y vuelve a encender esto.' }
         else { Tx 'Recortador como el de Windows (v\u00eddeo, dibujo, color, texto) con el prompt al lado.' }
     Draw-HubToggleRow $G $Map $Hover 'snip' (New-Rect ($card.X + (Px 6)) ($card.Y + (Px 6)) ($card.Width - (Px 12)) (Px 42)) ((L 'Captura a Claude Code') + ' (' + $(if ($script:SnipHotkeyName) { $script:SnipHotkeyName } else { 'Win+Alt+C' }) + ')') $sub $snip ([scriptblock]::Create("Set-HubSnip `$$(-not $snip)"))
+
+    # One symbol for the whole PC, the phone included (lib\symbols.ps1). Below Voz, which returns early without it.
+    Draw-HubCaption $G (Tx 'S\u00cdMBOLO DE LAS SESIONES') $X0 (Px 448) $Inner ''
+    $card = New-Rect $X0 (Px 470) $Inner (Px 92)
+    Draw-HubCard $G $card
+    Draw-HubEgg $G ($card.X + (Px 28)) ($card.Y + (Px 27)) (Px 26) $SlotColors[1].Hex
+    Draw-HubDropdown $G $Map $Hover 'symbol' (New-Rect ($card.X + (Px 42)) ($card.Y + (Px 12)) ($card.Width - (Px 50)) (Px 30)) (Tx 'S\u00edmbolo') (Get-SessionSymbols $TrayRoot) (Get-SessionSymbol) 'Step-HubSymbol'
+    Draw-Wrapped $G (Tx 'El de cada sesi\u00f3n en la bandeja, las pesta\u00f1as, la statusline y el celular. Tambi\u00e9n se cambia desde el celular.') $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 50)) ($card.Width - (Px 36)) (Px 36)
 
     # Voces de las sesiones: the same switch as Voz, and which voices new sessions get.
     Draw-HubCaption $G 'VOZ' $X0 (Px 304) $Inner ''

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:claudemaxxing/api.dart';
 import 'package:claudemaxxing/eggs.dart';
+import 'package:claudemaxxing/notify.dart';
 import 'package:claudemaxxing/logic.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -75,6 +76,22 @@ void main() {
     expect(frames.bytesAt('speaking', 7), [18]);
     expect(frames.bytesAt('speaking', 8), [11]);
     expect(frames.imageAt('speaking', 8).bytes, same(frames.bytesAt('speaking', 8)));
+  });
+
+  test('a symbol change is announced once, per PC, and picks its status bar icon', () {
+    var changes = 0;
+    void count() => changes++;
+    EggCache.changes.addListener(count);
+    EggCache.use('pin', 'egg');
+    EggCache.use('pin', 'egg');
+    EggCache.use('pin', 'flame');
+    EggCache.changes.removeListener(count);
+    expect(changes, 2);
+    expect(EggCache.symbolOf('pin'), 'flame');
+    expect(EggCache.symbolOf('other'), isNull);
+    expect(statusIcon('egg'), 'ic_stat_egg');
+    expect(statusIcon('not_in_this_apk'), 'ic_launcher_monochrome');
+    expect(statusIcon(null), 'ic_launcher_monochrome');
   });
 
   test('attachment lines show only file names and preserve the remaining text', () {

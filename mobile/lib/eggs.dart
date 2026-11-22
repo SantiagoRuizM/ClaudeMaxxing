@@ -50,6 +50,20 @@ class EggFrames {
 
 class EggCache {
   static final _frames = <(String, String), Future<EggFrames>>{};
+  static final _symbols = <String, String>{};
+
+  /// Bumped when a PC changes its symbol: whoever shows one drops it and asks again.
+  static final changes = ValueNotifier(0);
+
+  static String? symbolOf(String pin) => _symbols[pin];
+
+  /// The symbol the PC says it has now (`/state`), changed there or from a phone.
+  static void use(String pin, String symbol) {
+    if (_symbols[pin] == symbol) return;
+    _symbols[pin] = symbol;
+    _frames.removeWhere((key, _) => key.$1 == pin);
+    changes.value++;
+  }
 
   static Future<EggFrames> of(Api api, String color) {
     final key = (api.pc.pin, color);
@@ -90,6 +104,14 @@ class _EggState extends State<Egg> {
   @override
   void initState() {
     super.initState();
+    EggCache.changes.addListener(_symbolChanged);
+    _load();
+  }
+
+  // The one before must not stay on screen while the new one arrives.
+  void _symbolChanged() {
+    setState(() => _frames = null);
+    _sync();
     _load();
   }
 
@@ -109,6 +131,7 @@ class _EggState extends State<Egg> {
   Future<void> _load() async {
     final api = widget.api;
     final color = widget.color;
+    final change = EggCache.changes.value;
     _loading = true;
     EggFrames? frames;
     try {
@@ -116,7 +139,7 @@ class _EggState extends State<Egg> {
     } catch (_) {
       // Keep the colored fallback and retry on the next state refresh.
     }
-    if (!mounted || widget.api != api || widget.color != color) return;
+    if (!mounted || widget.api != api || widget.color != color || change != EggCache.changes.value) return;
     setState(() {
       _loading = false;
       _frames = frames;
@@ -135,6 +158,7 @@ class _EggState extends State<Egg> {
 
   @override
   void dispose() {
+    EggCache.changes.removeListener(_symbolChanged);
     _timer?.cancel();
     super.dispose();
   }

@@ -37,6 +37,7 @@ $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $RepoRoot 'lib\common.ps1')
 . (Join-Path $RepoRoot 'lib\statusline.ps1')
 . (Join-Path $RepoRoot 'lib\schedule.ps1')
+. (Join-Path $RepoRoot 'lib\symbols.ps1')
 . (Join-Path $RepoRoot 'lib\installer.ps1')
 . (Join-Path $RepoRoot 'lib\catalog.ps1')
 . (Join-Path $RepoRoot 'lib\bridge.ps1')
@@ -204,10 +205,12 @@ Write-Host (Register-HarnessHost $InstallDir)
 # The extension's icons: the ClaudeMaxxing jellyfish, drawn from logo.png into the install (not in the repo).
 & $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderLogoTo (Join-Path $InstallDir 'harness\extension\icons')
 Write-Host (Add-HarnessManifestIcons $InstallDir)
-# The menu sessions' tabs: the session's egg in its color as the tab icon (lib\sessions.ps1 opens them with it).
+# The menu sessions' tabs: the session's symbol in its color as the tab icon (lib\sessions.ps1 opens them with it).
 & $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderEggsTo (Join-Path $InstallDir 'eggs')
-Write-Host (Install-EggFont (Join-Path $RepoRoot 'font\ClaudeMaxxingEggs.ttf'))
-Write-Host (Install-TerminalProfiles (Join-Path $InstallDir 'eggs'))
+# Every symbol's font now, so changing it later only changes the profiles' font.
+foreach ($id in @((Get-SessionSymbols $InstallDir).Keys)) { Write-Host (Install-SymbolFont (Join-Path $InstallDir "symbols\$id\symbol.ttf") $id) }
+$symbol = Get-SavedSymbol $InstallDir
+Write-Host (Install-TerminalProfiles (Join-Path $InstallDir "eggs\$symbol") (Get-SymbolFontFamily $symbol))
 Write-Host "extension: load it once per Chrome profile (chrome://extensions > Developer mode > Load unpacked > $(Join-Path $InstallDir 'harness\extension')); updates only need its reload button"
 Write-Host "environments and state (per PC): $(Join-Path $TrayHome 'harness')"
 

@@ -78,6 +78,8 @@ class _HomePagerState extends State<HomePager> {
       final before = _sessions.map((s) => '${s['id']}').toList();
       final after = (state['sessions'] as List? ?? []).map((s) => '${(s as Map)['id']}').toList();
       final page = pageAfterChange(before, after, _page);
+      // A PC from before the symbols only has the egg.
+      EggCache.use(api.pc.pin, '${state['symbol'] ?? 'egg'}');
       setState(() {
         _state = state;
         _error = '';

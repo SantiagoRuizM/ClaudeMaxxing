@@ -10,6 +10,12 @@ import 'eggs.dart';
 import 'items.dart';
 import 'store.dart';
 import 'strings.dart';
+import 'symbols.dart';
+
+/// The status bar takes only icons built into the APK: a symbol newer than it, or not known yet, shows the app's
+/// own mark instead of another symbol.
+String statusIcon(String? symbol) =>
+    bundledSymbols.contains(symbol) ? 'ic_stat_$symbol' : 'ic_launcher_monochrome';
 
 typedef _Session = ({String name, String color, String state});
 
@@ -21,6 +27,7 @@ class SessionNotification {
   final _plugin = FlutterLocalNotificationsPlugin();
   Future<bool>? _permission;
   Api? _api;
+  String? _symbol;
   List<_Session> _sessions = [];
   Timer? _timer;
   int _tick = 0;
@@ -39,7 +46,7 @@ class SessionNotification {
     if (!Platform.isAndroid) return false;
     try {
       await _plugin.initialize(const InitializationSettings(
-        android: AndroidInitializationSettings('ic_stat_egg'),
+        android: AndroidInitializationSettings('ic_launcher_monochrome'),
       ));
       if (await notificationsPermissionRequested()) {
         return await _android?.areNotificationsEnabled() == true;
@@ -62,10 +69,13 @@ class SessionNotification {
               state: '${session['state']}',
             ))
         .toList();
-    final changed = _api != api || !listEquals(_sessions, next);
+    final symbol = EggCache.symbolOf(api.pc.pin);
+    final changed =
+        _api != api || _symbol != symbol || !listEquals(_sessions, next);
     if (changed) {
       _tick = 0;
       _api = api;
+      _symbol = symbol;
       _sessions = next;
     }
     if (next.any((session) =>
@@ -157,6 +167,7 @@ class SessionNotification {
       AndroidNotificationDetails(
         'pc_sessions',
         S.notificationChannel,
+        icon: statusIcon(_symbol),
         importance: Importance.low,
         priority: Priority.low,
         ongoing: true,

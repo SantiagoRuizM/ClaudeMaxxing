@@ -327,7 +327,8 @@ function Invoke-MobileRequest($Request) {
 }
 
 # The eggs of the tray for one session color, drawn by the tray's own functions (lib\traysessions.ps1): still, the
-# 9 frames of thinking and the 8 of speaking, as PNG in base64, and the tray's 120 ms per frame. Cached per color.
+# 9 frames of thinking and the 8 of speaking, as PNG in base64, and the tray's 120 ms per frame. Cached per color
+# until the symbol changes (Set-SessionSymbol).
 function Get-MobileEggsAnswer([string]$Hex) {
     if ($Hex -notmatch '^#[0-9a-fA-F]{6}$') { return New-MobileAnswer 400 @{ error = 'bad color' } }
     if (-not $script:Mobile.Eggs) { $script:Mobile.Eggs = @{} }
@@ -520,6 +521,8 @@ function Get-MobileState {
         plan = [ordered]@{ session = (Get-MobileWindow $(if ($view -and $view.HasData) { $view.Session })); weekly = (Get-MobileWindow $(if ($view -and $view.HasData) { $view.Weekly })) }
         sections = @($sections | Where-Object { $_.id -ne 'self' } | Group-Object { $_.id } | ForEach-Object { $_.Group[0] })
         sessions = (Get-MobileSessions)
+        # The app asks for the eggs again when this changes, wherever it was changed.
+        symbol = (Get-SessionSymbol)
     }
 }
 
@@ -924,7 +927,7 @@ function Get-MobileCodeItems {
     MSwitch 'maxx-cm' (L 'Ahorro de contexto (context-mode)') (Tx 'Deja fuera del contexto las salidas largas de las herramientas: la cuota dura m\u00e1s.') ([bool]($cm -and $cm.Enabled)) ([scriptblock]::Create("Set-HubContextMode `$$(-not ($cm -and $cm.Enabled))")) (-not $busy)
     $eggs = [ordered]@{}
     foreach ($edge in $EggDockEdges) { $eggs[$edge] = $script:EggDockLabels[$edge] }
-    MChoice 'code-eggs' (Tx 'Icono de cada sesi\u00f3n') $eggs (Get-EggDock).Edge 'Step-HubEggDock'
+    MChoice 'code-eggs' (Tx 'Posici\u00f3n del icono') $eggs (Get-EggDock).Edge 'Step-HubEggDock'
 }
 
 function Get-MobileWhipItems {
@@ -1026,6 +1029,7 @@ function Get-MobileBusinessItems {
 function Get-MobileSettingsItems {
     $c = $script:Hub.Cache
     if ($script:Hub.Languages) { MChoice 'language' (L 'Idioma') $script:Hub.Languages ([string]$script:UiLanguage) 'Step-HubLanguage' }
+    MChoice 'symbol' (Tx 'S\u00edmbolo de las sesiones') (Get-SessionSymbols $TrayRoot) (Get-SessionSymbol) 'Step-HubSymbol'
     MSwitch 'snip' ((L 'Captura a Claude Code') + ' (' + $(if ($script:SnipHotkeyName) { $script:SnipHotkeyName } else { 'Win+Alt+C' }) + ')') '' ([bool]$c.SnipEnabled) ([scriptblock]::Create("Set-HubSnip `$$(-not [bool]$c.SnipEnabled)"))
     if ($c.VoiceInstalled) { MSwitch 'settings-voice-on' (L 'Voz en todas las sesiones') (Tx 'Si la apagas, ninguna sesi\u00f3n habla') (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)")) }
     MOpenOnPc 'settings'

@@ -10,6 +10,9 @@ $env:CLAUDEMAXXING_LANG = 'es'
 . (Join-Path $TrayRoot 'lib\statusline.ps1')
 . (Join-Path $TrayRoot 'lib\usageapi.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\symbols.ps1')
+# The tests draw the default symbol and never read or write the one chosen on this PC.
+$SymbolFile = Join-Path ([IO.Path]::GetTempPath()) ('cmx-symbol-{0}.json' -f [guid]::NewGuid().ToString('N'))
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
 
 $script:Failures = 0
@@ -576,9 +579,9 @@ Add-Type -AssemblyName System.Drawing
 $eggs = Get-EggImages
 $still = $eggs.Still
 $mid = 0..($still.Width - 1) | ForEach-Object { $still.GetPixel($_, [int]($still.Height / 2)) }
-Assert-Equal "True 0" ('{0} {1}' -f ($still.Width -eq $still.Height), $still.GetPixel(0, 0).A) 'session egg: egg_logo.png loads squared, background transparent'
+Assert-Equal "True 0" ('{0} {1}' -f ($still.Width -eq $still.Height), $still.GetPixel(0, 0).A) 'session egg: still.png loads squared, background transparent'
 Assert-Equal $true (@($mid | Where-Object { $_.A -eq 255 }).Count -gt 0 -and @($mid | Where-Object { $_.A -eq 0 }).Count -gt 0) 'session egg: solid outline with see-through stripes between'
-Assert-Equal 9 $eggs.Frames.Count 'session egg: egg_logo_gift_thinking.gif gives the 9 thinking frames'
+Assert-Equal 9 $eggs.Frames.Count 'session egg: thinking.gif gives the 9 thinking frames'
 Assert-Equal 9 @($eggs.Frames | Where-Object { $_.GetPixel(1, 1).A -eq 0 -and $_.GetPixel($_.Width - 2, $_.Height - 2).A -eq 0 }).Count 'session egg: every GIF frame has a transparent background'
 Assert-Equal 2 @($eggs.Frames | ForEach-Object { $_.GetPixel([int]($_.Width / 2), [int]($_.Height * 0.55)).A -gt 127 } | Select-Object -Unique).Count 'session egg: the GIF frames differ (the waves move)'
 $busyTitles = @(((Tx '\u2733') + ' Diego'), ((Tx '\u25d1') + ' Diego'), ((Tx '\u2810') + ' Diego'), 'C:\WINDOWS\system32\cmd.exe', '',
@@ -2157,6 +2160,86 @@ try {
     Assert-Equal 'True|False|True' ("{0}|{1}|{2}" -f $qr[0, 0], $qr[1, 1], $qr[2, 2]) 'mobile: the finder pattern in the corner'
     Assert-Equal 49 ([ClaudeTray.QrCode]::Encode((Format-MobilePairUri @('192.168.1.5', '100.64.0.9') 47830 ('ab' * 32) ('cd' * 8) 'DESKTOP-ABCDEFG'), 1)).GetLength(0) 'mobile: a pairing URI is a version 8 QR'
 } finally { Remove-Item -LiteralPath $mobileRoot -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- session symbols (lib\symbols.ps1): every one is complete, and changing it leaves none of the one before
+$symbols = Get-SessionSymbols $TrayRoot
+Assert-Equal 'egg' @($symbols.Keys)[0] 'symbols: the egg is first, the default'
+. (Join-Path $TrayRoot 'lib\theme.ps1')
+# Not Read-JsonFile: the catalog has keys that differ only in case.
+$english = (Read-UiCatalog (Join-Path $TrayRoot 'lib\lang\en.json'))['strings']
+$bundled = [IO.File]::ReadAllText((Join-Path $TrayRoot 'mobile\lib\symbols.dart'))
+foreach ($id in @($symbols.Keys)) {
+    $missing = @('still.png', 'filled.png', 'thinking.gif', 'symbol.ttf', 'symbol.json' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot "symbols\$id\$_")) })
+    $missing += @('mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TrayRoot "mobile\android\app\src\main\res\drawable-$_\ic_stat_$id.png")) })
+    Assert-Equal '' ($missing -join ',') "symbol ${id}: images, font and phone icons"
+    Assert-Equal $true ($bundled.Contains("'$id'")) "symbol ${id}: in the app's list"
+    Assert-Equal $true ([bool]$english[$symbols[$id]]) "symbol ${id}: its name is translated"
+    $gif = [System.Drawing.Image]::FromFile((Join-Path $TrayRoot "symbols\$id\thinking.gif"))
+    try { Assert-Equal 9 $gif.GetFrameCount([System.Drawing.Imaging.FrameDimension]::Time) "symbol ${id}: the 9 frames the statusline counts on" } finally { $gif.Dispose() }
+}
+
+$symTmp = Join-Path ([IO.Path]::GetTempPath()) ('cmx-symbols-{0}' -f [guid]::NewGuid().ToString('N'))
+$symSaved = @{ Root = $TrayRoot; File = $SymbolFile; Fragment = $TerminalFragmentFile; Local = $env:LOCALAPPDATA; Icons = $script:SessionIcons
+    Colors = $script:SessionIconColor; Frames = $script:SessionIconFrames; Speaking = $script:SessionSpeaking }
+$symPreference = $ErrorActionPreference
+try {
+    # An error here would otherwise only print, and the suite still pass.
+    $ErrorActionPreference = 'Stop'
+    New-Item -ItemType Directory -Force -Path "$symTmp\symbols\egg", "$symTmp\symbols\ring", "$symTmp\eggs\egg", "$symTmp\eggs\ring", "$symTmp\local" | Out-Null
+    Copy-Item -Path "$TrayRoot\symbols\egg\*" -Destination "$symTmp\symbols\egg"
+    Copy-Item -Path "$TrayRoot\symbols\egg\*" -Destination "$symTmp\symbols\ring"
+    [IO.File]::WriteAllText("$symTmp\symbols\ring\symbol.json", '{ "name": "Aro" }')
+    foreach ($shape in 'still', 'filled') {
+        $bmp = New-Object System.Drawing.Bitmap(100, 100)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.FillRectangle([System.Drawing.Brushes]::Black, 5, 5, 90, 90)
+        if ($shape -eq 'still') { $g.CompositingMode = 'SourceCopy'; $g.FillRectangle([System.Drawing.Brushes]::Transparent, 25, 25, 50, 50) }
+        $g.Dispose(); $bmp.Save("$symTmp\symbols\ring\$shape.png", [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    }
+    foreach ($id in 'egg', 'ring') {
+        [IO.File]::WriteAllText("$symTmp\eggs\$id\statusline.json", "{ `"still`": [`"$id`"] }")
+        [IO.File]::WriteAllBytes("$symTmp\eggs\$id\blue.png", [byte[]](137, 80, 78, 71))
+    }
+    $TrayRoot = $symTmp
+    $SymbolFile = "$symTmp\symbol.json"
+    $TerminalFragmentFile = "$symTmp\fragment\sessions.json"
+    Write-JsonFile $TerminalFragmentFile @{ profiles = @() }
+    # Away from the real Windows Terminal settings, whose timestamp a change touches.
+    $env:LOCALAPPDATA = "$symTmp\local"
+    $script:SessionSymbol = $null; $script:EggImages = $null; $script:SessionIconCache = @{}; $script:Mobile.Eggs = @{}
+    $script:SessionIconColor = @{ 0 = 1 }; $script:SessionIconFrames = @{ 0 = -1 }; $script:SessionSpeaking = -1
+    $script:SessionIcons = @([pscustomobject]@{ Icon = (Get-SessionIcon 1) })
+    $iconBefore = $script:SessionIcons[0].Icon
+    $phoneBefore = (Get-MobileEggsAnswer '#16A34A').Body.still
+    Assert-Equal 'egg,ring' (@((Get-SessionSymbols $symTmp).Keys) -join ',') 'symbols: a folder is one more option'
+    Assert-Equal 'egg' (Get-SavedSymbol $symTmp) 'symbols: the egg until one is chosen'
+
+    Set-SessionSymbol 'ring'
+    Assert-Equal 'ring|ring' ('{0}|{1}' -f (Get-SessionSymbol), (Get-SavedSymbol $symTmp)) 'symbols: the choice is on and saved for the next start'
+    Assert-Equal $false ([object]::ReferenceEquals($iconBefore, $script:SessionIcons[0].Icon)) 'symbols: a tray icon already showing is redrawn'
+    Assert-Equal $false ($phoneBefore -eq (Get-MobileEggsAnswer '#16A34A').Body.still) 'symbols: the phone gets the new one, not the cached one'
+    $fragment = Read-JsonFile $TerminalFragmentFile
+    Assert-Equal "Cascadia Mono, ClaudeMaxxing Symbol ring|$symTmp\eggs\ring\blue.png" ('{0}|{1}' -f $fragment.profiles[0].font.face, $fragment.profiles[0].icon) 'symbols: the open terminals get its font and its tab icon'
+    Assert-Equal 'ring' (@((Read-JsonFile "$symTmp\eggs\statusline.json").still)[0]) 'symbols: the statusline without the font gets it too'
+    $speak = New-SpeakingIconBitmap '#16A34A' 64 2
+    try { Assert-Equal '22,163,74' ('{0},{1},{2}' -f $speak.GetPixel(32, 32).R, $speak.GetPixel(32, 32).G, $speak.GetPixel(32, 32).B) 'symbols: speaking fills its own shape' } finally { $speak.Dispose() }
+
+    Set-SessionSymbol 'egg'
+    Assert-Equal $phoneBefore (Get-MobileEggsAnswer '#16A34A').Body.still 'symbols: back to the egg draws the egg again'
+    Assert-Equal 'Cascadia Mono, ClaudeMaxxing Eggs' (Read-JsonFile $TerminalFragmentFile).profiles[0].font.face 'symbols: and its font'
+    $refused = try { Set-SessionSymbol '..\x'; $false } catch { $true }
+    Assert-Equal $true $refused 'symbols: an unknown id is refused'
+    Write-JsonFile $SymbolFile @{ id = 'gone' }
+    Assert-Equal 'egg' (Get-SavedSymbol $symTmp) 'symbols: one that is no longer there falls back to the egg'
+} catch {
+    Assert-Equal '' "$_" 'symbols: changing it runs without errors'
+} finally {
+    $ErrorActionPreference = $symPreference
+    $TrayRoot = $symSaved.Root; $SymbolFile = $symSaved.File; $TerminalFragmentFile = $symSaved.Fragment; $env:LOCALAPPDATA = $symSaved.Local
+    $script:SessionIcons = $symSaved.Icons; $script:SessionIconColor = $symSaved.Colors; $script:SessionIconFrames = $symSaved.Frames; $script:SessionSpeaking = $symSaved.Speaking
+    $script:SessionSymbol = $null; $script:EggImages = $null
+    Remove-Item -LiteralPath $symTmp -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # --- every script parses and is ASCII
 foreach ($file in Get-ChildItem -LiteralPath $TrayRoot -Recurse -Filter *.ps1) {

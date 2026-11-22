@@ -5,8 +5,8 @@
 # -DialogTab plan renders the dialog's week tab; -UsagePath / -ExtrasPath read other snapshot files; -Theme light|dark overrides the Windows app theme.
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
 # -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, mobile (Celular), voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; skills-mcp, Skills y MCP on its MCP tab; envs-lists, Ambientes on its Skills y MCP tab; <section>-full, that section in full screen on a 1920x1080 screen).
-# -RenderEggsTo <folder> writes each session color's egg as <color>.png (the terminal tab icons; install.ps1) and
-# statusline.json, the egg as 8-bit text (still and thinking frames) for the Claude Code statusline.
+# -RenderEggsTo <folder> writes, for each symbol, <id>\<color>.png (the terminal tab icons; install.ps1) and
+# <id>\statusline.json, the symbol as 8-bit text for the Claude Code statusline; statusline.json is the one on.
 # -RenderSnipTo <png> draws Win+Alt+C and its boxes with a sample screen (lib\snipcapture.ps1; see the block below).
 # -RenderLogoTo <folder> writes the ClaudeMaxxing jellyfish (logo.png) as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
@@ -23,6 +23,7 @@ $TrayRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $TrayRoot 'lib\whisper.ps1')
 . (Join-Path $TrayRoot 'lib\autoplan.ps1')
 . (Join-Path $TrayRoot 'lib\sessions.ps1')
+. (Join-Path $TrayRoot 'lib\symbols.ps1')
 . (Join-Path $TrayRoot 'lib\freellm.ps1')
 . (Join-Path $TrayRoot 'lib\harness.ps1')
 . (Join-Path $TrayRoot 'lib\voiceengine.ps1')
@@ -513,31 +514,40 @@ if ($RenderLogoTo) {
 
 if ($RenderEggsTo) {
     New-Item -ItemType Directory -Force -Path $RenderEggsTo | Out-Null
-    foreach ($slotColor in $SlotColors) {
-        # On a dark rounded chip, as in the notification area: the tab itself is the session's color, and an egg of
-        # that color straight on it would vanish.
-        $icon = New-Object System.Drawing.Bitmap(64, 64)
-        $g = [System.Drawing.Graphics]::FromImage($icon)
-        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        $chip = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
-        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-        foreach ($corner in @(@(0, 0, 180), @(40, 0, 270), @(40, 40, 0), @(0, 40, 90))) { $path.AddArc($corner[0], $corner[1], 24, 24, $corner[2], 90) }
-        $path.CloseFigure()
-        $g.FillPath($chip, $path)
-        $egg = New-SessionIconBitmap $slotColor.Hex 52
-        $g.DrawImage($egg, 6, 6, 52, 52)
-        $g.Dispose(); $chip.Dispose(); $path.Dispose(); $egg.Dispose()
-        $icon.Save((Join-Path $RenderEggsTo "$($slotColor.Name).png"), [System.Drawing.Imaging.ImageFormat]::Png)
-        $icon.Dispose()
+    $chosen = Get-SessionSymbol
+    foreach ($symbol in @((Get-SessionSymbols $TrayRoot).Keys)) {
+        $script:SessionSymbol = $symbol
+        $script:EggImages = $null
+        $out = Join-Path $RenderEggsTo $symbol
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        foreach ($slotColor in $SlotColors) {
+            # On a dark rounded chip, as in the notification area: the tab itself is the session's color, and an egg of
+            # that color straight on it would vanish.
+            $icon = New-Object System.Drawing.Bitmap(64, 64)
+            $g = [System.Drawing.Graphics]::FromImage($icon)
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $chip = New-Object System.Drawing.SolidBrush((New-Rgb 31 30 29))
+            $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+            foreach ($corner in @(@(0, 0, 180), @(40, 0, 270), @(40, 40, 0), @(0, 40, 90))) { $path.AddArc($corner[0], $corner[1], 24, 24, $corner[2], 90) }
+            $path.CloseFigure()
+            $g.FillPath($chip, $path)
+            $egg = New-SessionIconBitmap $slotColor.Hex 52
+            $g.DrawImage($egg, 6, 6, 52, 52)
+            $g.Dispose(); $chip.Dispose(); $path.Dispose(); $egg.Dispose()
+            $icon.Save((Join-Path $out "$($slotColor.Name).png"), [System.Drawing.Imaging.ImageFormat]::Png)
+            $icon.Dispose()
+        }
+        # The same symbol as 8-bit text for the statusline, 2 cells on one line (4 x 3 dots): still, and for the egg a hole
+        # going round it while it thinks (the GIF's waves do not show at this size; that hole only fits the egg's shape).
+        $images = Get-EggImages
+        $eggDots = if ($images.Still) { ConvertTo-EggDots $images.Still 4 3 } else { $null }
+        Write-JsonFile (Join-Path $out 'statusline.json') ([ordered]@{
+            still = $(if ($eggDots) { Format-EggSextants $eggDots } else { @() })
+            thinking = $(if ($eggDots -and $symbol -eq $DefaultSymbol) { New-EggWaveFrames $eggDots } else { @() })
+        })
     }
-    # The same egg as 8-bit text for the statusline, 2 cells on one line (4 x 3 dots): still, and a hole going round
-    # it while it thinks (the GIF's waves do not show at this size).
-    $images = Get-EggImages
-    $eggDots = if ($images.Still) { ConvertTo-EggDots $images.Still 4 3 } else { $null }
-    Write-JsonFile (Join-Path $RenderEggsTo 'statusline.json') ([ordered]@{
-        still = $(if ($eggDots) { Format-EggSextants $eggDots } else { @() })
-        thinking = $(if ($eggDots) { New-EggWaveFrames $eggDots } else { @() })
-    })
+    $current = Join-Path (Join-Path $RenderEggsTo $chosen) 'statusline.json'
+    Write-TextFileAtomic (Join-Path $RenderEggsTo 'statusline.json') ([IO.File]::ReadAllText($current))
     $Notify.Dispose()
     exit 0
 }
