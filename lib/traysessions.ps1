@@ -309,8 +309,9 @@ function Get-SessionIcon([int]$Index, [int]$Frame = -1, [switch]$Speaking) {
     $script:SessionIconCache[$key]
 }
 
-# Another symbol for the whole PC, from Configuracion here or on the phone: saved, and redrawn everywhere the one
-# before could still show (tray, strip, window, phone, terminal tabs and statusline).
+# Another symbol for the whole PC, from Configuracion here or on the phone: saved for the sessions opened from now
+# on, and redrawn in the tray, the strip, the window and the phone. The terminals already open keep the one they
+# opened with (tab and statusline: Get-SessionProfileName).
 function Set-SessionSymbol([string]$Id) {
     if (-not (Get-SessionSymbols $TrayRoot).Contains($Id)) { throw "unknown symbol: $Id" }
     if ($Id -eq (Get-SessionSymbol)) { return }
@@ -339,17 +340,6 @@ function Set-SessionSymbol([string]$Id) {
         foreach ($icon in $oldIcons) { $handle = $icon.Handle; $icon.Dispose(); [void][ClaudeTray.SessionWindow]::DestroyIcon($handle) }
     }
     if ($script:EggStripShown) { $script:EggStrip.Invalidate() }
-    Update-SymbolTerminals $Id
-}
-
-# What install.ps1 drew for each symbol (eggs\<id>): its tab icons and its 8-bit text for terminals without the font.
-function Update-SymbolTerminals([string]$Id) {
-    $drawn = Join-Path (Join-Path $TrayRoot 'eggs') $Id
-    $text = Join-Path $drawn 'statusline.json'
-    if (-not (Test-Path -LiteralPath $text)) { return }
-    # Written, not copied: the statusline reads it again only when it is newer than its own copy.
-    Write-TextFileAtomic (Join-Path $TrayRoot 'eggs\statusline.json') ([IO.File]::ReadAllText($text))
-    if (Test-Path -LiteralPath $TerminalFragmentFile) { [void](Install-TerminalProfiles $drawn (Get-SymbolFontFamily $Id)) }
 }
 
 function Show-SessionWindow([long]$Hwnd) {

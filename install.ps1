@@ -209,10 +209,9 @@ Write-Host (Register-HarnessHost $InstallDir)
 Write-Host (Add-HarnessManifestIcons $InstallDir)
 # The menu sessions' tabs: the session's symbol in its color as the tab icon (lib\sessions.ps1 opens them with it).
 & $powershell -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $InstallDir 'tray.ps1') -RenderEggsTo (Join-Path $InstallDir 'eggs')
-# Every symbol's font now, so changing it later only changes the profiles' font.
+# Every symbol's font and profiles now: a session picks the symbol chosen when it opens, with nothing left to install.
 foreach ($id in @((Get-SessionSymbols $InstallDir).Keys)) { Write-Host (Install-SymbolFont (Join-Path $InstallDir "symbols\$id\symbol.ttf") $id) }
-$symbol = Get-SavedSymbol $InstallDir
-Write-Host (Install-TerminalProfiles (Join-Path $InstallDir "eggs\$symbol") (Get-SymbolFontFamily $symbol))
+Write-Host (Install-TerminalProfiles (Join-Path $InstallDir 'eggs') @((Get-SessionSymbols $InstallDir).Keys))
 Write-Host "extension: load it once per Chrome profile (chrome://extensions > Developer mode > Load unpacked > $(Join-Path $InstallDir 'harness\extension')); updates only need its reload button"
 Write-Host "environments and state (per PC): $(Join-Path $TrayHome 'harness')"
 

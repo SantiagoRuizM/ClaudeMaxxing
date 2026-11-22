@@ -6,7 +6,7 @@
 # -RenderBridgeTo / -RenderApprovalTo <png> draw the Otros PCs window / the incoming-connection dialog with sample data.
 # -RenderHubTo <png> draws the ClaudeMaxxing window with sample data; -HubSection picks the section (home, plan, plan-running, plan-error, plan-empty, envs, envs-busy, envs-error, envs-none, envs-empty, self, usage, stats, code, skills, pcs, whisper, mobile (Celular), voice, business (Empresa), home-business (Inicio in the business edition); stats-hours, stats-projects, stats-models open the other Estadisticas tabs; code-help, Claude Code with the Peek guide; skills-mcp, Skills y MCP on its MCP tab; envs-lists, Ambientes on its Skills y MCP tab; <section>-full, that section in full screen on a 1920x1080 screen).
 # -RenderEggsTo <folder> writes, for each symbol, <id>\<color>.png (the terminal tab icons; install.ps1) and
-# <id>\statusline.json, the symbol as 8-bit text for the Claude Code statusline; statusline.json is the one on.
+# statusline.json, the symbol on as 8-bit text for the Claude Code statusline.
 # -RenderSnipTo <png> draws Win+Alt+C and its boxes with a sample screen (lib\snipcapture.ps1; see the block below).
 # -RenderLogoTo <folder> writes the ClaudeMaxxing jellyfish (logo.png) as 16/32/48/128 px PNGs (the Chrome extension's icons; install.ps1).
 param([string]$RenderTo, [string]$UsagePath, [string]$RenderDialogTo, [string]$Theme, [string]$ExtrasPath, [string]$PreviewCloud, [string]$DialogTab,
@@ -597,17 +597,17 @@ if ($RenderEggsTo) {
             $icon.Save((Join-Path $out "$($slotColor.Name).png"), [System.Drawing.Imaging.ImageFormat]::Png)
             $icon.Dispose()
         }
-        # The same symbol as 8-bit text for the statusline, 2 cells on one line (4 x 3 dots): still, and for the egg a hole
-        # going round it while it thinks (the GIF's waves do not show at this size; that hole only fits the egg's shape).
-        $images = Get-EggImages
-        $eggDots = if ($images.Still) { ConvertTo-EggDots $images.Still 4 3 } else { $null }
-        Write-JsonFile (Join-Path $out 'statusline.json') ([ordered]@{
-            still = $(if ($eggDots) { Format-EggSextants $eggDots } else { @() })
-            thinking = $(if ($eggDots -and $symbol -eq $DefaultSymbol) { New-EggWaveFrames $eggDots } else { @() })
-        })
     }
-    $current = Join-Path (Join-Path $RenderEggsTo $chosen) 'statusline.json'
-    Write-TextFileAtomic (Join-Path $RenderEggsTo 'statusline.json') ([IO.File]::ReadAllText($current))
+    # The symbol on as 8-bit text for the statusline, 2 cells on one line (4 x 3 dots): still, and for the egg a hole
+    # going round it while it thinks (the GIF's waves do not show at this size; that hole only fits the egg's shape).
+    $script:SessionSymbol = $chosen
+    $script:EggImages = $null
+    $images = Get-EggImages
+    $eggDots = if ($images.Still) { ConvertTo-EggDots $images.Still 4 3 } else { $null }
+    Write-JsonFile (Join-Path $RenderEggsTo 'statusline.json') ([ordered]@{
+        still = $(if ($eggDots) { Format-EggSextants $eggDots } else { @() })
+        thinking = $(if ($eggDots -and $chosen -eq $DefaultSymbol) { New-EggWaveFrames $eggDots } else { @() })
+    })
     $Notify.Dispose()
     exit 0
 }

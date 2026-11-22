@@ -1032,6 +1032,7 @@ function Get-MobileSettingsItems {
     $c = $script:Hub.Cache
     if ($script:Hub.Languages) { MChoice 'language' (L 'Idioma') $script:Hub.Languages ([string]$script:UiLanguage) 'Step-HubLanguage' }
     MChoice 'symbol' (Tx 'S\u00edmbolo de las sesiones') (Get-SessionSymbols $TrayRoot) (Get-SessionSymbol) 'Step-HubSymbol'
+    MText $SymbolNote
     MSwitch 'snip' ((L 'Captura a Claude Code') + ' (' + $(if ($script:SnipHotkeyName) { $script:SnipHotkeyName } else { 'Win+Alt+C' }) + ')') '' ([bool]$c.SnipEnabled) ([scriptblock]::Create("Set-HubSnip `$$(-not [bool]$c.SnipEnabled)"))
     if ($c.VoiceInstalled) { MSwitch 'settings-voice-on' (L 'Voz en todas las sesiones') (Tx 'Si la apagas, ninguna sesi\u00f3n habla') (-not $c.VoiceMuted) ([scriptblock]::Create("Set-HubVoiceMuted `$$([bool]$c.VoiceMuted -eq $false)")) }
     MOpenOnPc 'settings'

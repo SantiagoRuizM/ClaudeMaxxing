@@ -5,6 +5,7 @@
 
 $SymbolFile = Join-Path $TrayHome 'symbol.json'
 $DefaultSymbol = 'egg'
+$SymbolNote = Ux 'Cambia al momento en la barra de tareas y el celular. Las sesiones abiertas conservan el suyo en la pesta\u00f1a y la statusline; las nuevas salen con este.'
 
 # id -> name of the symbols under $Root, the default first.
 function Get-SessionSymbols([string]$Root) {
@@ -22,27 +23,34 @@ function Get-SavedSymbol([string]$Root) {
     if ($saved -and (Get-SessionSymbols $Root).Contains([string]$saved.id)) { [string]$saved.id } else { $DefaultSymbol }
 }
 
-# Every symbol has the same code points (U+E100...) in a font of its own: changing the profiles' font changes the
-# symbol in the terminals already open, with no statusline to run again.
+# Every symbol has the same code points (U+E100...) in a font of its own, so the statusline prints the same
+# whichever it is and its terminal profile decides what that looks like.
 function Get-SymbolFontFamily([string]$Id) {
     if ($Id -eq $DefaultSymbol) { 'ClaudeMaxxing Eggs' } else { "ClaudeMaxxing Symbol $Id" }
 }
 
-# Windows Terminal profiles for the menu sessions: one per icon drawn in $IconDir (<color>.png, tray.ps1
-# -RenderEggsTo), hidden from the new-tab menu. Named like Get-SessionProfileName (lib\sessions.ps1).
+# The profile a session opens with, for good: that is how an open session keeps its symbol when another is chosen.
+# The egg's keep their name from before the symbols (Windows Terminal knows a profile of a fragment by its name).
+function Get-SessionProfileName([string]$ColorName, [string]$Id = $DefaultSymbol) {
+    if ($Id -eq $DefaultSymbol) { "ClaudeMaxxing $ColorName" } else { "ClaudeMaxxing $ColorName $Id" }
+}
+
+# Windows Terminal profiles for the menu sessions: one per symbol and color, from the icons drawn in
+# $IconRoot\<id>\<color>.png (tray.ps1 -RenderEggsTo), hidden from the new-tab menu.
 # A fragment: Windows Terminal reads it beside the user's settings.json, which stays untouched.
-function Install-TerminalProfiles([string]$IconDir, [string]$Family = (Get-SymbolFontFamily $DefaultSymbol)) {
-    $icons = @(Get-ChildItem -LiteralPath $IconDir -Filter '*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
-    if (-not $icons.Count) { return 'terminal profiles: no eggs drawn (tabs keep the cmd icon)' }
-    $profiles = @($icons | ForEach-Object {
-        # The symbol's font after the main one: the statusline's glyphs (U+E100...) come from it.
-        # shortcut: assumes Windows Terminal's default face; a user who changed theirs gets Cascadia Mono in these tabs.
-        [ordered]@{ name = 'ClaudeMaxxing ' + $_.BaseName; commandline = '%SystemRoot%\System32\cmd.exe'; icon = $_.FullName; hidden = $true
-            font = [ordered]@{ face = 'Cascadia Mono, ' + $Family } }
+function Install-TerminalProfiles([string]$IconRoot, [string[]]$Ids = @($DefaultSymbol)) {
+    $profiles = @(foreach ($id in $Ids) {
+        foreach ($icon in @(Get-ChildItem -LiteralPath (Join-Path $IconRoot $id) -Filter '*.png' -ErrorAction SilentlyContinue | Sort-Object Name)) {
+            # The symbol's font after the main one: the statusline's glyphs (U+E100...) come from it.
+            # shortcut: assumes Windows Terminal's default face; a user who changed theirs gets Cascadia Mono in these tabs.
+            [ordered]@{ name = (Get-SessionProfileName $icon.BaseName $id); commandline = '%SystemRoot%\System32\cmd.exe'; icon = $icon.FullName; hidden = $true
+                font = [ordered]@{ face = 'Cascadia Mono, ' + (Get-SymbolFontFamily $id) } }
+        }
     })
+    if (-not $profiles.Count) { return 'terminal profiles: no eggs drawn (tabs keep the cmd icon)' }
     Write-JsonFile $TerminalFragmentFile ([ordered]@{ profiles = $profiles })
     # A running Windows Terminal reads fragments only when it reloads its settings: a new timestamp (content
-    # untouched) makes it reload now, and that repaints the open tabs' icon and font too.
+    # untouched) makes it reload now, so the next menu session already finds its profile.
     foreach ($settings in @(Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal*\LocalState\settings.json') -ErrorAction SilentlyContinue)) {
         try { $settings.LastWriteTime = Get-Date } catch { }
     }

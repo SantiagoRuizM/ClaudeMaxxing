@@ -3002,7 +3002,7 @@ function Draw-HubSettingsSection($G, $Map, $Hover, [int]$X0, [int]$Inner) {
     Draw-HubCard $G $card
     Draw-HubEgg $G ($card.X + (Px 28)) ($card.Y + (Px 27)) (Px 26) $SlotColors[1].Hex
     Draw-HubDropdown $G $Map $Hover 'symbol' (New-Rect ($card.X + (Px 42)) ($card.Y + (Px 12)) ($card.Width - (Px 50)) (Px 30)) (Tx 'S\u00edmbolo') (Get-SessionSymbols $TrayRoot) (Get-SessionSymbol) 'Step-HubSymbol'
-    Draw-Wrapped $G (Tx 'El de cada sesi\u00f3n en la bandeja, las pesta\u00f1as, la statusline y el celular. Tambi\u00e9n se cambia desde el celular.') $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 50)) ($card.Width - (Px 36)) (Px 36)
+    Draw-Wrapped $G (L $SymbolNote) $F.Small $P.Muted ($card.X + (Px 18)) ($card.Y + (Px 50)) ($card.Width - (Px 36)) (Px 36)
 
     # Voces de las sesiones: the same switch as Voz, and which voices new sessions get.
     Draw-HubCaption $G 'VOZ' $X0 (Px 304) $Inner ''

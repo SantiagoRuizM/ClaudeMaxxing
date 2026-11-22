@@ -1382,13 +1382,14 @@ $realFragment = $TerminalFragmentFile
 try {
     $TerminalFragmentFile = Join-Path $wtTmp 'Fragments\ClaudeMaxxing\sessions.json'
     $eggDir = Join-Path $wtTmp 'eggs'
-    New-Item -ItemType Directory -Force -Path $eggDir | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $eggDir 'egg'), (Join-Path $eggDir 'ring') | Out-Null
     Assert-Equal $true ((Install-TerminalProfiles $eggDir) -like '*no eggs*') 'terminal profiles: none without eggs'
-    foreach ($name in 'orange', 'blue') { [IO.File]::WriteAllBytes((Join-Path $eggDir "$name.png"), [byte[]](137, 80, 78, 71)) }
-    [void](Install-TerminalProfiles $eggDir)
+    foreach ($name in 'orange', 'blue') { foreach ($id in 'egg', 'ring') { [IO.File]::WriteAllBytes((Join-Path $eggDir "$id\$name.png"), [byte[]](137, 80, 78, 71)) } }
+    [void](Install-TerminalProfiles $eggDir @('egg', 'ring'))
     $fragment = [IO.File]::ReadAllText($TerminalFragmentFile) | ConvertFrom-Json
-    Assert-Equal "$(Get-SessionProfileName 'blue')|$(Join-Path $eggDir 'blue.png')|True|2" ('{0}|{1}|{2}|{3}' -f $fragment.profiles[0].name, $fragment.profiles[0].icon, $fragment.profiles[0].hidden, @($fragment.profiles).Count) 'terminal profiles: one hidden profile per egg, named as the launcher asks'
+    Assert-Equal "$(Get-SessionProfileName 'blue')|$(Join-Path $eggDir 'egg\blue.png')|True|4" ('{0}|{1}|{2}|{3}' -f $fragment.profiles[0].name, $fragment.profiles[0].icon, $fragment.profiles[0].hidden, @($fragment.profiles).Count) 'terminal profiles: one hidden profile per egg, named as the launcher asks'
     Assert-Equal 'Cascadia Mono, ClaudeMaxxing Eggs' $fragment.profiles[0].font.face 'terminal profiles: the eggs font after the main one (the statusline egg glyphs)'
+    Assert-Equal 'ClaudeMaxxing blue|ClaudeMaxxing blue ring|Cascadia Mono, ClaudeMaxxing Symbol ring' ('{0}|{1}|{2}' -f $fragment.profiles[0].name, $fragment.profiles[2].name, $fragment.profiles[2].font.face) 'terminal profiles: each symbol has its own, the egg keeping the name open sessions have'
     [void](Uninstall-TerminalProfiles)
     Assert-Equal $false (Test-Path -LiteralPath (Split-Path -Parent $TerminalFragmentFile)) 'terminal profiles: removed on uninstall'
 } finally { $TerminalFragmentFile = $realFragment; Remove-Item -LiteralPath $wtTmp -Recurse -Force -ErrorAction SilentlyContinue }
@@ -2219,16 +2220,15 @@ try {
         if ($shape -eq 'still') { $g.CompositingMode = 'SourceCopy'; $g.FillRectangle([System.Drawing.Brushes]::Transparent, 25, 25, 50, 50) }
         $g.Dispose(); $bmp.Save("$symTmp\symbols\ring\$shape.png", [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
     }
-    foreach ($id in 'egg', 'ring') {
-        [IO.File]::WriteAllText("$symTmp\eggs\$id\statusline.json", "{ `"still`": [`"$id`"] }")
-        [IO.File]::WriteAllBytes("$symTmp\eggs\$id\blue.png", [byte[]](137, 80, 78, 71))
-    }
+    foreach ($id in 'egg', 'ring') { [IO.File]::WriteAllBytes("$symTmp\eggs\$id\blue.png", [byte[]](137, 80, 78, 71)) }
     $TrayRoot = $symTmp
     $SymbolFile = "$symTmp\symbol.json"
     $TerminalFragmentFile = "$symTmp\fragment\sessions.json"
-    Write-JsonFile $TerminalFragmentFile @{ profiles = @() }
-    # Away from the real Windows Terminal settings, whose timestamp a change touches.
+    # Away from the real Windows Terminal settings, whose timestamp writing the profiles touches.
     $env:LOCALAPPDATA = "$symTmp\local"
+    [void](Install-TerminalProfiles "$symTmp\eggs" @('egg', 'ring'))
+    $profilesBefore = [IO.File]::ReadAllText($TerminalFragmentFile)
+    $openedWith = Get-SessionProfileName 'blue' (Get-SavedSymbol $symTmp)
     $script:SessionSymbol = $null; $script:EggImages = $null; $script:SessionIconCache = @{}; $script:Mobile.Eggs = @{}
     $script:SessionIconColor = @{ 0 = 1 }; $script:SessionIconFrames = @{ 0 = -1 }; $script:SessionSpeaking = -1
     $script:SessionIcons = @([pscustomobject]@{ Icon = (Get-SessionIcon 1) })
@@ -2241,15 +2241,15 @@ try {
     Assert-Equal 'ring|ring' ('{0}|{1}' -f (Get-SessionSymbol), (Get-SavedSymbol $symTmp)) 'symbols: the choice is on and saved for the next start'
     Assert-Equal $false ([object]::ReferenceEquals($iconBefore, $script:SessionIcons[0].Icon)) 'symbols: a tray icon already showing is redrawn'
     Assert-Equal $false ($phoneBefore -eq (Get-MobileEggsAnswer '#16A34A').Body.still) 'symbols: the phone gets the new one, not the cached one'
-    $fragment = Read-JsonFile $TerminalFragmentFile
-    Assert-Equal "Cascadia Mono, ClaudeMaxxing Symbol ring|$symTmp\eggs\ring\blue.png" ('{0}|{1}' -f $fragment.profiles[0].font.face, $fragment.profiles[0].icon) 'symbols: the open terminals get its font and its tab icon'
-    Assert-Equal 'ring' (@((Read-JsonFile "$symTmp\eggs\statusline.json").still)[0]) 'symbols: the statusline without the font gets it too'
+    Assert-Equal $profilesBefore ([IO.File]::ReadAllText($TerminalFragmentFile)) 'symbols: the open terminals are not touched: they keep theirs'
+    $openingNow = Get-SessionProfileName 'blue' (Get-SavedSymbol $symTmp)
+    Assert-Equal 'ClaudeMaxxing blue|ClaudeMaxxing blue ring' "$openedWith|$openingNow" 'symbols: a session opened now starts with the new one'
     $speak = New-SpeakingIconBitmap '#16A34A' 64 2
     try { Assert-Equal '22,163,74' ('{0},{1},{2}' -f $speak.GetPixel(32, 32).R, $speak.GetPixel(32, 32).G, $speak.GetPixel(32, 32).B) 'symbols: speaking fills its own shape' } finally { $speak.Dispose() }
 
     Set-SessionSymbol 'egg'
     Assert-Equal $phoneBefore (Get-MobileEggsAnswer '#16A34A').Body.still 'symbols: back to the egg draws the egg again'
-    Assert-Equal 'Cascadia Mono, ClaudeMaxxing Eggs' (Read-JsonFile $TerminalFragmentFile).profiles[0].font.face 'symbols: and its font'
+    Assert-Equal 'ClaudeMaxxing blue' (Get-SessionProfileName 'blue' (Get-SavedSymbol $symTmp)) 'symbols: and new sessions start with the egg again'
     $refused = try { Set-SessionSymbol '..\x'; $false } catch { $true }
     Assert-Equal $true $refused 'symbols: an unknown id is refused'
     Write-JsonFile $SymbolFile @{ id = 'gone' }

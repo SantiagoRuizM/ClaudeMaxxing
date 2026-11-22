@@ -7,8 +7,8 @@ prints the frame in the session's color. Frames:
     1..N    the thinking animation (the frames of thinking.gif)
     N+1     the symbol filled in (its silhouette), for the speaking blink
 Metrics match Cascadia Mono (Windows Terminal's default font) so each glyph fills exactly one cell; the menu
-sessions' terminal profiles list the chosen one after their main one (lib\\symbols.ps1, Install-TerminalProfiles).
-Every symbol has a family of its own and the same code points: changing the profiles' font changes the symbol.
+sessions' terminal profiles list their symbol's after their main one (lib\\symbols.ps1, Install-TerminalProfiles).
+Every symbol has a family of its own and the same code points: the profile a session opened with decides its symbol.
 
 Run it again after changing a symbol's images (needs fontTools and Pillow):
     python font/build_eggs_font.py

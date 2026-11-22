@@ -131,9 +131,6 @@ function Start-ClaudeCodeSession([string]$Dir, [string]$Prompt) {
     Start-Process -FilePath (Join-Path $env:WINDIR 'System32\conhost.exe') -ArgumentList $launch -WorkingDirectory $TrayRoot
 }
 
-# The hidden Windows Terminal profile with this color's egg as its tab icon (Install-TerminalProfiles).
-function Get-SessionProfileName([string]$ColorName) { 'ClaudeMaxxing ' + $ColorName }
-
 # wt.exe arguments for a new window in $Dir running $Run. --pos only takes non-negative values
 # (a leading '-' reads as an option); the window is moved to its exact slot afterwards anyway.
 function Format-WtArguments([string]$Dir, [string]$Run, $Slot, [string]$TabColor, [string]$TerminalProfile) {
