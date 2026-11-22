@@ -1,6 +1,6 @@
 # Versioning and releases
 
-ClaudeMaxxing has one version for everything it installs (tray, menu launcher, voice, Peek, Whip, theme, Ambientes...). It follows [Semantic Versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
+ClaudeMaxxing has one version for everything it installs (tray, menu launcher, voice, Peek, Whip, theme, Ambientes...) and for the phone app. It follows [Semantic Versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
 
 ## Where the version lives
 
@@ -9,7 +9,7 @@ ClaudeMaxxing has one version for everything it installs (tray, menu launcher, v
 | `lib/common.ps1` (`$AppVersion`) | The version. The window shows it, and so do Settings > Apps and the installer |
 | `package.json` (`version`) | The same number, for `npx github:...` |
 | `CHANGELOG.md` | The first `## X.Y.Z - date` heading is the same number; `## Unreleased` sits above it |
-| Git tag `vX.Y.Z` | Publishes the release that `get.ps1` installs |
+| Git tag `vX.Y.Z` | Publishes the release that `get.ps1` installs and gives the APK its version (the `version` in `mobile/pubspec.yaml` is only for local builds) |
 
 `test\run-tests.ps1` fails when the first three disagree, and `release.yml` fails when the tag disagrees with them.
 
@@ -63,9 +63,11 @@ The internal identifiers listed in `CLAUDE.md` (`ClaudeTrayWin`, the `Local\Clau
    - runs the whole CI;
    - checks that the tag matches the version and is on `main` or on a `release/*` branch;
    - checks that `CHANGELOG.md` has an entry for that version;
-   - publishes the ZIP, its `SHA256SUMS.txt` and `get.ps1`, with that entry as the notes.
+   - builds the APK, signed with the project's key, and checks its certificate;
+   - publishes the ZIP, the APK, their `SHA256SUMS.txt` and `get.ps1`, with that entry as the notes.
 
-   From then on, `get.ps1` installs that release.
+   From then on, `get.ps1` installs that release, and the installed trays and apps offer it within 6 hours.
+   MINOR and PATCH stay under 100: the APK's `versionCode` is `MAJOR*10000 + MINOR*100 + PATCH`.
 5. Never move or delete a published tag. A bad release is fixed by the next patch.
 
 **Fixing an old version** while `main` holds work that isn't ready to ship:
@@ -73,3 +75,16 @@ The internal identifiers listed in `CLAUDE.md` (`ClaudeTrayWin`, the `Local\Clau
 1. Create `release/X.Y` from the tag `vX.Y.Z`.
 2. Fix it there, then release `X.Y.(Z+1)` from that branch, following the same steps.
 3. Bring the fix to `main`, with its line under `## X.Y.(Z+1)`.
+
+## Signing the app
+
+`release.yml` needs two repository secrets, set once from the PC that has the key (run in `mobile\android`):
+
+```powershell
+$store = ((Get-Content key.properties | Where-Object { $_ -like 'storeFile=*' }) -replace '^storeFile=', '') -replace '\\\\', '\'
+if (-not [IO.Path]::IsPathRooted($store)) { $store = Join-Path "$PWD\app" $store }
+[Convert]::ToBase64String([IO.File]::ReadAllBytes($store)) | gh secret set ANDROID_KEYSTORE_BASE64
+Get-Content -Raw key.properties | gh secret set ANDROID_KEY_PROPERTIES
+```
+
+Without them a release fails before publishing anything. Keep a copy of the key outside GitHub: secrets cannot be read back, and an app signed with another key cannot update the installed ones.

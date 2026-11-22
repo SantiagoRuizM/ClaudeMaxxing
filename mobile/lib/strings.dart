@@ -83,4 +83,10 @@ class S {
     'speaking' => t('hablando', 'speaking'),
     _ => t('esperando', 'waiting'),
   };
+  static String updateAvailable(String v) => t(
+      'ClaudeMaxxing $v está disponible. Descárgalo y ábrelo: se instala encima, sin perder el emparejamiento.',
+      'ClaudeMaxxing $v is available. Download and open it: it installs over this one and stays paired.');
+  static String get updateLater => t('Después', 'Later');
+  static String get updateDownload => t('Descargar', 'Download');
+  static String get updateFailed => t('No se pudo abrir la descarga.', 'Could not open the download.');
 }

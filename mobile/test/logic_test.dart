@@ -147,4 +147,13 @@ void main() {
     expect(w.run, '');
     expect(statusParts(null), isNull);
   });
+  test('apkUpdate: only a newer X.Y.Z that has the APK', () {
+    Map release(String tag, [String asset = 'ClaudeMaxxing.apk']) => {'tag_name': tag, 'assets': [{'name': asset}]};
+    expect(apkUpdate(release('v1.10.0'), '1.9.9'), '1.10.0');
+    expect(apkUpdate(release('v1.2.0'), '1.2.0'), isNull);
+    expect(apkUpdate(release('v1.1.9'), '1.2.0'), isNull);
+    expect(apkUpdate(release('v2.0.0-beta'), '1.2.0'), isNull);
+    expect(apkUpdate(release('v2.0.0', 'ClaudeMaxxing-2.0.0.zip'), '1.2.0'), isNull);
+    expect(apkUpdate({'message': 'Not Found'}, '1.2.0'), isNull);
+  });
 }

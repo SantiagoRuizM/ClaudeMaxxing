@@ -39,6 +39,7 @@ ClaudeMaxxing follows [Semantic Versioning](https://semver.org): a new **major**
 - **Security fixes**: `get.ps1` no longer installs the unverified `main` branch when GitHub's API fails; **Permitir 1 hora** no longer allows requests already waiting, and a command too long to show can only be refused; Peek shows programs and scripts in Explorer instead of running them; a paired PC whose user has an apostrophe no longer breaks every `ssh`; the tamper check covers `sshd_config` and the gate.
 - **Fixes**: after `/clear` a session no longer lists itself among the other sessions; JSON state is written atomically and `history.json`/`cloud.json` under a lock; updates now refresh the statusline block; the window fits 1366x768 screens; uninstall gives back the exact theme; money and times follow one Spanish format; keys are stored encrypted (DPAPI); scheduled runs find Claude Code after it moved.
 - **CI** runs the Whip and Peek tests and draws every window; a release runs the whole CI.
+- **Updates in one click**: the tray tells you when a new version is out and installs it, checking its SHA-256 and keeping what you installed without (**Check for updates...** in its menu looks right away; the business edition only looks when asked). The phone app tells you too and downloads the new APK, which each release now publishes signed as `ClaudeMaxxing.apk`.
 
 ## 1.1.0 - 2026-11-08
 

@@ -188,6 +188,8 @@ if (-not (Test-Path -LiteralPath $skillDir)) { New-Item -ItemType Directory -For
 [IO.File]::WriteAllText((Join-Path $skillDir 'SKILL.md'), $skill, $utf8NoBom)
 Write-Host "/voz: $skillDir"
 
+# Read by the tray's update (lib\update-run.ps1): the menu and the hotkeys it can see, this it cannot.
+Write-JsonFile (Join-Path $TrayHome 'install.json') ([ordered]@{ skipVoiceDeps = $SkipVoiceDeps.IsPresent })
 if ($SkipVoiceDeps) {
     Write-Host 'voice dependencies skipped (-SkipVoiceDeps)'
 } else {
