@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mat } from './people.js';
 import * as TX from './textures.js';
+import { styleById } from './styles/index.js';
 
 // Floor plan (meters, office-local, origin at floor center): x -15.5..15.5 (west→east), z -10.5..10.5 (north→south).
 // North band z<-4.6: west office | Juntas | Recepción | Servidores | Baños | east office. Middle: 4 team pods. South band: cocina, sala, ping-pong, descanso.
@@ -10,8 +11,20 @@ export const PLAN = { W: 31, D: 21, H: 3.2 };
 export const POD_X = [-11.25, -3.75, 3.75, 11.25];
 export const POD_Z = -0.2;
 
-export function buildOffice(brand, layout, { company = '', cityName = '' } = {}) {
+// World-scale UVs (one texture tile every `size` meters) for a textured box such as a brick wall; untouched otherwise.
+function tileUV(geo, w, h, d, size) {
+  if (!size) return geo;
+  const uv = geo.attributes.uv;
+  for (let f = 0; f < 6; f++) {
+    const [U, V] = f < 2 ? [d, h] : f < 4 ? [w, d] : [w, h];
+    for (let k = 0; k < 4; k++) { const i = f * 4 + k; uv.setXY(i, uv.getX(i) * U / size, uv.getY(i) * V / size); }
+  }
+  return geo;
+}
+
+export function buildOffice(brand, layout, { company = '', cityName = '', style = styleById() } = {}) {
   const { teams, pods, founders } = layout;
+  const S = style;
   const root = new THREE.Group();
   const R = TX.rng(314);
   const shadowy = (m, cast = true) => { m.castShadow = cast; m.receiveShadow = true; return m; };
@@ -20,29 +33,31 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
     m.position.set(x, y, z); parent.add(m); return m;
   };
   // y is the bottom of the box
-  const box = (w, h, d, material, x, y, z, parent = root, cast = true) => add(new THREE.BoxGeometry(w, h, d), material, x, y + h / 2, z, parent, cast);
+  const box = (w, h, d, material, x, y, z, parent = root, cast = true) => add(tileUV(new THREE.BoxGeometry(w, h, d), w, h, d, material.userData.tile), material, x, y + h / 2, z, parent, cast);
   const rbox = (w, h, d, material, x, y, z, parent = root, r = 0.04) => add(new RoundedBoxGeometry(w, h, d, 2, r), material, x, y + h / 2, z, parent);
   const plane = (w, d, material, x, y, z, parent = root) => {
     const m = add(new THREE.PlaneGeometry(w, d), material, x, y, z, parent, false);
     m.rotation.x = -Math.PI / 2; return m;
   };
 
+  // its own material, not mat()'s shared one: the brick map must not reach other parts of the same color
+  const wallMat = S.wallTexture === 'brick'
+    ? Object.assign(new THREE.MeshStandardMaterial({ map: TX.brickWall(S.wall), roughness: 0.95 }), { userData: { tile: 1 } })
+    : mat(S.wall);
   const M = {
-    wall: mat('#EEF0F2'),
-    wallWarm: mat('#F3EFE8'),
-    frame: mat('#2B3036', { roughness: 0.45, metalness: 0.4 }),
+    wall: wallMat,
+    wallWarm: mat(S.wallWarm),
+    frame: mat(S.frame, { roughness: 0.45, metalness: 0.4 }),
     glass: new THREE.MeshStandardMaterial({ color: '#B9DCEB', transparent: true, opacity: 0.14, roughness: 0.05, metalness: 0.2, depthWrite: false }),
-    oak: mat('#C9A57C'),
-    oakDark: mat('#8A5F38'),
-    white: mat('#F4F5F7'),
-    steel: mat('#C3C9CF', { metalness: 0.55, roughness: 0.35 }),
-    dark: mat('#1E2227'),
-    concrete: mat('#A7ADB3'),
-    pot: mat('#E3DBD0'),
-    potDark: mat('#3A3F45'),
-    leaf: [new THREE.MeshStandardMaterial({ color: '#3F7D4A', roughness: 0.8 }),
-      new THREE.MeshStandardMaterial({ color: '#5E9443', roughness: 0.8 }),
-      new THREE.MeshStandardMaterial({ color: '#2F6B45', roughness: 0.8 })],
+    oak: mat(S.oak),
+    oakDark: mat(S.oakDark),
+    white: mat(S.white),
+    steel: mat(S.steel, { metalness: 0.55, roughness: 0.35 }),
+    dark: mat(S.dark),
+    concrete: mat(S.concrete),
+    pot: mat(S.pot),
+    potDark: mat(S.potDark),
+    leaf: S.leaves.map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.8 })),
     screenOff: new THREE.MeshStandardMaterial({ color: '#0C0F13', roughness: 0.15, metalness: 0.4 }),
   };
   const codeTex = TX.codeTex();
@@ -54,8 +69,9 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   };
 
   // ---------- floor, slab ----------
-  const floorTex = TX.planks(); floorTex.repeat.set(6, 4);
-  plane(PLAN.W, PLAN.D, new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.68 }), 0, 0, 0);
+  const concreteFloor = S.floor.kind === 'concrete';
+  const floorTex = concreteFloor ? TX.concreteFloor(S.floor.color) : TX.planks(S.floor.tones); floorTex.repeat.set(6, 4);
+  plane(PLAN.W, PLAN.D, new THREE.MeshStandardMaterial({ map: floorTex, roughness: concreteFloor ? 0.38 : 0.68, metalness: concreteFloor ? 0.05 : 0 }), 0, 0, 0);
   // contact shadows: soft dark blobs that anchor furniture to the floor
   const blobMat = new THREE.MeshBasicMaterial({ map: TX.blobTex(), transparent: true, depthWrite: false, opacity: 0.75 });
   const blob = (w, d, x, z, parent = root, y = 0.012) => {
@@ -63,11 +79,11 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
     m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.renderOrder = 1; parent.add(m); return m;
   };
   box(PLAN.W + 0.6, 0.55, PLAN.D + 0.6, M.concrete, 0, -0.55, 0);
-  const tileTex = TX.tiles(); tileTex.repeat.set(3, 3);
+  const tileTex = TX.tiles(...S.tiles); tileTex.repeat.set(3, 3);
   const tileMat = new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.35 });
   plane(4.9, 5.9, tileMat, -13.05, 0.004, 7.55); // kitchen
   plane(3.0, 5.9, tileMat, 8.0, 0.004, -7.55); // baños
-  plane(3.5, 5.9, mat('#2A2F36', { roughness: 0.6 }), 4.75, 0.004, -7.55); // servers
+  plane(3.5, 5.9, mat(S.serverFloor, { roughness: 0.6 }), 4.75, 0.004, -7.55); // servers
 
   // ---------- walls ----------
   const H = PLAN.H;
@@ -138,7 +154,7 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
     }
     return g;
   }
-  function chair(parent, color = '#2F3540', x = 0, z = 0, rot = 0) {
+  function chair(parent, color = S.chair, x = 0, z = 0, rot = 0) {
     const c = new THREE.Group(); c.position.set(x, 0, z); c.rotation.y = rot; parent.add(c);
     for (let i = 0; i < 5; i++) {
       const leg = box(0.04, 0.03, 0.3, M.dark, 0, 0.03, 0, c);
@@ -186,7 +202,7 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
     if (r() < 0.75) add(new THREE.CylinderGeometry(0.04, 0.036, 0.1, 12), mat(['#F4F5F7', '#C8323A', '#0069AB', '#25A18E'][Math.floor(r() * 4)]), (r() < 0.5 ? 1 : -1) * 0.58, 0.815, 0.58, g);
     if (r() < 0.6) { const pp = box(0.21, 0.012, 0.29, M.white, -0.45, 0.765, 0.75, g); pp.rotation.y = r() - 0.5; }
     if (r() < 0.55) plant(W / 2 - 0.2, cz + 0.15, 0.22, g).position.y = 0.765;
-    const ch = chair(g, opts.chair || '#2F3540', 0, -0.02);
+    const ch = chair(g, opts.chair || S.chair, 0, -0.02);
     stations[id] = {
       group: g, chair: ch, screens: scr,
       setScreen(kind) { for (const s of scr) s.material = screens[kind] || screens.off; },
@@ -201,15 +217,15 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
     members.forEach((id, i) => {
       const dx = (i % 2 ? 0.77 : -0.77);
       const north = i < 2;
-      station(id, cx + dx, POD_Z + (north ? -1.2 : 1.2), north ? 0 : Math.PI, { divider: teams[team].color, chair: '#2F3540' });
+      station(id, cx + dx, POD_Z + (north ? -1.2 : 1.2), north ? 0 : Math.PI, { divider: teams[team].color });
     });
   });
-  [-7.5, 0, 7.5].forEach((x) => { add(new THREE.CylinderGeometry(0.2, 0.2, H, 20), mat('#C8C4BC'), x, H / 2, POD_Z); blob(1, 1, x, POD_Z); });
+  [-7.5, 0, 7.5].forEach((x) => { add(new THREE.CylinderGeometry(0.2, 0.2, H, 20), mat(S.column), x, H / 2, POD_Z); blob(1, 1, x, POD_Z); });
   // suspended linear lamps over each pod (cutaway ceiling: cables run up out of view)
-  const lampOn = new THREE.MeshStandardMaterial({ color: '#F4F1EA', emissive: '#FFD9A6', emissiveIntensity: 0, roughness: 0.6 });
+  const lampOn = new THREE.MeshStandardMaterial({ color: '#F4F1EA', emissive: S.lamp, emissiveIntensity: 0, roughness: 0.6 });
   const pendant = (x, z, len, rotY = 0) => {
     const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY; root.add(g);
-    box(len, 0.05, 0.22, mat('#E9E6E0', { roughness: 0.5 }), 0, 2.62, 0, g);
+    box(len, 0.05, 0.22, mat(S.pendant, { roughness: 0.5 }), 0, 2.62, 0, g);
     box(len - 0.06, 0.012, 0.18, lampOn, 0, 2.608, 0, g, false);
     [-1, 1].forEach((s) => box(0.012, 0.5, 0.012, M.dark, s * (len / 2 - 0.2), 2.67, 0, g, false));
   };
@@ -222,9 +238,9 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   rbox(0.6, 0.85, 0.5, mat('#D9DDE1'), 7.5, 0, 3.4); box(0.45, 0.04, 0.3, M.white, 7.5, 0.85, 3.4);
 
   // ---------- founders' offices ----------
-  plane(5.2, 4.6, new THREE.MeshStandardMaterial({ map: TX.rugTex('#6E5545', 11), roughness: 1 }), -12.5, 0.006, -7.6);
-  station(founders[0] || 'office-west', -12.5, -9.3, 0, { wide: true, laptop: true, chair: '#1B1E24' });
-  chair(root, '#8A5F38', -13.1, -6.9, Math.PI); chair(root, '#8A5F38', -11.9, -6.9, Math.PI);
+  plane(5.2, 4.6, new THREE.MeshStandardMaterial({ map: TX.rugTex(S.rugs.west, 11), roughness: 1 }), -12.5, 0.006, -7.6);
+  station(founders[0] || 'office-west', -12.5, -9.3, 0, { wide: true, laptop: true, chair: S.bossChair });
+  chair(root, S.guestChair, -13.1, -6.9, Math.PI); chair(root, S.guestChair, -11.9, -6.9, Math.PI);
   const shelf = (x, z, rot, w = 2.2, h = 2.0) => {
     const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot; root.add(g);
     box(w, h, 0.34, M.oakDark, 0, 0, 0, g);
@@ -240,9 +256,9 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   };
   shelf(-9.75, -8.0, -Math.PI / 2);
   plant(-15.0, -5.2, 1.3, root, true);
-  plane(5.2, 4.6, new THREE.MeshStandardMaterial({ map: TX.rugTex('#46515E', 12), roughness: 1 }), 12.5, 0.006, -7.6);
-  station(founders[1] || 'office-east', 12.5, -9.3, 0, { wide: true, dual: true, chair: '#1B1E24' });
-  chair(root, '#2F3540', 11.9, -6.9, Math.PI); chair(root, '#2F3540', 13.1, -6.9, Math.PI);
+  plane(5.2, 4.6, new THREE.MeshStandardMaterial({ map: TX.rugTex(S.rugs.east, 12), roughness: 1 }), 12.5, 0.006, -7.6);
+  station(founders[1] || 'office-east', 12.5, -9.3, 0, { wide: true, dual: true, chair: S.bossChair });
+  chair(root, S.chair, 11.9, -6.9, Math.PI); chair(root, S.chair, 13.1, -6.9, Math.PI);
   const wb = add(new THREE.PlaneGeometry(2.3, 1.25), new THREE.MeshStandardMaterial({ map: TX.whiteboardTex(), roughness: 0.4 }), 9.58, 1.55, -7.6, root, false);
   wb.rotation.y = Math.PI / 2;
   box(0.04, 1.35, 2.4, M.steel, 9.57, 0.88, -7.6);
@@ -251,14 +267,14 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   // ---------- meeting room ----------
   rbox(3.4, 0.05, 1.3, M.oak, -6.25, 0.72, -7.6, root, 0.02);
   [-1, 1].forEach((s) => box(0.08, 0.72, 0.9, M.frame, -6.25 + s * 1.3, 0, -7.6));
-  [-7.4, -6.25, -5.1].forEach((x) => { chair(root, '#25A18E', x, -8.65, 0); chair(root, '#25A18E', x, -6.55, Math.PI); });
+  [-7.4, -6.25, -5.1].forEach((x) => { chair(root, S.meetingChair, x, -8.65, 0); chair(root, S.meetingChair, x, -6.55, Math.PI); });
   box(0.05, 1.2, 2.1, M.dark, -9.41, 0.95, -7.6);
   const tv = add(new THREE.PlaneGeometry(1.98, 1.1), new THREE.MeshBasicMaterial({ map: TX.dashTex(company), toneMapped: false, color: '#D0D6DD' }), -9.38, 1.55, -7.6, root, false);
   tv.rotation.y = Math.PI / 2;
   plant(-3.6, -10.0, 0.8);
 
   // ---------- reception ----------
-  box(6, H, 0.16, mat('#F7F8F9'), 0, 0, -10.3);
+  box(6, H, 0.16, mat(S.receptionWall), 0, 0, -10.3);
   // elevator doors flanking the logo wall
   [-2.55, 2.55].forEach((x) => {
     box(0.85, 2.2, 0.05, M.steel, x, 0, -10.2);
@@ -271,7 +287,7 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   rbox(3.15, 0.05, 0.85, M.oak, 0, 1.05, -7.0, root, 0.02);
   box(2.98, 0.04, 0.02, new THREE.MeshBasicMaterial({ color: '#2F93D6', toneMapped: false }), 0, 0.9, -6.64);
   add(new THREE.PlaneGeometry(0.36, 0.55), new THREE.MeshStandardMaterial({ map: brand.isotipo, transparent: true, roughness: 0.5 }), 0, 0.45, -6.643, root, false);
-  chair(root, '#2F3540', 0, -7.9, 0);
+  chair(root, S.chair, 0, -7.9, 0);
   plant(-2.4, -6.0, 1.1, root, true); plant(2.4, -6.0, 1.1, root, true);
   // framed posters on the reception side walls
   const poster = (map, x, z, rotY, w = 0.9, h = 1.27) => {
@@ -283,7 +299,7 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   poster(TX.cityPoster(cityName), -2.92, -8.2, Math.PI / 2);
   poster(brand.isotipo, 2.92, -8.2, -Math.PI / 2, 0.62, 0.95);
   // waiting bench
-  rbox(2.2, 0.42, 0.6, mat('#3A4A5A'), 0, 0, -5.3, root, 0.06);
+  rbox(2.2, 0.42, 0.6, mat(S.bench), 0, 0, -5.3, root, 0.06);
 
   // ---------- servers ----------
   const ledGeo = new THREE.BoxGeometry(0.05, 0.022, 0.01);
@@ -310,7 +326,7 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
 
   // ---------- kitchen ----------
   rbox(0.7, 0.9, 4.4, M.white, -15.05, 0, 7.6, root, 0.03);
-  box(0.74, 0.04, 4.44, mat('#3A3F45', { roughness: 0.3 }), -15.05, 0.9, 7.6);
+  box(0.74, 0.04, 4.44, mat(S.counter, { roughness: 0.3 }), -15.05, 0.9, 7.6);
   rbox(0.8, 1.95, 0.75, M.steel, -15.0, 0, 4.95, root, 0.04);
   box(0.32, 0.42, 0.36, M.dark, -15.1, 0.94, 6.3);
   box(0.06, 0.06, 0.02, new THREE.MeshBasicMaterial({ color: '#E5484D', toneMapped: false }), -14.93, 1.24, 6.3);
@@ -324,20 +340,20 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   });
 
   // ---------- lounge ----------
-  plane(5.4, 3.8, new THREE.MeshStandardMaterial({ map: TX.rugTex('#D7C7AE', 21), roughness: 1 }), -8.1, 0.006, 8.55);
+  plane(5.4, 3.8, new THREE.MeshStandardMaterial({ map: TX.rugTex(S.rugs.lounge, 21), roughness: 1 }), -8.1, 0.006, 8.55);
   const sofa = new THREE.Group(); sofa.position.set(-8.1, 0, 9.95); sofa.rotation.y = Math.PI; root.add(sofa);
-  const sofaMat = mat('#2E7D6E', { roughness: 0.95 });
+  const sofaMat = mat(S.sofa, { roughness: 0.95 });
   rbox(3.0, 0.38, 0.9, sofaMat, 0, 0.04, 0, sofa, 0.08);
   rbox(3.0, 0.5, 0.22, sofaMat, 0, 0.38, -0.34, sofa, 0.08);
-  [-1, 1].forEach((s) => { rbox(0.22, 0.6, 0.9, sofaMat, s * 1.5, 0.04, 0, sofa, 0.08); rbox(1.38, 0.12, 0.72, mat('#3A9583', { roughness: 0.95 }), s * 0.72, 0.38, 0.05, sofa, 0.05); });
+  [-1, 1].forEach((s) => { rbox(0.22, 0.6, 0.9, sofaMat, s * 1.5, 0.04, 0, sofa, 0.08); rbox(1.38, 0.12, 0.72, mat(S.sofaSeat, { roughness: 0.95 }), s * 0.72, 0.38, 0.05, sofa, 0.05); });
   rbox(1.3, 0.38, 0.7, M.oak, -8.1, 0, 8.45, root, 0.03);
   box(0.3, 0.02, 0.22, mat('#C8323A'), -8.4, 0.38, 8.4);
   const arm = new THREE.Group(); arm.position.set(-10.6, 0, 8.3); arm.rotation.y = Math.PI / 2; root.add(arm);
-  rbox(0.9, 0.4, 0.85, mat('#E9B830', { roughness: 0.95 }), 0, 0.04, 0, arm, 0.08);
-  rbox(0.9, 0.5, 0.2, mat('#E9B830', { roughness: 0.95 }), 0, 0.4, -0.32, arm, 0.08);
+  rbox(0.9, 0.4, 0.85, mat(S.armchair, { roughness: 0.95 }), 0, 0.04, 0, arm, 0.08);
+  rbox(0.9, 0.5, 0.2, mat(S.armchair, { roughness: 0.95 }), 0, 0.4, -0.32, arm, 0.08);
   // floor lamp
   add(new THREE.CylinderGeometry(0.02, 0.02, 1.6, 8), M.frame, -6.2, 0.8, 9.9);
-  const lampMat = new THREE.MeshStandardMaterial({ color: '#F3E3C3', emissive: '#FFD9A0', emissiveIntensity: 0, roughness: 0.8 });
+  const lampMat = new THREE.MeshStandardMaterial({ color: S.floorLamp, emissive: S.lamp, emissiveIntensity: 0, roughness: 0.8 });
   add(new THREE.CylinderGeometry(0.16, 0.24, 0.3, 16, 1, true), lampMat, -6.2, 1.7, 9.9);
 
   // office dog: a caramel criollo asleep on its cushion
@@ -363,12 +379,12 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   const ball = add(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshStandardMaterial({ color: '#FF8A00', emissive: '#FF8A00', emissiveIntensity: 0.4 }), PP.x, 0.9, PP.z);
 
   // ---------- rest zone ----------
-  plane(6.5, 4.6, new THREE.MeshStandardMaterial({ map: TX.rugTex('#C5D3CC', 31), roughness: 1 }), 8.6, 0.006, 7.8);
+  plane(6.5, 4.6, new THREE.MeshStandardMaterial({ map: TX.rugTex(S.rugs.rest, 31), roughness: 1 }), 8.6, 0.006, 7.8);
   const beanbag = (x, z, c) => {
     const b = add(new THREE.SphereGeometry(0.55, 18, 12), mat(c, { roughness: 1 }), x, 0.28, z);
     b.scale.set(1.25, 0.58, 1.25);
   };
-  beanbag(6.6, 7.9, '#F2C14E'); beanbag(8.6, 8.5, '#0069AB'); beanbag(10.4, 7.6, '#C8323A');
+  beanbag(6.6, 7.9, S.beanbags[0]); beanbag(8.6, 8.5, S.beanbags[1]); beanbag(10.4, 7.6, S.beanbags[2]);
   shelf(12.5, 5.0, 0, 3.0, 1.1);
   plant(15.0, 5.0, 1.2, root, true); plant(4.6, 10.0, 1.0, root, true); plant(11.5, 10.0, 0.9);
   // planters along the south parapet
@@ -386,7 +402,7 @@ export function buildOffice(brand, layout, { company = '', cityName = '' } = {})
   blob(3.6, 1.7, -8.1, 9.95); blob(3.4, 2.2, PP.x, PP.z); blob(4.0, 2.0, -6.25, -7.6); blob(3.6, 1.4, 0, -7.0);
   blob(1.6, 5.2, -15.0, 7.4); [[6.6, 7.9], [8.6, 8.5], [10.4, 7.6]].forEach(([x, z]) => blob(1.9, 1.9, x, z));
   [[-12.5, -7.5], [12.5, -7.5], [-6.25, -7.5], ...POD_X.map((x) => [x, POD_Z]), [-8.1, 8.2], [-1.4, 7.4], [8.6, 7.8], [-13.0, 7.3], [0, -7.0]].forEach(([x, z]) => {
-    const l = new THREE.PointLight(z > -1.5 && z < 1.5 ? '#E6F0FF' : '#FFB870', 0, 8.5, 2);
+    const l = new THREE.PointLight(z > -1.5 && z < 1.5 ? S.lightCool : S.lightWarm, 0, 8.5, 2);
     l.userData.boost = z > -1.5 && z < 1.5 ? 9 : 13;
     l.position.set(x, 2.55, z);
     root.add(l); lights.push(l);

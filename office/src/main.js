@@ -9,6 +9,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { placeTeam } from './team.js';
 import { buildCity, scaleBoxUV } from './city.js';
 import { buildOffice } from './office.js';
+import { resolveChoice, takeSkipIntro, mountSettings } from './settings.js';
 import { makePerson, applyPose } from './people.js';
 import { rng, hash, zTex, textLogo } from './textures.js';
 
@@ -44,8 +45,11 @@ const layout = placeTeam(cfg);
 layout.warnings.forEach((w) => console.warn('office.json:', w));
 const PEOPLE = layout.people, TEAMS = layout.teams;
 const COMPANY = String(cfg.company?.name || '');
-const CITY_NAME = 'Medellín'; // shortcut: fixed until the city presets (phase 1) give name and time zone
-const TZ = cfg.timeZone || 'America/Bogota';
+const choice = resolveChoice(params, cfg);
+const CITY = choice.city;
+const CITY_NAME = CITY.id === 'generic' ? '' : CITY.name;
+const TZ = CITY.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+const HAZE = CITY.haze || 1;
 const esc = (x) => String(x).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 // ---------- renderer ----------
@@ -67,7 +71,7 @@ app.appendChild(labelR.domElement);
 const scene = new THREE.Scene();
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.5;
-scene.fog = new THREE.FogExp2('#CFE5EE', 0.00058);
+scene.fog = new THREE.FogExp2('#CFE5EE', 0.00058 * HAZE);
 const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.3, 14000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -94,13 +98,13 @@ const brand = {
   isotipo: brandTex(C0.logo, () => textLogo((COMPANY[0] || '').toUpperCase(), { w: 256, h: 256, color: '#2F93D6' })),
   white: brandTex(C0.wordmarkOnDark || C0.wordmark, () => textLogo(COMPANY)),
 };
-const city = buildCity(scene);
+const city = buildCity(scene, CITY);
 for (const h of (params.get('hide') || '').split(',').filter(Boolean)) { // debug
   if (h === 'city') city.root.visible = false;
   if (h === 'sky') city.sky.visible = city.sunDisc.visible = false;
   if (h === 'clouds') city.clouds.forEach((c) => { c.visible = false; });
 }
-const office = buildOffice(brand, layout, { company: COMPANY, cityName: CITY_NAME });
+const office = buildOffice(brand, layout, { company: COMPANY, cityName: CITY_NAME || COMPANY, style: choice.style });
 office.root.position.y = FLOOR_Y;
 scene.add(office.root);
 
@@ -292,7 +296,7 @@ const VIEWS = {
   normal: { t: T0.clone().add(new THREE.Vector3(-3, 2.2, -8)), p: T0.clone().add(new THREE.Vector3(19.3, 14.6, 31.5)) },
   plano: { t: new THREE.Vector3(0, FLOOR_Y, -1.2), p: new THREE.Vector3(0.01, FLOOR_Y + 42, 3) },
   cerca: { t: new THREE.Vector3(-4, FLOOR_Y + 0.6, 3.5), p: new THREE.Vector3(5, FLOOR_Y + 7.5, 15) },
-  lejos: { t: new THREE.Vector3(-70, 40, -260), p: new THREE.Vector3(120, 85, 210) },
+  lejos: { t: new THREE.Vector3(...(CITY.far?.t || [-70, 60, -520])), p: new THREE.Vector3(...(CITY.far?.p || [120, 85, 210])) },
   oficina1: { t: new THREE.Vector3(-12.5, FLOOR_Y + 1.1, -9.1), p: new THREE.Vector3(-10.2, FLOOR_Y + 2.35, -5.8) },
   oficina2: { t: new THREE.Vector3(12.5, FLOOR_Y + 1.1, -9.0), p: new THREE.Vector3(11.0, FLOOR_Y + 2.3, -5.2) },
 };
@@ -303,12 +307,13 @@ if (params.get('cam')) { // debug: cam=px,py,pz,tx,ty,tz
   VIEWS.custom = { p: new THREE.Vector3(n[0], n[1], n[2]), t: new THREE.Vector3(n[3], n[4], n[5]) };
 }
 const startView = VIEWS.custom || VIEWS[params.get('vista')] || VIEWS.normal;
-if (SHOT || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+if (SHOT || takeSkipIntro() || matchMedia('(prefers-reduced-motion: reduce)').matches) {
   camera.position.copy(startView.p); controls.target.copy(startView.t);
 } else {
   camera.position.set(260, 190, 420); controls.target.set(0, FLOOR_Y, 0);
-  // establishing shot of the valley (river, metro, Coltejer), then land on the office
-  flyTo({ p: new THREE.Vector3(65, 110, 175), t: new THREE.Vector3(-120, 30, -160) }, 2.6, () => flyTo(startView, 3));
+  // establishing shot of the city (its landmarks), then land on the office
+  const intro = CITY.intro || { p: [65, 120, 175], t: [-60, 60, -420] };
+  flyTo({ p: new THREE.Vector3(...intro.p), t: new THREE.Vector3(...intro.t) }, 2.6, () => flyTo(startView, 3));
 }
 let plan = params.get('vista') === 'plano';
 document.body.classList.toggle('plan', plan);
@@ -325,11 +330,11 @@ function cityHour() {
 }
 const smooth = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 const C = (h) => new THREE.Color(h);
-const PAL = {
-  day: [C('#3F86CF'), C('#CBE3EE'), C('#8E9FA4')],
-  dusk: [C('#2C4583'), C('#F29A5C'), C('#5A4848')],
-  night: [C('#040816'), C('#16233D'), C('#090D18')],
-};
+const PAL = Object.fromEntries(Object.entries({
+  day: ['#3F86CF', '#CBE3EE', '#8E9FA4'],
+  dusk: ['#2C4583', '#F29A5C', '#5A4848'],
+  night: ['#040816', '#16233D', '#090D18'],
+}).map(([k, v]) => [k, (CITY.sky?.[k] || v).map(C)])); // [top, horizon, bottom], the city's own when it has one
 const moonDir = new THREE.Vector3(-0.45, 0.75, 0.5).normalize();
 const sunDir = new THREE.Vector3();
 let night = 0;
@@ -344,7 +349,7 @@ function setTime(h) {
   const hor = PAL.night[1].clone().lerp(PAL.day[1], day).lerp(PAL.dusk[1], dusk * 0.55);
   const bot = PAL.night[2].clone().lerp(PAL.day[2], day).lerp(PAL.dusk[2], dusk * 0.6);
   scene.fog.color.copy(hor);
-  scene.fog.density = 0.00058 + dusk * 0.00014 + night * 0.00018;
+  scene.fog.density = (0.00058 + dusk * 0.00014 + night * 0.00018) * HAZE;
   city.setSky(top, hor, bot, night, sunDir, moonDir);
   const lightDir = day > 0.35 ? sunDir.clone().setY(Math.max(sunDir.y, 0.12)).normalize() : moonDir;
   sun.position.copy(sun.target.position).addScaledVector(lightDir, 160);
@@ -510,6 +515,7 @@ function frame() {
 document.title = COMPANY ? `${COMPANY} · Oficina virtual` : 'Oficina virtual';
 $('#company').textContent = COMPANY;
 $('#place').textContent = [C0.place, CITY_NAME].filter(Boolean).join(', ');
+mountSettings(choice, { panel: $('#settings'), button: $('#b-config') });
 if (C0.wordmarkOnDark || C0.wordmark) { const img = $('#logo'); img.src = cfg.base + (C0.wordmarkOnDark || C0.wordmark); img.alt = COMPANY; img.hidden = false; $('#company').hidden = true; }
 if (C0.logo) { const icon = Object.assign(document.createElement('link'), { rel: 'icon', href: cfg.base + C0.logo }); document.head.append(icon); }
 

@@ -10,6 +10,6 @@
     "claudemaxxing": "bin/claudemaxxing.js"
   },
   "scripts": {
-    "test": "node --test whip/test/rules.test.mjs peek/test/paths.test.mjs office/test/team.test.mjs && node harness/test.js && powershell -NoProfile -ExecutionPolicy Bypass -File test/run-tests.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File voice/test/run-tests.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File test/render-hub.ps1"
+    "test": "node --test whip/test/rules.test.mjs peek/test/paths.test.mjs \"office/test/*.test.mjs\" && node harness/test.js && powershell -NoProfile -ExecutionPolicy Bypass -File test/run-tests.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File voice/test/run-tests.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File test/render-hub.ps1"
   }
 }

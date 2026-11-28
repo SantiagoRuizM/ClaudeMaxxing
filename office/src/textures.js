@@ -41,8 +41,8 @@ const FACADES = {
 export const FACADE_STYLES = Object.keys(FACADES);
 
 // 8x8 window grid per texture; UVs on buildings are scaled so one cell = 4 m bay x 3.6 m floor.
-export function facade(style, seed) {
-  const S = FACADES[style];
+export function facade(style, seed, colors) {
+  const S = { ...FACADES[style], ...colors };
   const N = 8, C = 64;
   const rects = [];
   const map = canvasTex(512, 512, (g) => {
@@ -85,10 +85,10 @@ export function facade(style, seed) {
   return { map, lit, rough };
 }
 
-export function planks() {
+export function planks(colors = ['#B58C61', '#C9A77D']) {
   return canvasTex(512, 512, (g) => {
     const r = rng(7);
-    const tones = [new THREE.Color('#B58C61'), new THREE.Color('#C9A77D')];
+    const tones = colors.map((x) => new THREE.Color(x));
     for (let y = 0; y < 512; y += 16) {
       let x = -r() * 200;
       while (x < 512) {
@@ -103,6 +103,37 @@ export function planks() {
     for (let k = 0; k < 1400; k++) {
       g.fillStyle = `rgba(120,80,40,${r() * 0.07})`;
       g.fillRect(r() * 512, r() * 512, 20 + r() * 70, 1);
+    }
+  });
+}
+
+// Polished concrete: soft clouds of tone, a few hairline cracks and saw-cut joints.
+export function concreteFloor(color = '#8E8B86') {
+  return canvasTex(512, 512, (g) => {
+    const r = rng(11);
+    g.fillStyle = color; g.fillRect(0, 0, 512, 512);
+    for (let k = 0; k < 260; k++) {
+      const x = r() * 512, y = r() * 512, rad = 20 + r() * 90;
+      const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+      grd.addColorStop(0, `rgba(${r() < 0.5 ? '0,0,0' : '255,255,255'},${r() * 0.07})`); grd.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grd; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }
+    g.strokeStyle = 'rgba(0,0,0,.12)'; g.lineWidth = 1;
+    for (let k = 0; k < 5; k++) { g.beginPath(); let x = r() * 512, y = r() * 512; g.moveTo(x, y); for (let s = 0; s < 8; s++) { x += (r() - 0.5) * 60; y += (r() - 0.5) * 60; g.lineTo(x, y); } g.stroke(); }
+    g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, 0, 512, 2); g.fillRect(0, 0, 2, 512);
+  });
+}
+
+// Exposed brick, running bond: one texture tile is 1 m x 1 m (office.js scales the wall UVs to meters).
+export function brickWall(color = '#A65E46') {
+  return canvasTex(256, 256, (g) => {
+    const r = rng(5);
+    const base = new THREE.Color(color);
+    g.fillStyle = '#B9AFA2'; g.fillRect(0, 0, 256, 256); // mortar
+    const bh = 256 / 15, bw = 256 / 4.5;
+    for (let row = 0; row < 15; row++) for (let x = (row % 2) * -bw / 2; x < 256; x += bw) {
+      g.fillStyle = `#${base.clone().multiplyScalar(0.82 + r() * 0.3).getHexString()}`;
+      g.fillRect(x + 1.5, row * bh + 1.5, bw - 3, bh - 3);
     }
   });
 }

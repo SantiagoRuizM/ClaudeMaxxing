@@ -89,12 +89,31 @@
     body.ready .loading { opacity: 0; pointer-events: none; }
     @media (prefers-reduced-motion: reduce) { .loading i { animation: none; } }
 
+    /* settings: background city and interior style */
+    #settings { top: calc(16px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); z-index: 6; width: min(420px, calc(100vw - 32px));
+      max-height: calc(100vh - 120px); overflow: auto; padding: 18px; display: grid; gap: 8px; align-content: start; }
+    #settings[hidden] { display: none; }
+    #settings h2 { margin: 0 28px 2px 0; font-size: 18px; }
+    #settings h3 { margin: 10px 0 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    #settings h4 { margin: 4px 0 6px; font-size: 12px; font-weight: 600; color: var(--ink); }
+    #settings .close { all: unset; cursor: pointer; position: absolute; top: 10px; right: 12px; font-size: 20px; color: var(--muted); padding: 2px 6px; }
+    #settings .note { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { all: unset; cursor: pointer; display: grid; gap: 2px; padding: 8px 11px; border-radius: 10px; background: rgba(255,255,255,.06);
+      border: 1px solid var(--line); font: 600 13px/1.1 var(--font); color: var(--ink); }
+    .chip span { font-size: 11px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .chip:hover { background: rgba(255,255,255,.12); }
+    .chip[aria-pressed="true"] { background: rgba(47, 147, 214, .3); border-color: var(--blue); }
+    .chip:focus-visible, #settings .close:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
     @media (max-width: 860px) {
+      #settings { top: auto; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); max-height: 60vh; }
       .stats { top: auto; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); left: 50%; right: auto; transform: translateX(-50%); grid-template-columns: repeat(5, auto); }
       .stat { min-width: 0; padding: 4px 6px; } .stat b { font-size: 16px; } .stat span { font-size: 10px; }
       .hint { display: none; }
       #panel { top: auto; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); max-height: 50vh; overflow: auto; }
       .brand { padding: 10px 14px; } #mood { display: none; }
+      .controls { max-width: calc(100vw - 32px); overflow-x: auto; }
       .controls button { padding: 9px 10px; font-size: 12px; }
     }
     body.shot .hint, body.shot .loading { display: none; }
@@ -129,6 +148,8 @@
     <p id="p-src"></p>
   </aside>
 
+  <aside class="hud" id="settings" aria-label="Configurar la oficina" hidden></aside>
+
   <div class="hint">Arrastra para girar · Rueda para acercar · Toca a alguien para ver qué hace</div>
   <nav class="hud controls" aria-label="Vista">
     <button id="b-home" type="button">Oficina</button>
@@ -136,6 +157,7 @@
     <button id="b-time" type="button">Hora real</button>
     <button id="b-labels" type="button" aria-pressed="true">Etiquetas</button>
     <button id="b-full" type="button">Pantalla completa</button>
+    <button id="b-config" type="button" aria-expanded="false" aria-controls="settings">Configurar</button>
   </nav>
 
   <script>if (location.search.includes('shot')) document.body.classList.add('shot');</script>

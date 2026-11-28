@@ -43,9 +43,9 @@ jobs:
         shell: cmd
         run: node --test peek\test\paths.test.mjs
 
-      - name: Virtual office team layout
+      - name: Virtual office (team layout, city and style presets, every scene built in node)
         shell: cmd
-        run: node --test office\test\team.test.mjs
+        run: node --test office/test/*.test.mjs
 
       - name: Menu DLL and stub build from source
         shell: cmd
