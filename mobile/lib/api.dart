@@ -149,7 +149,10 @@ class Api {
     return _send(pc.pin, host, pc.port, method, path, query: query, body: body, rawBody: rawBody, token: pc.token);
   }
 
-  Future<Map<String, dynamic>> state() async => (await call('GET', '/state')) as Map<String, dynamic>;
+  /// With refresh (pull to refresh) the PC also asks Anthropic for the plan now.
+  Future<Map<String, dynamic>> state({bool refresh = false}) async =>
+      (await call('GET', '/state', query: refresh ? {'refresh': '1'} : null)) as Map<String, dynamic>;
+  Future<void> close(String session) => call('POST', '/close', body: {'session': session});
   Future<Map<String, dynamic>> section(String id) async => (await call('GET', '/section', query: {'id': id})) as Map<String, dynamic>;
   Future<Map<String, dynamic>> action(String section, String id, int? arg) async =>
       (await call('POST', '/action', body: {'section': section, 'id': id, 'arg': arg})) as Map<String, dynamic>;

@@ -31,7 +31,7 @@ class FakeApi extends Api {
   }
 
   @override
-  Future<Map<String, dynamic>> state() async => {
+  Future<Map<String, dynamic>> state({bool refresh = false}) async => {
         'sessions': [
           {'id': 's', 'state': sessionState}
         ]

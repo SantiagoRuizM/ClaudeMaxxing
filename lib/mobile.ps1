@@ -310,7 +310,8 @@ function Invoke-MobileRequest($Request) {
     switch ($route) {
         'GET /eggs'     { return Get-MobileEggsAnswer ([string]$query['color']) ([string]$query['symbol']) }
         'POST /upload'  { return Save-MobileUpload ([string]$query['session']) ([string]$query['name']) ([string]$query['caption']) $Request.BodyBytes }
-        'GET /state'    { return New-MobileAnswer 200 (Get-MobilePanelState) }
+        'GET /state'    { if ($query['refresh'] -eq '1') { Request-MobileRefresh }; return New-MobileAnswer 200 (Get-MobilePanelState) }
+        'POST /close'   { return Close-MobileSession ([string]$body.session) }
         'GET /section'  { return New-MobileAnswer 200 (Get-MobileSection ([string]$query['id'])) }
         'POST /action'  { return Invoke-MobileAction ([string]$body.section) ([string]$body.id) $body.arg }
         'GET /messages' {
@@ -536,6 +537,41 @@ function Get-MobilePanelState {
     $script:MobileSection = 'code'
     $state.newSession = Get-MobileNewSessionItem
     $state
+}
+
+# The phone's pull to refresh: the hub read again and the plan asked to Anthropic now, 30 s apart at most. The plan's
+# answer comes in the background, so the next poll shows it.
+function Request-MobileRefresh {
+    $script:Mobile.CacheAt = [datetime]::MinValue
+    if ((Get-Command Start-UsageRefresh -ErrorAction SilentlyContinue) -and ((Get-Date) - $script:LastRefreshAt).TotalSeconds -ge 30) { Start-UsageRefresh }
+}
+
+# A session's terminal closed as its X would (WM_CLOSE): Claude Code ends and the dead window drops off sessions.json.
+function Close-MobileWindow([long]$Hwnd) {
+    if (-not ($Hwnd -ne 0 -and [ClaudeTray.Native]::IsWindow([IntPtr]$Hwnd))) { return $false }
+    Initialize-SessionWindowApi
+    [ClaudeTray.SessionWindow]::PostMessage([IntPtr]$Hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+}
+
+function Close-MobileSession([string]$SessionId) {
+    $record = @(Read-JsonFile $SessionsFile | Where-Object { $_ -and $_.sessionId -and (Get-MobileCurrentSessionId ([string]$_.sessionId)) -eq $SessionId })[0]
+    if (-not $record -or -not (Close-MobileWindow ([long]$record.hwnd))) { return New-MobileAnswer 404 @{ error = 'unknown session' } }
+    Write-MobileLog "closed session $SessionId"
+    New-MobileAnswer 200 @{ ok = $true }
+}
+
+# Every session open from the menu; how many were asked to close.
+function Close-MobileSessions {
+    @(Read-JsonFile $SessionsFile | Where-Object { $_ -and (Close-MobileWindow ([long]$_.hwnd)) }).Count
+}
+
+# Another Claude account on this PC (the phone stays paired: pairing is not the account). The sessions close, as they
+# run on the old login, and a console on the PC logs out and runs claude auth login, which opens the browser there.
+function Start-MobileAccountSwitch {
+    [void](Close-MobileSessions)
+    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\cmd.exe') -ArgumentList '/k claude auth logout & claude auth login' -WorkingDirectory $HOME
+    Write-MobileLog 'account switch: claude auth login on the PC'
+    Set-HubMessage (Tx 'En el PC se abri\u00f3 el navegador: inicia sesi\u00f3n ah\u00ed con la otra cuenta.')
 }
 
 # ---------------------------------------------------------------- sessions: transcript and prompt
@@ -1069,6 +1105,16 @@ function Get-MobilePowerItems {
         MText (Tx 'Cierra todo, tambi\u00e9n las sesiones de Claude Code, y apaga el PC un minuto despu\u00e9s: hasta entonces puedes cancelarlo.') 'muted'
         MButton 'shutdown' (L 'Apagar el PC') { Start-MobileShutdown } -OnPc -Confirm ((Tx '\u00bfApagar {0}? Se cierra todo lo abierto, tambi\u00e9n las sesiones de Claude Code.') -f $env:COMPUTERNAME)
     }
+    $live = @(Get-MobileSessions).Count
+    if ($live) {
+        MCaption 'SESIONES'
+        MButton 'close-all' ((L 'Cerrar todas las sesiones ({0})') -f $live) { Set-HubMessage ((L 'Cerrando {0} sesiones.') -f (Close-MobileSessions)) } -Confirm (Tx '\u00bfCerrar todas las sesiones de Claude Code abiertas desde el men\u00fa?')
+    }
+    MCaption 'CUENTA DE CLAUDE'
+    $account = $script:Hub.Cache.Account
+    if ($account) { MRow $account.title $account.detail } else { MText (Tx 'Claude Code no tiene una sesi\u00f3n iniciada.') 'warn' }
+    MText (Tx 'Cierra las sesiones y la cuenta de Claude Code en el PC y abre ah\u00ed el inicio de sesi\u00f3n en el navegador. El celular sigue conectado.') 'muted'
+    MButton 'account-switch' (L 'Cambiar de cuenta') { Start-MobileAccountSwitch } -OnPc -Confirm (Tx '\u00bfCerrar la cuenta de Claude Code en el PC? Se cierran todas las sesiones y hay que iniciar sesi\u00f3n otra vez en el PC.')
 }
 
 # A black window on every screen, the backlight at its lowest (laptops: WMI; other monitors only get the black) and

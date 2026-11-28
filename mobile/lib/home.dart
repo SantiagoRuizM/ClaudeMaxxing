@@ -72,10 +72,10 @@ class _HomePagerState extends State<HomePager> {
     super.dispose();
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool force = false}) async {
     final api = _api;
     try {
-      final state = await api.state();
+      final state = await api.state(refresh: force);
       if (!mounted || api != _api) return;
       final before = _sessions.map((s) => '${s['id']}').toList();
       final after = (state['sessions'] as List? ?? []).map((s) => '${(s as Map)['id']}').toList();
@@ -161,7 +161,8 @@ class _HomePagerState extends State<HomePager> {
                   itemCount: 1 + sessions.length,
                   onPageChanged: (p) => setState(() => _page = p),
                   itemBuilder: (context, i) => i == 0
-                      ? PanelPage(api: _api, state: _state!, onOpenSession: (k) => _pages.animateToPage(k + 1, duration: const Duration(milliseconds: 250), curve: Curves.easeOut))
+                      ? PanelPage(api: _api, state: _state!, onRefresh: () => _refresh(force: true),
+                          onOpenSession: (k) => _pages.animateToPage(k + 1, duration: const Duration(milliseconds: 250), curve: Curves.easeOut))
                       : SessionPage(key: ValueKey((_api.pc.pin, sessions[i - 1]['id'])), api: _api, session: sessions[i - 1], active: _page == i),
                 ),
         ),
@@ -217,11 +218,12 @@ String stateLabel(String state) => state == 'thinking' ? S.thinking : state == '
 
 /// The panel: the plan, the open sessions and the sections of ClaudeMaxxing's side menu.
 class PanelPage extends StatelessWidget {
-  const PanelPage({super.key, required this.api, required this.state, required this.onOpenSession});
+  const PanelPage({super.key, required this.api, required this.state, required this.onOpenSession, required this.onRefresh});
 
   final Api api;
   final Map<String, dynamic> state;
   final ValueChanged<int> onOpenSession;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +234,7 @@ class PanelPage extends StatelessWidget {
     Map<String, dynamic> meter(String label, dynamic w) =>
         {'t': 'meter', 'label': label, 'percent': w == null ? null : w['percent'], 'sub': w == null ? '' : w['reset']};
     final newSession = state['newSession'] as Map<String, dynamic>?;
-    return ListView(children: [
+    return RefreshIndicator(onRefresh: onRefresh, child: ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
       if (newSession != null) NewSessionButton(api: api, item: newSession),
       if (account != null)
         ListTile(
@@ -270,7 +272,7 @@ class PanelPage extends StatelessWidget {
           )),
         ),
       const SizedBox(height: 24),
-    ]);
+    ]));
   }
 }
 
@@ -530,6 +532,26 @@ class _SessionPageState extends State<SessionPage> with AutomaticKeepAliveClient
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // The PC closes the session's terminal; the next poll drops this page.
+  Future<void> _close() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Text(S.closeSessionAsk('${widget.session['name']}')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(S.cancel)),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(S.yes)),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    try {
+      await widget.api.close(_id);
+    } on ApiError catch (e) {
+      _showMessage(e.message);
+    }
+  }
+
   Future<void> _attach() async {
     setState(() => _attaching = true);
     try {
@@ -746,6 +768,12 @@ class _SessionPageState extends State<SessionPage> with AutomaticKeepAliveClient
             visualDensity: VisualDensity.compact,
             onPressed: () => showChatStyleSheet(context, color),
             icon: const Icon(Icons.palette_outlined),
+          ),
+          IconButton(
+            tooltip: S.closeSession,
+            visualDensity: VisualDensity.compact,
+            onPressed: _close,
+            icon: const Icon(Icons.close),
           ),
         ]),
       ),
