@@ -5,3 +5,5 @@
 *.png binary
 # bash reads a CR as part of the command: shell scripts stay LF on every checkout.
 *.sh text eol=lf
+# The virtual office is downloaded on demand (docs/virtual-office.md): not in ClaudeMaxxing-<v>.zip.
+office/** export-ignore
