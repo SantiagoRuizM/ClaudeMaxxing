@@ -225,6 +225,18 @@ class PanelPage extends StatelessWidget {
   final ValueChanged<int> onOpenSession;
   final Future<void> Function() onRefresh;
 
+  Future<void> _endAction(BuildContext context, String id, int? arg) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final answer = await api.action('power', id, arg);
+      final message = '${answer['message'] ?? ''}';
+      if (message.isNotEmpty) messenger.showSnackBar(SnackBar(content: Text(message)));
+    } on ApiError catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+    await onRefresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     final plan = state['plan'] as Map<String, dynamic>? ?? {};
@@ -234,6 +246,7 @@ class PanelPage extends StatelessWidget {
     Map<String, dynamic> meter(String label, dynamic w) =>
         {'t': 'meter', 'label': label, 'percent': w == null ? null : w['percent'], 'sub': w == null ? '' : w['reset']};
     final newSession = state['newSession'] as Map<String, dynamic>?;
+    final endItems = (state['endItems'] as List? ?? []).cast<Map<String, dynamic>>();
     return RefreshIndicator(onRefresh: onRefresh, child: ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
       if (newSession != null) NewSessionButton(api: api, item: newSession),
       if (account != null)
@@ -271,6 +284,11 @@ class PanelPage extends StatelessWidget {
             builder: (_) => SectionScreen(api: api, id: '${s['id']}', title: '${s['label']}'),
           )),
         ),
+      // Last and in red: close every session, sign Claude out on the PC (registered under power, lib\mobile.ps1).
+      if (endItems.isNotEmpty) ...[
+        const Divider(height: 24),
+        ItemsView(items: endItems, onAction: (id, arg) => _endAction(context, id, arg)),
+      ],
       const SizedBox(height: 24),
     ]));
   }

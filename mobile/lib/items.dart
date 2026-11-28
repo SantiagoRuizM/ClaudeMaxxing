@@ -130,8 +130,14 @@ class ItemsView extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Align(
             alignment: Alignment.centerLeft,
-            child: item['accent'] == true
-                ? FilledButton.icon(onPressed: enabled ? () => _run(context, item, null) : null, icon: icon, label: label)
+            child: item['accent'] == true || item['danger'] == true
+                ? FilledButton.icon(
+                    style: item['danger'] == true
+                        ? FilledButton.styleFrom(backgroundColor: theme.colorScheme.error, foregroundColor: theme.colorScheme.onError)
+                        : null,
+                    onPressed: enabled ? () => _run(context, item, null) : null,
+                    icon: icon,
+                    label: label)
                 : OutlinedButton.icon(onPressed: enabled ? () => _run(context, item, null) : null, icon: icon, label: label),
           ),
         );

@@ -2010,6 +2010,11 @@ try {
 # --- Celular (the phone app's server, lib\mobile.ps1 and lib\mobile.cs)
 Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $TrayRoot 'lib\mobile.cs'))) -ReferencedAssemblies System.Core
 . (Join-Path $TrayRoot 'lib\mobile.ps1')
+# mobile.ps1 runs inside the tray, next to lib\hub.ps1: its functions, without running the window's setup.
+$hubAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $TrayRoot 'lib\hub.ps1'), [ref]$null, [ref]$null)
+foreach ($f in $hubAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and -not (Get-Command $_.Name -CommandType Function -ErrorAction SilentlyContinue) }) {
+    . ([scriptblock]::Create($f.Extent.Text))
+}
 $mobileRoot = Join-Path ([IO.Path]::GetTempPath()) ('cmx-mobile-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $mobileRoot | Out-Null
 $MobileHome = $mobileRoot
@@ -2042,11 +2047,6 @@ try {
     Assert-Equal 'none' (Test-MobilePairCode $null 'x' $now) 'mobile: no pairing open refuses every code'
     Assert-Equal 'wrong' (Test-MobilePairCode $pairing 'nope' $now) 'mobile: a wrong code is refused'
     Assert-Equal 'ok' (Test-MobilePairCode $pairing $pairing.Code $now) 'mobile: the right code pairs'
-# mobile.ps1 runs inside the tray, next to lib\hub.ps1: its functions, without running the window's setup.
-$hubAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $TrayRoot 'lib\hub.ps1'), [ref]$null, [ref]$null)
-foreach ($f in $hubAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and -not (Get-Command $_.Name -CommandType Function -ErrorAction SilentlyContinue) }) {
-    . ([scriptblock]::Create($f.Extent.Text))
-}
     Assert-Equal 'wrong' (Test-MobilePairCode $pairing $pairing.Code.ToUpper() $now) 'mobile: the code is case-sensitive'
     Assert-Equal 'expired' (Test-MobilePairCode $pairing $pairing.Code $now.AddMinutes(6)) 'mobile: the code expires after 5 minutes'
     $tries = New-MobilePairing $now
@@ -2139,10 +2139,18 @@ foreach ($f in $hubAst.EndBlock.Statements | Where-Object { $_ -is [System.Manag
     $shut = @(Get-MobilePowerItems | Where-Object { $_.t -eq 'button' -and $_.id -eq 'shutdown' })[0]
     Assert-Equal $true ($shut.confirm -like "*$env:COMPUTERNAME*") 'mobile: shutting down the PC asks first on the phone'
     $script:Mobile.ShutdownAt = (Get-Date).AddSeconds(30)
-    $savedSessions = ${function:Get-MobileSessions}
-    function Get-MobileSessions { }
-    Assert-Equal 'dark-on,shutdown-cancel,account-switch' (@(Get-MobilePowerItems | Where-Object { $_.t -eq 'button' } | ForEach-Object { $_.id }) -join ',') 'mobile: a pending shutdown offers its cancel'
+    Assert-Equal 'dark-on,shutdown-cancel' (@(Get-MobilePowerItems | Where-Object { $_.t -eq 'button' } | ForEach-Object { $_.id }) -join ',') 'mobile: a pending shutdown offers its cancel'
     $script:Mobile.ShutdownAt = $null
+
+    # the end of the panel, in red: close every session (only with some open) and sign Claude out, both asking first
+    Assert-Equal 'account-switch' (@(Get-MobileEndItems 0 | ForEach-Object { $_.id }) -join ',') 'mobile: no session open, only signing out at the end of the panel'
+    $end = @(Get-MobileEndItems 2)
+    Assert-Equal 'close-all,account-switch' (@($end | ForEach-Object { $_.id }) -join ',') 'mobile: closing every session, then signing out'
+    Assert-Equal $true ($end[0].label -like '*(2)*' -and @($end | Where-Object { $_.danger -and $_.confirm }).Count -eq 2) 'mobile: both are red, ask first, and the close counts the sessions'
+    $savedCurrent = ${function:Get-MobileCurrentSessionId}
+    function Get-MobileCurrentSessionId([string]$Id) { $Id }
+    Assert-Equal 404 (Close-MobileSession '00000000-0000-0000-0000-000000000000').Status 'mobile: closing a session not open answers 404'
+    ${function:Get-MobileCurrentSessionId} = $savedCurrent
 
     # the transcript: complete lines only, read again from the returned offset
     $transcript = Join-Path $mobileRoot 't.jsonl'
@@ -2188,15 +2196,6 @@ foreach ($f in $hubAst.EndBlock.Statements | Where-Object { $_ -is [System.Manag
     # uploads: a safe name on disk, the caption and the attachment line, refused without the session's inbox
     Assert-Equal 'foto_de_hoy.jpg' (Get-MobileSafeName 'C:\x\..\foto de hoy.jpg') 'mobile: an upload keeps only a safe file name'
     Assert-Equal 'file' (Get-MobileSafeName '...') 'mobile: a name of dots becomes file'
-    function Get-MobileSessions { @{ id = 'a' }; @{ id = 'b' } }
-    $all = @(Get-MobilePowerItems | Where-Object { $_.id -eq 'close-all' })[0]
-    Assert-Equal $true ($all.label -like '*(2)*' -and $all.confirm) 'mobile: closing every session counts them and asks first'
-    ${function:Get-MobileSessions} = $savedSessions
-    Assert-Equal $true ([bool](@(Get-MobilePowerItems | Where-Object { $_.id -eq 'account-switch' })[0].confirm)) 'mobile: switching the Claude account asks first'
-    $savedCurrent = ${function:Get-MobileCurrentSessionId}
-    function Get-MobileCurrentSessionId([string]$Id) { $Id }
-    Assert-Equal 404 (Close-MobileSession '00000000-0000-0000-0000-000000000000').Status 'mobile: closing a session not open answers 404'
-    ${function:Get-MobileCurrentSessionId} = $savedCurrent
     Assert-Equal 80 ((Get-MobileSafeName (('a' * 100) + '.pdf')).Length) 'mobile: a long name is cut to 80, keeping its extension'
     Assert-Equal "mira esto`n[phone attachment] C:\u\f.png" (Format-MobileUploadText ' mira esto ' 'C:\u\f.png') 'mobile: the upload message is the caption and the attachment'
     Assert-Equal '[phone attachment] C:\u\f.png' (Format-MobileUploadText '' 'C:\u\f.png') 'mobile: an upload without caption'

@@ -536,6 +536,8 @@ function Get-MobilePanelState {
     $state = Get-MobileState
     $script:MobileSection = 'code'
     $state.newSession = Get-MobileNewSessionItem
+    $script:MobileSection = 'power'
+    $state.endItems = @(Get-MobileEndItems (@($state.sessions).Count))
     $state
 }
 
@@ -768,8 +770,8 @@ function MMeter([string]$Label, $Window) {
 function MSwitch([string]$Id, [string]$Label, [string]$Sub, [bool]$On, [scriptblock]$Action, [bool]$Enabled = $true, [string]$Confirm = '') {
     [ordered]@{ t = 'switch'; id = (Register-MobileAction $Id $Action); label = (L $Label); sub = (L $Sub); on = $On; enabled = $Enabled; confirm = $Confirm }
 }
-function MButton([string]$Id, [string]$Label, [scriptblock]$Action, [switch]$Accent, [switch]$OnPc, [string]$Confirm = '') {
-    [ordered]@{ t = 'button'; id = (Register-MobileAction $Id $Action); label = (L $Label); accent = [bool]$Accent; pc = [bool]$OnPc; confirm = $Confirm }
+function MButton([string]$Id, [string]$Label, [scriptblock]$Action, [switch]$Accent, [switch]$OnPc, [switch]$Danger, [string]$Confirm = '') {
+    [ordered]@{ t = 'button'; id = (Register-MobileAction $Id $Action); label = (L $Label); accent = [bool]$Accent; pc = [bool]$OnPc; danger = [bool]$Danger; confirm = $Confirm }
 }
 # A dropdown of the hub: $Command takes a step (-1, +1...), as Draw-HubDropdown calls it; the app sends the step.
 function MChoice([string]$Id, [string]$Label, $Options, [string]$Current, [string]$Command, [bool]$Enabled = $true) {
@@ -787,7 +789,7 @@ function Get-MobileSection([string]$Id) {
     $title = if ($Id -eq 'power') { L $MobilePowerLabel } else { L (@($script:HubSections | Where-Object { $_.Id -eq $Id })[0]).Label }
     $items = try {
         switch ($Id) {
-            'power'    { Get-MobilePowerItems }
+            'power'    { Get-MobilePowerItems; [void]@(Get-MobileEndItems) }
             'home'     { Get-MobileHomeItems }
             'business' { Get-MobileBusinessItems }
             'plan'     { Get-MobilePlanItems }
@@ -1105,16 +1107,14 @@ function Get-MobilePowerItems {
         MText (Tx 'Cierra todo, tambi\u00e9n las sesiones de Claude Code, y apaga el PC un minuto despu\u00e9s: hasta entonces puedes cancelarlo.') 'muted'
         MButton 'shutdown' (L 'Apagar el PC') { Start-MobileShutdown } -OnPc -Confirm ((Tx '\u00bfApagar {0}? Se cierra todo lo abierto, tambi\u00e9n las sesiones de Claude Code.') -f $env:COMPUTERNAME)
     }
-    $live = @(Get-MobileSessions).Count
-    if ($live) {
-        MCaption 'SESIONES'
-        MButton 'close-all' ((L 'Cerrar todas las sesiones ({0})') -f $live) { Set-HubMessage ((L 'Cerrando {0} sesiones.') -f (Close-MobileSessions)) } -Confirm (Tx '\u00bfCerrar todas las sesiones de Claude Code abiertas desde el men\u00fa?')
-    }
-    MCaption 'CUENTA DE CLAUDE'
-    $account = $script:Hub.Cache.Account
-    if ($account) { MRow $account.title $account.detail } else { MText (Tx 'Claude Code no tiene una sesi\u00f3n iniciada.') 'warn' }
-    MText (Tx 'Cierra las sesiones y la cuenta de Claude Code en el PC y abre ah\u00ed el inicio de sesi\u00f3n en el navegador. El celular sigue conectado.') 'muted'
-    MButton 'account-switch' (L 'Cambiar de cuenta') { Start-MobileAccountSwitch } -OnPc -Confirm (Tx '\u00bfCerrar la cuenta de Claude Code en el PC? Se cierran todas las sesiones y hay que iniciar sesi\u00f3n otra vez en el PC.')
+}
+
+# The end of the panel, in red: every session closed, or Claude Code signed out on the PC. Registered under power, so
+# after a tray restart describing that section finds them again.
+function Get-MobileEndItems([int]$Live = -1) {
+    if ($Live -lt 0) { $Live = @(Get-MobileSessions).Count }
+    if ($Live) { MButton 'close-all' ((L 'Cerrar todas las sesiones ({0})') -f $Live) { Set-HubMessage ((L 'Cerrando {0} sesiones.') -f (Close-MobileSessions)) } -Danger -Confirm (Tx '\u00bfCerrar todas las sesiones de Claude Code abiertas desde el men\u00fa?') }
+    MButton 'account-switch' (Tx 'Cerrar sesi\u00f3n de Claude') { Start-MobileAccountSwitch } -OnPc -Danger -Confirm (Tx '\u00bfCerrar la cuenta de Claude Code en el PC? Se cierran todas las sesiones y hay que iniciar sesi\u00f3n otra vez en el PC.')
 }
 
 # A black window on every screen, the backlight at its lowest (laptops: WMI; other monitors only get the black) and
